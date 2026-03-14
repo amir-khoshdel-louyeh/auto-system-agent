@@ -1,0 +1,17 @@
+{
+  "vlc": {
+    "linux": "vlc",
+    "macos": "vlc",
+    "windows": "VideoLAN.VLC"
+  },
+  "firefox": {
+    "linux": "firefox",
+    "macos": "firefox",
+    "windows": "Mozilla.Firefox"
+  },
+  "google chrome": {
+    "linux": "google-chrome-stable",
+    "macos": "google-chrome",
+    "windows": "Google.Chrome"
+  }
+}
