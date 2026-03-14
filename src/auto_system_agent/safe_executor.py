@@ -37,4 +37,13 @@ class SafeExecutor:
         if tool_key == "run_command":
             return run_command(task.target or "")
 
+        if tool_key == "help":
+            return ExecutionResult(
+                success=True,
+                message=(
+                    "Try commands like: install vlc, create folder demo, compress demo, "
+                    "list files in ., run pwd, or direct shell commands like ls -la."
+                ),
+            )
+
         return ExecutionResult(success=False, message="Could not map request to a supported tool.")

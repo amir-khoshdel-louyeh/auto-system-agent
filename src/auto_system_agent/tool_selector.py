@@ -10,6 +10,7 @@ class ToolSelector:
         "compress",
         "list_files",
         "run_command",
+        "help",
     }
 
     def select(self, task: PlannedTask) -> str:
