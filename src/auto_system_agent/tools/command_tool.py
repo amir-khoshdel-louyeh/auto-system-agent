@@ -1,5 +1,6 @@
 import shlex
 import subprocess
+from pathlib import Path
 
 from auto_system_agent.models import ExecutionResult
 
@@ -13,12 +14,21 @@ BLOCKED_TOKENS = {
     "poweroff",
 }
 
+BLOCKED_SEPARATORS = {"&&", "||", ";", "|"}
+
 
 def run_command(command_text: str) -> ExecutionResult:
     if not command_text.strip():
         return ExecutionResult(success=False, message="No command provided.")
 
     parts = shlex.split(command_text)
+    if any(token in BLOCKED_SEPARATORS for token in parts):
+        return ExecutionResult(success=False, message="Command chaining is blocked by safety policy.")
+
+    executable_name = Path(parts[0]).name
+    if executable_name in BLOCKED_TOKENS:
+        return ExecutionResult(success=False, message="Command blocked by safety policy.")
+
     if any(token in BLOCKED_TOKENS for token in parts):
         return ExecutionResult(success=False, message="Command blocked by safety policy.")
 
