@@ -16,7 +16,7 @@ DIRECT_COMMAND_PREFIXES = {
     "ps",
 }
 
-HELP_WORDS = {"help", "hello", "hi", "hey"}
+HELP_WORDS = {"help"}
 
 
 INSTALL_PATTERNS = (
