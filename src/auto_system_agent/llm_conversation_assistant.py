@@ -8,11 +8,12 @@ from urllib import error, request
 class LLMConversationAssistant:
     """Handles conversational replies and optional tool extraction."""
 
-    def __init__(self) -> None:
-        self._url = os.getenv("AUTO_AGENT_LLM_URL", "").strip()
-        self._api_key = os.getenv("AUTO_AGENT_LLM_API_KEY", "").strip()
-        self._model = os.getenv("AUTO_AGENT_LLM_MODEL", "gpt-4o-mini").strip()
-        timeout_value = os.getenv("AUTO_AGENT_LLM_TIMEOUT", "8").strip()
+    def __init__(self, config: dict | None = None) -> None:
+        config = config or {}
+        self._url = str(config.get("url") or os.getenv("AUTO_AGENT_LLM_URL", "")).strip()
+        self._api_key = str(config.get("api_key") or os.getenv("AUTO_AGENT_LLM_API_KEY", "")).strip()
+        self._model = str(config.get("model") or os.getenv("AUTO_AGENT_LLM_MODEL", "gpt-4o-mini")).strip()
+        timeout_value = str(config.get("timeout") or os.getenv("AUTO_AGENT_LLM_TIMEOUT", "8")).strip()
         self._timeout = float(timeout_value) if timeout_value else 8.0
 
     def is_available(self) -> bool:

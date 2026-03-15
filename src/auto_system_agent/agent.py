@@ -1,4 +1,5 @@
 from auto_system_agent.llm_conversation_assistant import LLMConversationAssistant
+from auto_system_agent.llm_tool_mapper import LLMToolMapper
 from auto_system_agent.models import PlannedTask
 from auto_system_agent.planner import Planner
 from auto_system_agent.result_formatter import ResultFormatter
@@ -16,12 +17,14 @@ class AutoSystemAgent:
         executor: SafeExecutor | None = None,
         formatter: ResultFormatter | None = None,
         assistant: LLMConversationAssistant | None = None,
+        llm_config: dict | None = None,
     ) -> None:
+        llm_mapper = LLMToolMapper(config=llm_config)
         self._planner = planner or Planner()
-        self._selector = selector or ToolSelector()
+        self._selector = selector or ToolSelector(llm_mapper=llm_mapper)
         self._executor = executor or SafeExecutor()
         self._formatter = formatter or ResultFormatter()
-        self._assistant = assistant or LLMConversationAssistant()
+        self._assistant = assistant or LLMConversationAssistant(config=llm_config)
         self._history: list[dict[str, str]] = []
 
     def process(self, user_input: str) -> str:
