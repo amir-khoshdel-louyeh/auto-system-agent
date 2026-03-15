@@ -38,6 +38,19 @@ class Planner:
         if lowered.startswith("compress "):
             return PlannedTask(action="compress", target=text[9:].strip(), raw_input=text)
 
+        if lowered.startswith("move "):
+            match = re.match(r"move\s+(.+?)\s+to\s+(.+)$", text, re.IGNORECASE)
+            if match:
+                return PlannedTask(
+                    action="move_path",
+                    target=match.group(1).strip(),
+                    raw_input=text,
+                    options={"destination": match.group(2).strip()},
+                )
+
+        if lowered.startswith("delete "):
+            return PlannedTask(action="delete_path", target=text[7:].strip(), raw_input=text)
+
         if lowered.startswith("list files"):
             match = re.search(r"in\s+(.+)$", text, re.IGNORECASE)
             target = match.group(1).strip() if match else "."
