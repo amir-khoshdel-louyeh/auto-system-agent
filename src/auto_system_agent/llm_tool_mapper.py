@@ -24,9 +24,10 @@ class LLMToolMapper:
             return None
 
         prompt = (
-            "Map the following user instruction to exactly one action from the allowed list. "
-            "Respond with JSON only, as: {\"action\": \"<allowed_action>\"}. "
-            f"Allowed actions: {sorted(allowed_actions)}. "
+            "Classify whether the user message requests a concrete automation task. "
+            "Respond as strict JSON only: {\"action\": \"<allowed_action_or_none>\"}. "
+            "If the message is general conversation, advice, or Q&A, return action=none. "
+            f"Allowed actions: {sorted(allowed_actions)} and none. "
             f"User instruction: {user_text}"
         )
 
@@ -47,6 +48,8 @@ class LLMToolMapper:
             return None
 
         action = self._extract_action(raw_response)
+        if action == "none":
+            return None
         if action in allowed_actions:
             return action
         return None

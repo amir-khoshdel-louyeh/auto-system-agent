@@ -30,7 +30,9 @@ class LLMConversationAssistant:
 
         prompt = (
             "You are an assistant inside a desktop automation app. "
-            "Return JSON only with one of two shapes:\n"
+            "If the user asks a general question, answer conversationally and helpfully. "
+            "If the user asks to perform a system task, return JSON tool call data. "
+            "Preferred JSON shapes are:\n"
             "1) Chat response: {\"type\": \"chat\", \"response\": \"...\"}\n"
             "2) Tool call: {\"type\": \"tool\", \"action\": \"...\", \"target\": \"...\", "
             "\"destination\": \"...\"}\n"
@@ -55,6 +57,9 @@ class LLMConversationAssistant:
 
         parsed = self._extract_json(raw)
         if not parsed:
+            plain_text = self._extract_text(raw)
+            if plain_text:
+                return {"type": "chat", "response": plain_text}
             return None
 
         item_type = str(parsed.get("type", "")).strip().lower()
@@ -79,6 +84,25 @@ class LLMConversationAssistant:
             }
 
         return None
+
+    def _extract_text(self, response_json: dict) -> str | None:
+        content = (
+            response_json.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
+        if not isinstance(content, str):
+            return None
+
+        text = content.strip()
+        if not text:
+            return None
+
+        # If model returned fenced JSON, let JSON parser handle it instead.
+        if text.startswith("```"):
+            return None
+
+        return text
 
     def _post_json(self, payload: dict) -> Optional[dict]:
         body = json.dumps(payload).encode("utf-8")
