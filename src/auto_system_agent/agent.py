@@ -58,6 +58,11 @@ class AutoSystemAgent:
             self._remember(user_input, reply)
             return reply
 
+        local_reply = self._local_chat_fallback(user_input)
+        if local_reply:
+            self._remember(user_input, local_reply)
+            return local_reply
+
         reply = (
             "I can help with general questions and system tasks. "
             "Ask me about apps, or request actions like install, create folder, "
@@ -71,3 +76,30 @@ class AutoSystemAgent:
         self._history.append({"role": "assistant", "content": assistant_text})
         if len(self._history) > 20:
             self._history = self._history[-20:]
+
+    def _local_chat_fallback(self, user_input: str) -> str | None:
+        lowered = user_input.strip().lower()
+
+        if lowered in {"hi", "hello", "hey"}:
+            return (
+                "Hi. I can chat and help you complete tasks. "
+                "For example, ask for app suggestions or say 'install vlc'."
+            )
+
+        if "how are you" in lowered:
+            return "I'm doing well and ready to help. What would you like to do?"
+
+        if "video player" in lowered:
+            return (
+                "Good options are VLC, MPV, and Kodi. VLC is the easiest all-round choice. "
+                "If you want, say 'install vlc' and I can install it."
+            )
+
+        if "browser" in lowered and "suggest" in lowered:
+            return (
+                "Popular choices are Firefox, Brave, and Chrome. "
+                "For privacy, Firefox is a strong default. "
+                "If you want, say 'install firefox'."
+            )
+
+        return None

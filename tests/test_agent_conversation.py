@@ -53,6 +53,22 @@ class AgentConversationTests(unittest.TestCase):
         response = agent.process("random text")
         self.assertIn("I can help with general questions", response)
 
+    def test_local_fallback_handles_greeting(self):
+        planner = FakePlanner("unknown")
+        assistant = FakeAssistant(None)
+        agent = AutoSystemAgent(planner=planner, assistant=assistant)
+
+        response = agent.process("hi")
+        self.assertIn("I can chat and help you", response)
+
+    def test_local_fallback_handles_video_player_question(self):
+        planner = FakePlanner("unknown")
+        assistant = FakeAssistant(None)
+        agent = AutoSystemAgent(planner=planner, assistant=assistant)
+
+        response = agent.process("i want a video player. what is your suggestion?")
+        self.assertIn("VLC", response)
+
 
 if __name__ == "__main__":
     unittest.main()
