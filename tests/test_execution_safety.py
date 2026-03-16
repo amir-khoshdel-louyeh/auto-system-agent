@@ -1,7 +1,9 @@
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+import zipfile
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
@@ -11,6 +13,7 @@ if str(SRC_DIR) not in sys.path:
 from auto_system_agent.models import ExecutionResult, PlannedTask
 from auto_system_agent.safe_executor import SafeExecutor
 from auto_system_agent.tools.command_tool import run_command
+from auto_system_agent.tools.file_tool import compress_path, create_folder
 
 
 class ExecutionSafetyTests(unittest.TestCase):
@@ -42,6 +45,27 @@ class ExecutionSafetyTests(unittest.TestCase):
 
         self.assertFalse(result.success)
         self.assertIn("Install command not found", result.message)
+
+    def test_compress_path_supports_single_files(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            file_path = Path(temp_dir) / "note.txt"
+            file_path.write_text("hello", encoding="utf-8")
+
+            result = compress_path(str(file_path))
+
+            self.assertTrue(result.success)
+            archive_path = Path(result.message.split(": ", maxsplit=1)[1])
+            self.assertTrue(archive_path.exists())
+
+            with zipfile.ZipFile(archive_path, "r") as zip_obj:
+                self.assertIn("note.txt", zip_obj.namelist())
+
+    def test_create_folder_returns_error_when_mkdir_fails(self):
+        with patch("auto_system_agent.tools.file_tool.Path.mkdir", side_effect=PermissionError("denied")):
+            result = create_folder("demo")
+
+        self.assertFalse(result.success)
+        self.assertIn("Could not create folder", result.message)
 
 
 if __name__ == "__main__":
