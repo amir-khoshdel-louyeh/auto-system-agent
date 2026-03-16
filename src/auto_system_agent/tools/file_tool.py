@@ -5,14 +5,33 @@ import zipfile
 from auto_system_agent.models import ExecutionResult
 
 
-PROTECTED_PATHS = {
+SYSTEM_PROTECTED_ROOTS = {
     Path("/").resolve(),
+    Path("/bin").resolve(),
+    Path("/boot").resolve(),
+    Path("/dev").resolve(),
+    Path("/etc").resolve(),
+    Path("/lib").resolve(),
+    Path("/lib64").resolve(),
+    Path("/proc").resolve(),
+    Path("/run").resolve(),
+    Path("/sbin").resolve(),
+    Path("/sys").resolve(),
+    Path("/usr").resolve(),
+    Path("/var").resolve(),
+}
+
+USER_PROTECTED_PATHS = {
     Path.home().resolve(),
 }
 
 
 def _is_protected(path: Path) -> bool:
-    return path in PROTECTED_PATHS
+    for root in SYSTEM_PROTECTED_ROOTS:
+        if path == root or root in path.parents:
+            return True
+
+    return path in USER_PROTECTED_PATHS
 
 
 def create_folder(path_text: str) -> ExecutionResult:
