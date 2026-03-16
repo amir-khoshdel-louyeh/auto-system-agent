@@ -57,6 +57,22 @@ class AgentChatGUI:
         self.send_button = tk.Button(bottom_frame, text="Send", command=self._on_send)
         self.send_button.pack(side=tk.LEFT, padx=(8, 0))
 
+        self.confirm_button = tk.Button(
+            bottom_frame,
+            text="Confirm",
+            command=self._on_confirm,
+            state=tk.DISABLED,
+        )
+        self.confirm_button.pack(side=tk.LEFT, padx=(8, 0))
+
+        self.cancel_button = tk.Button(
+            bottom_frame,
+            text="Cancel",
+            command=self._on_cancel,
+            state=tk.DISABLED,
+        )
+        self.cancel_button.pack(side=tk.LEFT, padx=(8, 0))
+
         self._append_message("Agent", "Welcome. Type help to see example commands.")
 
     def _append_message(self, speaker: str, message: str) -> None:
@@ -96,6 +112,50 @@ class AgentChatGUI:
         self.entry.configure(state=tk.NORMAL)
         self.send_button.configure(state=tk.NORMAL)
         self.entry.focus_set()
+        self._sync_confirmation_controls()
+
+    def _on_confirm(self) -> None:
+        if not self.agent.has_pending_confirmation():
+            self._sync_confirmation_controls()
+            return
+
+        self._append_message("You", "yes")
+        self._reset_progress_panel()
+
+        self.send_button.configure(state=tk.DISABLED)
+        self.confirm_button.configure(state=tk.DISABLED)
+        self.cancel_button.configure(state=tk.DISABLED)
+        self.entry.configure(state=tk.DISABLED)
+
+        def on_progress(message: str) -> None:
+            self._append_message("Agent", message)
+            self._update_progress_panel(message)
+            self.root.update_idletasks()
+
+        response = self.agent.confirm_pending(progress_callback=on_progress)
+        if response:
+            self._append_message("Agent", response)
+
+        self.entry.configure(state=tk.NORMAL)
+        self.send_button.configure(state=tk.NORMAL)
+        self.entry.focus_set()
+        self._sync_confirmation_controls()
+
+    def _on_cancel(self) -> None:
+        if not self.agent.has_pending_confirmation():
+            self._sync_confirmation_controls()
+            return
+
+        self._append_message("You", "no")
+        response = self.agent.cancel_pending()
+        if response:
+            self._append_message("Agent", response)
+        self._sync_confirmation_controls()
+
+    def _sync_confirmation_controls(self) -> None:
+        has_pending = self.agent.has_pending_confirmation()
+        self.confirm_button.configure(state=tk.NORMAL if has_pending else tk.DISABLED)
+        self.cancel_button.configure(state=tk.NORMAL if has_pending else tk.DISABLED)
 
     def _reset_progress_panel(self) -> None:
         self.progress_list.delete(0, tk.END)
