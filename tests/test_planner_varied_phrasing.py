@@ -84,6 +84,15 @@ class PlannerVariedPhrasingTests(unittest.TestCase):
         task = self.planner.plan("help")
         self.assertEqual(task.action, "help")
 
+    def test_plan_tasks_splits_multi_step_instruction(self) -> None:
+        tasks = self.planner.plan_tasks("create folder demo then list files in demo")
+
+        self.assertEqual(len(tasks), 2)
+        self.assertEqual(tasks[0].action, "create_folder")
+        self.assertEqual(tasks[0].target, "demo")
+        self.assertEqual(tasks[1].action, "list_files")
+        self.assertEqual(tasks[1].target, "demo")
+
 
 if __name__ == "__main__":
     unittest.main()

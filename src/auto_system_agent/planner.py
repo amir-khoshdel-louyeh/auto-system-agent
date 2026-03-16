@@ -56,6 +56,11 @@ RUN_PATTERNS = (
     re.compile(r"^(?:please\s+)?execute\s+(.+)$", re.IGNORECASE),
 )
 
+MULTI_STEP_SPLIT_PATTERN = re.compile(
+    r"\s*(?:,?\s+and then\s+|,?\s+then\s+|;\s*|,\s+(?=(?:install|create|make|compress|zip|archive|move|rename|delete|remove|list|show|run|execute)\b))",
+    re.IGNORECASE,
+)
+
 
 def _extract_first_group(patterns: tuple[re.Pattern[str], ...], text: str) -> str | None:
     for pattern in patterns:
@@ -85,23 +90,41 @@ class Planner:
     """Converts raw user text into a normalized task."""
 
     def plan(self, user_input: str) -> PlannedTask:
+        return self.plan_tasks(user_input)[0]
+
+    def plan_tasks(self, user_input: str) -> list[PlannedTask]:
+        text = user_input.strip()
+        if not text:
+            return [PlannedTask(action="unknown", target="", raw_input="")]
+
+        segments = [segment.strip() for segment in MULTI_STEP_SPLIT_PATTERN.split(text) if segment.strip()]
+        if len(segments) <= 1:
+            return [self._plan_single(text)]
+
+        tasks: list[PlannedTask] = []
+        for segment in segments:
+            tasks.append(self._plan_single(segment, raw_input=text))
+        return tasks
+
+    def _plan_single(self, user_input: str, raw_input: str | None = None) -> PlannedTask:
         text = user_input.strip()
         lowered = text.lower()
+        task_raw_input = raw_input or text
 
         if lowered in HELP_WORDS:
-            return PlannedTask(action="help", raw_input=text)
+            return PlannedTask(action="help", raw_input=task_raw_input)
 
         app_name = _extract_first_group(INSTALL_PATTERNS, text)
         if app_name:
-            return PlannedTask(action="install_app", target=app_name, raw_input=text)
+            return PlannedTask(action="install_app", target=app_name, raw_input=task_raw_input)
 
         folder_name = _extract_first_group(CREATE_FOLDER_PATTERNS, text)
         if folder_name:
-            return PlannedTask(action="create_folder", target=folder_name, raw_input=text)
+            return PlannedTask(action="create_folder", target=folder_name, raw_input=task_raw_input)
 
         compress_target = _extract_first_group(COMPRESS_PATTERNS, text)
         if compress_target:
-            return PlannedTask(action="compress", target=compress_target, raw_input=text)
+            return PlannedTask(action="compress", target=compress_target, raw_input=task_raw_input)
 
         move_values = _extract_two_groups(MOVE_PATTERNS, text)
         if move_values:
@@ -109,26 +132,26 @@ class Planner:
             return PlannedTask(
                 action="move_path",
                 target=source,
-                raw_input=text,
+                raw_input=task_raw_input,
                 options={"destination": destination},
             )
 
         delete_target = _extract_first_group(DELETE_PATTERNS, text)
         if delete_target:
-            return PlannedTask(action="delete_path", target=delete_target, raw_input=text)
+            return PlannedTask(action="delete_path", target=delete_target, raw_input=task_raw_input)
 
         for pattern in LIST_FILES_PATTERNS:
             match = pattern.match(text)
             if match:
                 target = match.group(1).strip() if match.group(1) else "."
-                return PlannedTask(action="list_files", target=target, raw_input=text)
+                return PlannedTask(action="list_files", target=target, raw_input=task_raw_input)
 
         run_target = _extract_first_group(RUN_PATTERNS, text)
         if run_target:
-            return PlannedTask(action="run_command", target=run_target, raw_input=text)
+            return PlannedTask(action="run_command", target=run_target, raw_input=task_raw_input)
 
         command_head = lowered.split(maxsplit=1)[0] if lowered else ""
         if command_head in DIRECT_COMMAND_PREFIXES:
-            return PlannedTask(action="run_command", target=text, raw_input=text)
+            return PlannedTask(action="run_command", target=text, raw_input=task_raw_input)
 
-        return PlannedTask(action="unknown", target=text, raw_input=text)
+        return PlannedTask(action="unknown", target=text, raw_input=task_raw_input)

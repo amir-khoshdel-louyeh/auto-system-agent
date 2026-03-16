@@ -1,5 +1,6 @@
 from auto_system_agent.llm_conversation_assistant import LLMConversationAssistant
 from auto_system_agent.llm_tool_mapper import LLMToolMapper
+from auto_system_agent.models import ExecutionResult
 from auto_system_agent.models import PlannedTask
 from auto_system_agent.planner import Planner
 from auto_system_agent.result_formatter import ResultFormatter
@@ -28,7 +29,13 @@ class AutoSystemAgent:
         self._history: list[dict[str, str]] = []
 
     def process(self, user_input: str) -> str:
-        task = self._planner.plan(user_input)
+        tasks = self._planner.plan_tasks(user_input)
+        if len(tasks) > 1:
+            reply = self._process_multi_step(user_input, tasks)
+            self._remember(user_input, reply)
+            return reply
+
+        task = tasks[0]
         tool_key = self._selector.select(task)
 
         if tool_key != "unknown":
@@ -65,6 +72,26 @@ class AutoSystemAgent:
         )
         self._remember(user_input, reply)
         return reply
+
+    def _process_multi_step(self, user_input: str, tasks: list[PlannedTask]) -> str:
+        results: list[ExecutionResult] = []
+        for task in tasks:
+            tool_key = self._selector.select(task)
+            if tool_key == "unknown":
+                results.append(
+                    ExecutionResult(
+                        success=False,
+                        message=f"Could not map step to a supported tool: {task.target or task.raw_input}",
+                    )
+                )
+                break
+
+            result = self._executor.execute(tool_key, task)
+            results.append(result)
+            if not result.success:
+                break
+
+        return self._formatter.format_many(results)
 
     def _remember(self, user_text: str, assistant_text: str) -> None:
         self._history.append({"role": "user", "content": user_text})
