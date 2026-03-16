@@ -1,6 +1,7 @@
 from dataclasses import replace
 from typing import Callable
 
+from auto_system_agent.event_logger import EventLogger
 from auto_system_agent.llm_conversation_assistant import LLMConversationAssistant
 from auto_system_agent.llm_tool_mapper import LLMToolMapper
 from auto_system_agent.models import ExecutionResult
@@ -26,6 +27,7 @@ class AutoSystemAgent:
         executor: SafeExecutor | None = None,
         formatter: ResultFormatter | None = None,
         assistant: LLMConversationAssistant | None = None,
+        event_logger: EventLogger | None = None,
         llm_config: dict | None = None,
     ) -> None:
         llm_mapper = LLMToolMapper(config=llm_config)
@@ -34,6 +36,7 @@ class AutoSystemAgent:
         self._executor = executor or SafeExecutor()
         self._formatter = formatter or ResultFormatter()
         self._assistant = assistant or LLMConversationAssistant(config=llm_config)
+        self._event_logger = event_logger or EventLogger()
         self._history: list[dict[str, str]] = []
         self._context: dict[str, str] = {"last_app": "", "last_path": ""}
 
@@ -44,8 +47,9 @@ class AutoSystemAgent:
     ) -> str:
         tasks = self._planner.plan_tasks(user_input)
         if len(tasks) > 1:
-            reply = self._process_multi_step(user_input, tasks, progress_callback)
+            reply, steps = self._process_multi_step(user_input, tasks, progress_callback)
             self._remember(user_input, reply)
+            self._log_event(user_input=user_input, mode="multi_step", planned_tasks=tasks, steps=steps, reply=reply)
             return reply
 
         task = tasks[0]
@@ -59,6 +63,13 @@ class AutoSystemAgent:
             self._update_context_from_task(task, result)
             reply = self._formatter.format(result)
             self._remember(user_input, reply)
+            self._log_event(
+                user_input=user_input,
+                mode="deterministic",
+                planned_tasks=tasks,
+                steps=[self._step_payload(tool_key, task, result)],
+                reply=reply,
+            )
             return reply
 
         allowed_actions = set(self._selector.SUPPORTED_ACTIONS)
@@ -68,6 +79,7 @@ class AutoSystemAgent:
             reply = llm_result["response"]
             self._update_context_from_chat(reply)
             self._remember(user_input, reply)
+            self._log_event(user_input=user_input, mode="llm_chat", planned_tasks=tasks, steps=[], reply=reply)
             return reply
 
         if llm_result and llm_result.get("type") == "tool":
@@ -85,6 +97,13 @@ class AutoSystemAgent:
             self._update_context_from_task(llm_task, result)
             reply = self._formatter.format(result)
             self._remember(user_input, reply)
+            self._log_event(
+                user_input=user_input,
+                mode="llm_tool",
+                planned_tasks=tasks,
+                steps=[self._step_payload(llm_tool_key, llm_task, result)],
+                reply=reply,
+            )
             return reply
 
         reply = (
@@ -93,6 +112,7 @@ class AutoSystemAgent:
             "compress, move, delete, or run a command."
         )
         self._remember(user_input, reply)
+        self._log_event(user_input=user_input, mode="fallback", planned_tasks=tasks, steps=[], reply=reply)
         return reply
 
     def _process_multi_step(
@@ -100,24 +120,26 @@ class AutoSystemAgent:
         user_input: str,
         tasks: list[PlannedTask],
         progress_callback: Callable[[str], None] | None = None,
-    ) -> str:
+    ) -> tuple[str, list[dict]]:
         results: list[ExecutionResult] = []
+        step_payloads: list[dict] = []
         for index, task in enumerate(tasks, start=1):
             task = self._resolve_task_context(task)
             tool_key = self._selector.select(task)
             self._notify(progress_callback, f"Step {index}/{len(tasks)}: running {tool_key}...")
             if tool_key == "unknown":
-                results.append(
-                    ExecutionResult(
-                        success=False,
-                        message=f"Could not map step to a supported tool: {task.target or task.raw_input}",
-                    )
+                unknown_result = ExecutionResult(
+                    success=False,
+                    message=f"Could not map step to a supported tool: {task.target or task.raw_input}",
                 )
+                results.append(unknown_result)
+                step_payloads.append(self._step_payload(tool_key, task, unknown_result))
                 self._notify(progress_callback, f"Step {index}/{len(tasks)} failed: unknown tool.")
                 break
 
             result = self._executor.execute(tool_key, task)
             results.append(result)
+            step_payloads.append(self._step_payload(tool_key, task, result))
             self._update_context_from_task(task, result)
             self._notify(
                 progress_callback,
@@ -126,7 +148,7 @@ class AutoSystemAgent:
             if not result.success:
                 break
 
-        return self._formatter.format_many(results)
+        return self._formatter.format_many(results), step_payloads
 
     def _resolve_task_context(self, task: PlannedTask) -> PlannedTask:
         target = (task.target or "").strip()
@@ -187,3 +209,43 @@ class AutoSystemAgent:
     def _notify(self, callback: Callable[[str], None] | None, message: str) -> None:
         if callback:
             callback(message)
+
+    def _step_payload(self, tool_key: str, task: PlannedTask, result: ExecutionResult) -> dict:
+        return {
+            "tool": tool_key,
+            "task": {
+                "action": task.action,
+                "target": task.target or "",
+                "options": dict(task.options),
+            },
+            "result": {
+                "success": result.success,
+                "message": result.message,
+            },
+        }
+
+    def _log_event(
+        self,
+        *,
+        user_input: str,
+        mode: str,
+        planned_tasks: list[PlannedTask],
+        steps: list[dict],
+        reply: str,
+    ) -> None:
+        self._event_logger.log(
+            {
+                "mode": mode,
+                "user_input": user_input,
+                "planned_tasks": [
+                    {
+                        "action": task.action,
+                        "target": task.target or "",
+                        "options": dict(task.options),
+                    }
+                    for task in planned_tasks
+                ],
+                "steps": steps,
+                "reply": reply,
+            }
+        )
