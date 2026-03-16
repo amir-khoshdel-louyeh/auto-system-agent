@@ -22,7 +22,24 @@ class SafeExecutor:
                 return result
 
             command = result.data["command"]
-            completed = subprocess.run(command, capture_output=True, text=True, check=False)
+            try:
+                completed = subprocess.run(command, capture_output=True, text=True, check=False)
+            except FileNotFoundError:
+                return ExecutionResult(
+                    success=False,
+                    message=f"Install command not found on this system: {command[0]}",
+                )
+            except PermissionError:
+                return ExecutionResult(
+                    success=False,
+                    message=f"Permission denied while running install command: {command[0]}",
+                )
+            except OSError as exc:
+                return ExecutionResult(
+                    success=False,
+                    message=f"Could not run install command: {exc}",
+                )
+
             output = (completed.stdout or "") + (completed.stderr or "")
             if completed.returncode != 0:
                 return ExecutionResult(

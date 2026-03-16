@@ -21,7 +21,14 @@ def run_command(command_text: str) -> ExecutionResult:
     if not command_text.strip():
         return ExecutionResult(success=False, message="No command provided.")
 
-    parts = shlex.split(command_text)
+    try:
+        parts = shlex.split(command_text)
+    except ValueError as exc:
+        return ExecutionResult(success=False, message=f"Invalid command syntax: {exc}")
+
+    if not parts:
+        return ExecutionResult(success=False, message="No command provided.")
+
     if any(token in BLOCKED_SEPARATORS for token in parts):
         return ExecutionResult(success=False, message="Command chaining is blocked by safety policy.")
 
@@ -32,7 +39,15 @@ def run_command(command_text: str) -> ExecutionResult:
     if any(token in BLOCKED_TOKENS for token in parts):
         return ExecutionResult(success=False, message="Command blocked by safety policy.")
 
-    completed = subprocess.run(parts, capture_output=True, text=True, check=False)
+    try:
+        completed = subprocess.run(parts, capture_output=True, text=True, check=False)
+    except FileNotFoundError:
+        return ExecutionResult(success=False, message=f"Command not found: {parts[0]}")
+    except PermissionError:
+        return ExecutionResult(success=False, message=f"Permission denied while executing command: {parts[0]}")
+    except OSError as exc:
+        return ExecutionResult(success=False, message=f"Could not execute command: {exc}")
+
     output = (completed.stdout or "") + (completed.stderr or "")
 
     if completed.returncode != 0:
