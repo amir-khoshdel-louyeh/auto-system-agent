@@ -12,6 +12,16 @@ def _load_app_library() -> dict:
         return json.load(file_obj)
 
 
+def get_known_app_names() -> list[str]:
+    library = _load_app_library()
+    return sorted(library.keys(), key=len, reverse=True)
+
+
+def extract_known_apps(text: str) -> list[str]:
+    lowered = text.lower()
+    return [app_name for app_name in get_known_app_names() if app_name in lowered]
+
+
 def build_install_command(app_name: str) -> ExecutionResult:
     """Builds a package-manager command for the requested app."""
     if not app_name:

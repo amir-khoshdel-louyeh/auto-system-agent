@@ -8,6 +8,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from auto_system_agent.agent import AutoSystemAgent
+from auto_system_agent.planner import Planner
 from auto_system_agent.models import PlannedTask
 
 
@@ -43,6 +44,33 @@ class FakeExecutor:
         from auto_system_agent.models import ExecutionResult
 
         return ExecutionResult(success=True, message=f"{tool_key}:{task.target}")
+
+
+class CapturingExecutor:
+    def __init__(self):
+        self.calls = []
+
+    def execute(self, tool_key, task):
+        from auto_system_agent.models import ExecutionResult
+
+        self.calls.append((tool_key, task.target, dict(task.options)))
+        return ExecutionResult(success=True, message=f"{tool_key}:{task.target}")
+
+
+class PassThroughSelector:
+    SUPPORTED_ACTIONS = {
+        "install_app",
+        "create_folder",
+        "compress",
+        "move_path",
+        "delete_path",
+        "list_files",
+        "run_command",
+        "help",
+    }
+
+    def select(self, task):
+        return task.action if task.action in self.SUPPORTED_ACTIONS else "unknown"
 
 
 class AgentConversationTests(unittest.TestCase):
@@ -96,6 +124,46 @@ class AgentConversationTests(unittest.TestCase):
         response = agent.process("create folder demo then list files in .")
         self.assertIn("Step 1: [SUCCESS] create_folder:demo", response)
         self.assertIn("Step 2: [SUCCESS] list_files:.", response)
+
+    def test_resolves_install_it_from_previous_chat_suggestion(self):
+        class SequenceAssistant:
+            def __init__(self):
+                self.calls = 0
+
+            def resolve(self, user_text, allowed_actions, history):
+                self.calls += 1
+                if self.calls == 1:
+                    return {"type": "chat", "response": "VLC is a strong video player choice."}
+                return None
+
+        executor = CapturingExecutor()
+        agent = AutoSystemAgent(
+            planner=Planner(),
+            selector=PassThroughSelector(),
+            executor=executor,
+            assistant=SequenceAssistant(),
+        )
+
+        first_response = agent.process("suggest a video player")
+        self.assertIn("VLC", first_response)
+
+        second_response = agent.process("install it")
+        self.assertIn("[SUCCESS] install_app:vlc", second_response)
+        self.assertEqual(executor.calls[-1][1], "vlc")
+
+    def test_resolves_compress_it_in_multi_step_flow(self):
+        executor = CapturingExecutor()
+        agent = AutoSystemAgent(
+            planner=Planner(),
+            selector=PassThroughSelector(),
+            executor=executor,
+            assistant=FakeAssistant(None),
+        )
+
+        response = agent.process("create folder demo then compress it")
+        self.assertIn("Step 1: [SUCCESS] create_folder:demo", response)
+        self.assertIn("Step 2: [SUCCESS] compress:demo", response)
+        self.assertEqual(executor.calls[1][1], "demo")
 
 
 if __name__ == "__main__":
