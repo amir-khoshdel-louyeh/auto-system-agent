@@ -39,8 +39,8 @@ class AgentChatGUI:
         self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.entry.bind("<Return>", self._on_send)
 
-        send_button = tk.Button(bottom_frame, text="Send", command=self._on_send)
-        send_button.pack(side=tk.LEFT, padx=(8, 0))
+        self.send_button = tk.Button(bottom_frame, text="Send", command=self._on_send)
+        self.send_button.pack(side=tk.LEFT, padx=(8, 0))
 
         self._append_message("Agent", "Welcome. Type help to see example commands.")
 
@@ -55,6 +55,9 @@ class AgentChatGUI:
         if not user_input:
             return
 
+        if str(self.send_button["state"]) == "disabled":
+            return
+
         self.entry.delete(0, tk.END)
         self._append_message("You", user_input)
 
@@ -63,8 +66,18 @@ class AgentChatGUI:
             self.root.after(300, self.root.destroy)
             return
 
-        response = self.agent.process(user_input)
+        self.send_button.configure(state=tk.DISABLED)
+        self.entry.configure(state=tk.DISABLED)
+
+        def on_progress(message: str) -> None:
+            self._append_message("Agent", message)
+            self.root.update_idletasks()
+
+        response = self.agent.process(user_input, progress_callback=on_progress)
         self._append_message("Agent", response)
+        self.entry.configure(state=tk.NORMAL)
+        self.send_button.configure(state=tk.NORMAL)
+        self.entry.focus_set()
 
     def _build_agent(self) -> AutoSystemAgent:
         config = {
