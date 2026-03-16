@@ -74,6 +74,19 @@ class PassThroughSelector:
 
 
 class AgentConversationTests(unittest.TestCase):
+    def test_handles_empty_planner_task_list(self):
+        class EmptyPlanner:
+            def plan_tasks(self, user_input):
+                return []
+
+        agent = AutoSystemAgent(
+            planner=EmptyPlanner(),
+            assistant=FakeAssistant(None),
+        )
+
+        response = agent.process("hello")
+        self.assertIn("I can help with general questions", response)
+
     def test_returns_chat_response_for_unknown_intent(self):
         planner = FakePlanner("unknown")
         assistant = FakeAssistant({"type": "chat", "response": "Firefox is a privacy-focused browser."})

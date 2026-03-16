@@ -54,6 +54,16 @@ class AutoSystemAgent:
             return pending_reply
 
         tasks = self._planner.plan_tasks(user_input)
+        if not tasks:
+            reply = (
+                "I can help with general questions and system tasks. "
+                "Ask me about apps, or request actions like install, create folder, "
+                "compress, move, delete, or run a command."
+            )
+            self._remember(user_input, reply)
+            self._log_event(user_input=user_input, mode="fallback", planned_tasks=[], steps=[], reply=reply)
+            return reply
+
         if len(tasks) > 1:
             tasks = [self._resolve_task_context(task) for task in tasks]
             if self._requires_confirmation_for_tasks(tasks):
