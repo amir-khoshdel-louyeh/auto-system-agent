@@ -1,4 +1,5 @@
 from dataclasses import replace
+from typing import Callable
 
 from auto_system_agent.llm_conversation_assistant import LLMConversationAssistant
 from auto_system_agent.llm_tool_mapper import LLMToolMapper
@@ -36,10 +37,14 @@ class AutoSystemAgent:
         self._history: list[dict[str, str]] = []
         self._context: dict[str, str] = {"last_app": "", "last_path": ""}
 
-    def process(self, user_input: str) -> str:
+    def process(
+        self,
+        user_input: str,
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> str:
         tasks = self._planner.plan_tasks(user_input)
         if len(tasks) > 1:
-            reply = self._process_multi_step(user_input, tasks)
+            reply = self._process_multi_step(user_input, tasks, progress_callback)
             self._remember(user_input, reply)
             return reply
 
@@ -48,7 +53,9 @@ class AutoSystemAgent:
         tool_key = self._selector.select(task)
 
         if tool_key != "unknown":
+            self._notify(progress_callback, f"Running {tool_key}...")
             result = self._executor.execute(tool_key, task)
+            self._notify(progress_callback, f"Finished {tool_key} ({'ok' if result.success else 'failed'}).")
             self._update_context_from_task(task, result)
             reply = self._formatter.format(result)
             self._remember(user_input, reply)
@@ -72,7 +79,9 @@ class AutoSystemAgent:
             )
             llm_task = self._resolve_task_context(llm_task)
             llm_tool_key = self._selector.select(llm_task)
+            self._notify(progress_callback, f"Running {llm_tool_key}...")
             result = self._executor.execute(llm_tool_key, llm_task)
+            self._notify(progress_callback, f"Finished {llm_tool_key} ({'ok' if result.success else 'failed'}).")
             self._update_context_from_task(llm_task, result)
             reply = self._formatter.format(result)
             self._remember(user_input, reply)
@@ -86,11 +95,17 @@ class AutoSystemAgent:
         self._remember(user_input, reply)
         return reply
 
-    def _process_multi_step(self, user_input: str, tasks: list[PlannedTask]) -> str:
+    def _process_multi_step(
+        self,
+        user_input: str,
+        tasks: list[PlannedTask],
+        progress_callback: Callable[[str], None] | None = None,
+    ) -> str:
         results: list[ExecutionResult] = []
-        for task in tasks:
+        for index, task in enumerate(tasks, start=1):
             task = self._resolve_task_context(task)
             tool_key = self._selector.select(task)
+            self._notify(progress_callback, f"Step {index}/{len(tasks)}: running {tool_key}...")
             if tool_key == "unknown":
                 results.append(
                     ExecutionResult(
@@ -98,11 +113,16 @@ class AutoSystemAgent:
                         message=f"Could not map step to a supported tool: {task.target or task.raw_input}",
                     )
                 )
+                self._notify(progress_callback, f"Step {index}/{len(tasks)} failed: unknown tool.")
                 break
 
             result = self._executor.execute(tool_key, task)
             results.append(result)
             self._update_context_from_task(task, result)
+            self._notify(
+                progress_callback,
+                f"Step {index}/{len(tasks)} finished {tool_key} ({'ok' if result.success else 'failed'}).",
+            )
             if not result.success:
                 break
 
@@ -163,3 +183,7 @@ class AutoSystemAgent:
         self._history.append({"role": "assistant", "content": assistant_text})
         if len(self._history) > 20:
             self._history = self._history[-20:]
+
+    def _notify(self, callback: Callable[[str], None] | None, message: str) -> None:
+        if callback:
+            callback(message)

@@ -125,6 +125,26 @@ class AgentConversationTests(unittest.TestCase):
         self.assertIn("Step 1: [SUCCESS] create_folder:demo", response)
         self.assertIn("Step 2: [SUCCESS] list_files:.", response)
 
+    def test_reports_multi_step_progress_updates(self):
+        class MultiPlanner:
+            def plan_tasks(self, user_input):
+                return [
+                    PlannedTask(action="create_folder", target="demo", raw_input=user_input),
+                    PlannedTask(action="list_files", target=".", raw_input=user_input),
+                ]
+
+        updates = []
+        agent = AutoSystemAgent(
+            planner=MultiPlanner(),
+            selector=FakeSelector(),
+            executor=FakeExecutor(),
+            assistant=FakeAssistant(None),
+        )
+
+        agent.process("create folder demo then list files in .", progress_callback=updates.append)
+        self.assertTrue(any("Step 1/2: running create_folder" in item for item in updates))
+        self.assertTrue(any("Step 2/2: running list_files" in item for item in updates))
+
     def test_resolves_install_it_from_previous_chat_suggestion(self):
         class SequenceAssistant:
             def __init__(self):
