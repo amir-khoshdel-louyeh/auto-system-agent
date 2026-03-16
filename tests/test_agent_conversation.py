@@ -190,6 +190,24 @@ class AgentConversationTests(unittest.TestCase):
         self.assertIn("Cancelled pending action", cancel_reply)
         self.assertEqual(len(executor.calls), 0)
 
+    def test_confirmation_helper_methods(self):
+        executor = CapturingExecutor()
+        agent = AutoSystemAgent(
+            planner=Planner(),
+            selector=PassThroughSelector(),
+            executor=executor,
+            assistant=FakeAssistant(None),
+        )
+
+        prompt = agent.process("install vlc")
+        self.assertIn("Confirmation required", prompt)
+        self.assertTrue(agent.has_pending_confirmation())
+
+        reply = agent.confirm_pending()
+        self.assertIsNotNone(reply)
+        self.assertIn("[SUCCESS]", reply)
+        self.assertFalse(agent.has_pending_confirmation())
+
     def test_resolves_compress_it_in_multi_step_flow(self):
         executor = CapturingExecutor()
         agent = AutoSystemAgent(

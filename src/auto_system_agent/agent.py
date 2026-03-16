@@ -142,6 +142,15 @@ class AutoSystemAgent:
         self._log_event(user_input=user_input, mode="fallback", planned_tasks=tasks, steps=[], reply=reply)
         return reply
 
+    def has_pending_confirmation(self) -> bool:
+        return self._pending_confirmation is not None
+
+    def confirm_pending(self, progress_callback: Callable[[str], None] | None = None) -> str | None:
+        return self._handle_pending_confirmation("yes", progress_callback)
+
+    def cancel_pending(self) -> str | None:
+        return self._handle_pending_confirmation("no", None)
+
     def _process_multi_step(
         self,
         user_input: str,
