@@ -15,6 +15,9 @@ from auto_system_agent.tools.install_tool import extract_known_apps
 
 APP_REFERENCE_WORDS = {"it", "that", "this", "one", "best one", "the best one", "one of them"}
 PATH_REFERENCE_WORDS = {"it", "that", "this", "them", "there"}
+CONFIRMATION_YES_WORDS = {"yes", "y", "confirm", "ok", "proceed"}
+CONFIRMATION_NO_WORDS = {"no", "n", "cancel", "stop"}
+HIGH_RISK_ACTIONS = {"install_app", "delete_path", "run_command"}
 
 
 class AutoSystemAgent:
@@ -39,14 +42,26 @@ class AutoSystemAgent:
         self._event_logger = event_logger or EventLogger()
         self._history: list[dict[str, str]] = []
         self._context: dict[str, str] = {"last_app": "", "last_path": ""}
+        self._pending_confirmation: dict | None = None
 
     def process(
         self,
         user_input: str,
         progress_callback: Callable[[str], None] | None = None,
     ) -> str:
+        pending_reply = self._handle_pending_confirmation(user_input, progress_callback)
+        if pending_reply is not None:
+            return pending_reply
+
         tasks = self._planner.plan_tasks(user_input)
         if len(tasks) > 1:
+            tasks = [self._resolve_task_context(task) for task in tasks]
+            if self._requires_confirmation_for_tasks(tasks):
+                reply = self._queue_confirmation(user_input, tasks, source_mode="multi_step")
+                self._remember(user_input, reply)
+                self._log_event(user_input=user_input, mode="confirmation_requested", planned_tasks=tasks, steps=[], reply=reply)
+                return reply
+
             reply, steps = self._process_multi_step(user_input, tasks, progress_callback)
             self._remember(user_input, reply)
             self._log_event(user_input=user_input, mode="multi_step", planned_tasks=tasks, steps=steps, reply=reply)
@@ -57,6 +72,12 @@ class AutoSystemAgent:
         tool_key = self._selector.select(task)
 
         if tool_key != "unknown":
+            if self._requires_confirmation_for_tasks([task]):
+                reply = self._queue_confirmation(user_input, [task], source_mode="deterministic")
+                self._remember(user_input, reply)
+                self._log_event(user_input=user_input, mode="confirmation_requested", planned_tasks=[task], steps=[], reply=reply)
+                return reply
+
             self._notify(progress_callback, f"Running {tool_key}...")
             result = self._executor.execute(tool_key, task)
             self._notify(progress_callback, f"Finished {tool_key} ({'ok' if result.success else 'failed'}).")
@@ -90,6 +111,12 @@ class AutoSystemAgent:
                 options={"destination": llm_result.get("destination", "")},
             )
             llm_task = self._resolve_task_context(llm_task)
+            if self._requires_confirmation_for_tasks([llm_task]):
+                reply = self._queue_confirmation(user_input, [llm_task], source_mode="llm_tool")
+                self._remember(user_input, reply)
+                self._log_event(user_input=user_input, mode="confirmation_requested", planned_tasks=[llm_task], steps=[], reply=reply)
+                return reply
+
             llm_tool_key = self._selector.select(llm_task)
             self._notify(progress_callback, f"Running {llm_tool_key}...")
             result = self._executor.execute(llm_tool_key, llm_task)
@@ -209,6 +236,93 @@ class AutoSystemAgent:
     def _notify(self, callback: Callable[[str], None] | None, message: str) -> None:
         if callback:
             callback(message)
+
+    def _handle_pending_confirmation(
+        self,
+        user_input: str,
+        progress_callback: Callable[[str], None] | None,
+    ) -> str | None:
+        if not self._pending_confirmation:
+            return None
+
+        decision = user_input.strip().lower()
+        if decision in CONFIRMATION_NO_WORDS:
+            pending = self._pending_confirmation
+            self._pending_confirmation = None
+            reply = "Cancelled pending action."
+            self._remember(user_input, reply)
+            self._log_event(
+                user_input=user_input,
+                mode="confirmation_cancelled",
+                planned_tasks=pending["tasks"],
+                steps=[],
+                reply=reply,
+            )
+            return reply
+
+        if decision not in CONFIRMATION_YES_WORDS:
+            reply = "Confirmation required. Reply 'yes' to continue or 'no' to cancel."
+            self._remember(user_input, reply)
+            return reply
+
+        pending = self._pending_confirmation
+        self._pending_confirmation = None
+        tasks: list[PlannedTask] = pending["tasks"]
+        source_input: str = pending["source_input"]
+
+        if len(tasks) > 1:
+            reply, steps = self._process_multi_step(source_input, tasks, progress_callback)
+            self._remember(user_input, reply)
+            self._log_event(
+                user_input=source_input,
+                mode="confirmed_multi_step",
+                planned_tasks=tasks,
+                steps=steps,
+                reply=reply,
+            )
+            return reply
+
+        task = tasks[0]
+        tool_key = self._selector.select(task)
+        if tool_key == "unknown":
+            reply = self._formatter.format(
+                ExecutionResult(success=False, message="Could not map request to a supported tool.")
+            )
+            self._remember(user_input, reply)
+            return reply
+
+        self._notify(progress_callback, f"Running {tool_key}...")
+        result = self._executor.execute(tool_key, task)
+        self._notify(progress_callback, f"Finished {tool_key} ({'ok' if result.success else 'failed'}).")
+        self._update_context_from_task(task, result)
+        reply = self._formatter.format(result)
+        self._remember(user_input, reply)
+        self._log_event(
+            user_input=source_input,
+            mode="confirmed_single_step",
+            planned_tasks=tasks,
+            steps=[self._step_payload(tool_key, task, result)],
+            reply=reply,
+        )
+        return reply
+
+    def _queue_confirmation(self, user_input: str, tasks: list[PlannedTask], source_mode: str) -> str:
+        self._pending_confirmation = {
+            "source_input": user_input,
+            "source_mode": source_mode,
+            "tasks": tasks,
+        }
+
+        summary = "; ".join(
+            f"{task.action} {task.target or ''}".strip() for task in tasks
+        )
+        return (
+            "Confirmation required for high-risk action(s): "
+            f"{summary}. Reply 'yes' to continue or 'no' to cancel."
+        )
+
+    def _requires_confirmation_for_tasks(self, tasks: list[PlannedTask]) -> bool:
+        return any(task.action in HIGH_RISK_ACTIONS for task in tasks)
 
     def _step_payload(self, tool_key: str, task: PlannedTask, result: ExecutionResult) -> dict:
         return {

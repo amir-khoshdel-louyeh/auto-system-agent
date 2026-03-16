@@ -23,11 +23,11 @@ class InMemoryLogger(EventLogger):
 
 class FakePlanner:
     def plan_tasks(self, user_input: str):
-        return [PlannedTask(action="run_command", target="pwd", raw_input=user_input)]
+        return [PlannedTask(action="create_folder", target="demo", raw_input=user_input)]
 
 
 class FakeSelector:
-    SUPPORTED_ACTIONS = {"run_command"}
+    SUPPORTED_ACTIONS = {"create_folder"}
 
     def select(self, task):
         return task.action
@@ -56,15 +56,15 @@ class EventLoggerTests(unittest.TestCase):
             event_logger=logger,
         )
 
-        reply = agent.process("run pwd")
+        reply = agent.process("create folder demo")
         self.assertIn("[SUCCESS]", reply)
         self.assertEqual(len(logger.events), 1)
 
         event = logger.events[0]
         self.assertEqual(event["mode"], "deterministic")
-        self.assertEqual(event["user_input"], "run pwd")
-        self.assertEqual(event["planned_tasks"][0]["action"], "run_command")
-        self.assertEqual(event["steps"][0]["tool"], "run_command")
+        self.assertEqual(event["user_input"], "create folder demo")
+        self.assertEqual(event["planned_tasks"][0]["action"], "create_folder")
+        self.assertEqual(event["steps"][0]["tool"], "create_folder")
 
     def test_jsonl_logger_writes_line(self):
         tmp_path = PROJECT_ROOT / "tests" / "tmp_events.jsonl"

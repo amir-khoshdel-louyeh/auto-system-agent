@@ -168,8 +168,27 @@ class AgentConversationTests(unittest.TestCase):
         self.assertIn("VLC", first_response)
 
         second_response = agent.process("install it")
-        self.assertIn("[SUCCESS] install_app:vlc", second_response)
+        self.assertIn("Confirmation required", second_response)
+
+        third_response = agent.process("yes")
+        self.assertIn("[SUCCESS] install_app:vlc", third_response)
         self.assertEqual(executor.calls[-1][1], "vlc")
+
+    def test_confirmation_cancel_skips_execution(self):
+        executor = CapturingExecutor()
+        agent = AutoSystemAgent(
+            planner=Planner(),
+            selector=PassThroughSelector(),
+            executor=executor,
+            assistant=FakeAssistant(None),
+        )
+
+        prompt = agent.process("install vlc")
+        self.assertIn("Confirmation required", prompt)
+
+        cancel_reply = agent.process("no")
+        self.assertIn("Cancelled pending action", cancel_reply)
+        self.assertEqual(len(executor.calls), 0)
 
     def test_resolves_compress_it_in_multi_step_flow(self):
         executor = CapturingExecutor()
