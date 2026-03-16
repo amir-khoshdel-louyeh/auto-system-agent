@@ -6,7 +6,6 @@ from auto_system_agent.models import ExecutionResult
 
 
 SYSTEM_PROTECTED_ROOTS = {
-    Path("/").resolve(),
     Path("/bin").resolve(),
     Path("/boot").resolve(),
     Path("/dev").resolve(),
@@ -27,6 +26,9 @@ USER_PROTECTED_PATHS = {
 
 
 def _is_protected(path: Path) -> bool:
+    if path == Path("/").resolve():
+        return True
+
     for root in SYSTEM_PROTECTED_ROOTS:
         if path == root or root in path.parents:
             return True
