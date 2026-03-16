@@ -1,5 +1,6 @@
 import tkinter as tk
 from tkinter import messagebox, scrolledtext
+import re
 
 from auto_system_agent.agent import AutoSystemAgent
 from auto_system_agent.settings import LLMSettings, SettingsStore
@@ -14,7 +15,7 @@ class AgentChatGUI:
         self.agent = self._build_agent()
         self.root = tk.Tk()
         self.root.title("Auto System Agent")
-        self.root.geometry("760x520")
+        self.root.geometry("920x560")
 
         menu_bar = tk.Menu(self.root)
         settings_menu = tk.Menu(menu_bar, tearoff=0)
@@ -22,15 +23,29 @@ class AgentChatGUI:
         menu_bar.add_cascade(label="Settings", menu=settings_menu)
         self.root.config(menu=menu_bar)
 
+        content_frame = tk.Frame(self.root)
+        content_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=(12, 8))
+
         self.chat_log = scrolledtext.ScrolledText(
-            self.root,
+            content_frame,
             wrap=tk.WORD,
             state=tk.DISABLED,
             font=("TkDefaultFont", 11),
             padx=10,
             pady=10,
         )
-        self.chat_log.pack(fill=tk.BOTH, expand=True, padx=12, pady=(12, 8))
+        self.chat_log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        progress_frame = tk.Frame(content_frame, width=260)
+        progress_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(12, 0))
+        progress_frame.pack_propagate(False)
+
+        tk.Label(progress_frame, text="Execution Progress", font=("TkDefaultFont", 10, "bold")).pack(
+            anchor="w", pady=(0, 6)
+        )
+        self.progress_list = tk.Listbox(progress_frame, height=16)
+        self.progress_list.pack(fill=tk.BOTH, expand=True)
+        self._step_progress_rows: dict[int, int] = {}
 
         bottom_frame = tk.Frame(self.root)
         bottom_frame.pack(fill=tk.X, padx=12, pady=(0, 12))
@@ -66,11 +81,14 @@ class AgentChatGUI:
             self.root.after(300, self.root.destroy)
             return
 
+        self._reset_progress_panel()
+
         self.send_button.configure(state=tk.DISABLED)
         self.entry.configure(state=tk.DISABLED)
 
         def on_progress(message: str) -> None:
             self._append_message("Agent", message)
+            self._update_progress_panel(message)
             self.root.update_idletasks()
 
         response = self.agent.process(user_input, progress_callback=on_progress)
@@ -78,6 +96,53 @@ class AgentChatGUI:
         self.entry.configure(state=tk.NORMAL)
         self.send_button.configure(state=tk.NORMAL)
         self.entry.focus_set()
+
+    def _reset_progress_panel(self) -> None:
+        self.progress_list.delete(0, tk.END)
+        self._step_progress_rows.clear()
+
+    def _set_step_status(self, step: int, total: int, state: str, tool: str) -> None:
+        text = f"{step}/{total} | {state:<7} | {tool}"
+        if step in self._step_progress_rows:
+            row = self._step_progress_rows[step]
+            self.progress_list.delete(row)
+            self.progress_list.insert(row, text)
+        else:
+            row = self.progress_list.size()
+            self.progress_list.insert(tk.END, text)
+            self._step_progress_rows[step] = row
+        self.progress_list.see(row)
+
+    def _update_progress_panel(self, message: str) -> None:
+        running_match = re.match(r"Step\s+(\d+)/(\d+):\s+running\s+(.+)\.\.\.$", message)
+        if running_match:
+            step = int(running_match.group(1))
+            total = int(running_match.group(2))
+            tool = running_match.group(3).strip()
+            self._set_step_status(step, total, "running", tool)
+            return
+
+        finished_match = re.match(
+            r"Step\s+(\d+)/(\d+)\s+finished\s+(.+)\s+\((ok|failed)\)\.$",
+            message,
+        )
+        if finished_match:
+            step = int(finished_match.group(1))
+            total = int(finished_match.group(2))
+            tool = finished_match.group(3).strip()
+            state = "done" if finished_match.group(4) == "ok" else "failed"
+            self._set_step_status(step, total, state, tool)
+            return
+
+        single_running = re.match(r"Running\s+(.+)\.\.\.$", message)
+        if single_running:
+            self._set_step_status(1, 1, "running", single_running.group(1).strip())
+            return
+
+        single_finished = re.match(r"Finished\s+(.+)\s+\((ok|failed)\)\.$", message)
+        if single_finished:
+            state = "done" if single_finished.group(2) == "ok" else "failed"
+            self._set_step_status(1, 1, state, single_finished.group(1).strip())
 
     def _build_agent(self) -> AutoSystemAgent:
         config = {
