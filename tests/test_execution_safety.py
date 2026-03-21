@@ -29,6 +29,18 @@ class ExecutionSafetyTests(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertIn("Command not found", result.message)
 
+    def test_run_command_blocks_shell_interpreters(self):
+        result = run_command("python3 --version")
+
+        self.assertFalse(result.success)
+        self.assertIn("blocked by safety policy", result.message)
+
+    def test_run_command_blocks_risky_flags(self):
+        result = run_command("echo -rf")
+
+        self.assertFalse(result.success)
+        self.assertIn("blocked by safety policy", result.message)
+
     def test_install_action_handles_missing_package_manager(self):
         executor = SafeExecutor()
         task = PlannedTask(action="install_app", target="vlc", raw_input="install vlc")
