@@ -13,7 +13,7 @@ if str(SRC_DIR) not in sys.path:
 from auto_system_agent.models import ExecutionResult, PlannedTask
 from auto_system_agent.safe_executor import SafeExecutor
 from auto_system_agent.tools.command_tool import run_command
-from auto_system_agent.tools.file_tool import compress_path, create_folder
+from auto_system_agent.tools.file_tool import compress_path, create_folder, delete_path
 
 
 class ExecutionSafetyTests(unittest.TestCase):
@@ -66,6 +66,28 @@ class ExecutionSafetyTests(unittest.TestCase):
 
         self.assertFalse(result.success)
         self.assertIn("Could not create folder", result.message)
+
+    def test_delete_blocks_system_sensitive_paths(self):
+        result = delete_path("/etc")
+
+        self.assertFalse(result.success)
+        self.assertIn("Deletion blocked", result.message)
+
+    def test_delete_blocks_home_root(self):
+        result = delete_path(str(Path.home()))
+
+        self.assertFalse(result.success)
+        self.assertIn("Deletion blocked", result.message)
+
+    def test_delete_allows_non_protected_temp_file(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            target = Path(temp_dir) / "delete-me.txt"
+            target.write_text("demo", encoding="utf-8")
+
+            result = delete_path(str(target))
+
+            self.assertTrue(result.success)
+            self.assertFalse(target.exists())
 
 
 if __name__ == "__main__":
