@@ -10,6 +10,7 @@ if str(SRC_DIR) not in sys.path:
 from auto_system_agent.agent import AutoSystemAgent
 from auto_system_agent.planner import Planner
 from auto_system_agent.models import PlannedTask
+from auto_system_agent.safe_executor import SafeExecutor
 
 
 class FakePlanner:
@@ -234,6 +235,22 @@ class AgentConversationTests(unittest.TestCase):
         self.assertIn("Step 1: [SUCCESS] create_folder:demo", response)
         self.assertIn("Step 2: [SUCCESS] compress:demo", response)
         self.assertEqual(executor.calls[1][1], "demo")
+
+    def test_multi_step_stops_when_blocked_command_fails(self):
+        agent = AutoSystemAgent(
+            planner=Planner(),
+            selector=PassThroughSelector(),
+            executor=SafeExecutor(),
+            assistant=FakeAssistant(None),
+        )
+
+        prompt = agent.process("run echo hello then run python3 --version")
+        self.assertIn("Confirmation required", prompt)
+
+        response = agent.process("yes")
+        self.assertIn("Step 1: [SUCCESS]", response)
+        self.assertIn("Step 2: [ERROR]", response)
+        self.assertIn("blocked by safety policy", response)
 
 
 if __name__ == "__main__":
