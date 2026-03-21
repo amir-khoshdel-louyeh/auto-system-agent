@@ -6,6 +6,16 @@ from auto_system_agent.agent import AutoSystemAgent
 from auto_system_agent.settings import LLMSettings, SettingsStore
 
 
+BG_APP = "#f2f5f9"
+BG_PANEL = "#ffffff"
+BG_USER = "#d7ebff"
+BG_AGENT = "#eef2f7"
+BG_SYSTEM = "#fff4d9"
+FG_PRIMARY = "#1f2937"
+FG_MUTED = "#6b7280"
+ACCENT = "#0f4c81"
+
+
 class AgentChatGUI:
     """Minimal desktop chat interface for the Auto System Agent."""
 
@@ -16,6 +26,7 @@ class AgentChatGUI:
         self.root = tk.Tk()
         self.root.title("Auto System Agent")
         self.root.geometry("920x560")
+        self.root.configure(bg=BG_APP)
 
         menu_bar = tk.Menu(self.root)
         settings_menu = tk.Menu(menu_bar, tearoff=0)
@@ -23,38 +34,79 @@ class AgentChatGUI:
         menu_bar.add_cascade(label="Settings", menu=settings_menu)
         self.root.config(menu=menu_bar)
 
-        content_frame = tk.Frame(self.root)
+        content_frame = tk.Frame(self.root, bg=BG_APP)
         content_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=(12, 8))
 
         self.chat_log = scrolledtext.ScrolledText(
             content_frame,
             wrap=tk.WORD,
             state=tk.DISABLED,
-            font=("TkDefaultFont", 11),
-            padx=10,
+            font=("TkDefaultFont", 10),
+            bg=BG_PANEL,
+            fg=FG_PRIMARY,
+            borderwidth=0,
+            relief=tk.FLAT,
+            padx=14,
             pady=10,
+            insertbackground=FG_PRIMARY,
         )
+        self._configure_chat_styles()
         self.chat_log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        progress_frame = tk.Frame(content_frame, width=260)
+        progress_frame = tk.Frame(content_frame, width=260, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
         progress_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(12, 0))
         progress_frame.pack_propagate(False)
 
-        tk.Label(progress_frame, text="Execution Progress", font=("TkDefaultFont", 10, "bold")).pack(
+        tk.Label(
+            progress_frame,
+            text="Execution Progress",
+            font=("TkDefaultFont", 10, "bold"),
+            fg=ACCENT,
+            bg=BG_PANEL,
+        ).pack(
             anchor="w", pady=(0, 6)
         )
-        self.progress_list = tk.Listbox(progress_frame, height=16)
+        self.progress_list = tk.Listbox(
+            progress_frame,
+            height=16,
+            bg="#f8fafc",
+            fg=FG_PRIMARY,
+            borderwidth=0,
+            highlightthickness=0,
+            selectbackground="#dbeafe",
+            selectforeground=FG_PRIMARY,
+        )
         self.progress_list.pack(fill=tk.BOTH, expand=True)
         self._step_progress_rows: dict[int, int] = {}
 
-        bottom_frame = tk.Frame(self.root)
+        bottom_frame = tk.Frame(self.root, bg=BG_APP)
         bottom_frame.pack(fill=tk.X, padx=12, pady=(0, 12))
 
-        self.entry = tk.Entry(bottom_frame, font=("TkDefaultFont", 11))
+        self.entry = tk.Entry(
+            bottom_frame,
+            font=("TkDefaultFont", 11),
+            bg=BG_PANEL,
+            fg=FG_PRIMARY,
+            relief=tk.FLAT,
+            borderwidth=0,
+            highlightbackground="#c7d2e0",
+            highlightthickness=1,
+            insertbackground=FG_PRIMARY,
+        )
         self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         self.entry.bind("<Return>", self._on_send)
 
-        self.send_button = tk.Button(bottom_frame, text="Send", command=self._on_send)
+        self.send_button = tk.Button(
+            bottom_frame,
+            text="Send",
+            command=self._on_send,
+            bg=ACCENT,
+            fg="#ffffff",
+            activebackground="#0c3a62",
+            activeforeground="#ffffff",
+            relief=tk.FLAT,
+            padx=10,
+        )
         self.send_button.pack(side=tk.LEFT, padx=(8, 0))
 
         self.confirm_button = tk.Button(
@@ -62,6 +114,12 @@ class AgentChatGUI:
             text="Confirm",
             command=self._on_confirm,
             state=tk.DISABLED,
+            bg="#1d7a45",
+            fg="#ffffff",
+            activebackground="#17623a",
+            activeforeground="#ffffff",
+            relief=tk.FLAT,
+            padx=10,
         )
         self.confirm_button.pack(side=tk.LEFT, padx=(8, 0))
 
@@ -70,14 +128,93 @@ class AgentChatGUI:
             text="Cancel",
             command=self._on_cancel,
             state=tk.DISABLED,
+            bg="#b91c1c",
+            fg="#ffffff",
+            activebackground="#991b1b",
+            activeforeground="#ffffff",
+            relief=tk.FLAT,
+            padx=10,
         )
         self.cancel_button.pack(side=tk.LEFT, padx=(8, 0))
 
         self._append_message("Agent", "Welcome. Type help to see example commands.")
 
+    def _configure_chat_styles(self) -> None:
+        self.chat_log.tag_configure(
+            "who_you",
+            foreground=ACCENT,
+            font=("TkDefaultFont", 9, "bold"),
+            justify="right",
+            rmargin=26,
+            spacing1=10,
+            spacing3=2,
+        )
+        self.chat_log.tag_configure(
+            "who_agent",
+            foreground="#374151",
+            font=("TkDefaultFont", 9, "bold"),
+            justify="left",
+            lmargin1=26,
+            lmargin2=26,
+            spacing1=10,
+            spacing3=2,
+        )
+        self.chat_log.tag_configure(
+            "who_system",
+            foreground="#7c5e10",
+            font=("TkDefaultFont", 9, "bold"),
+            justify="left",
+            lmargin1=26,
+            lmargin2=26,
+            spacing1=10,
+            spacing3=2,
+        )
+
+        self.chat_log.tag_configure(
+            "bubble_you",
+            background=BG_USER,
+            foreground=FG_PRIMARY,
+            justify="right",
+            rmargin=26,
+            spacing3=8,
+        )
+        self.chat_log.tag_configure(
+            "bubble_agent",
+            background=BG_AGENT,
+            foreground=FG_PRIMARY,
+            justify="left",
+            lmargin1=26,
+            lmargin2=26,
+            spacing3=8,
+        )
+        self.chat_log.tag_configure(
+            "bubble_system",
+            background=BG_SYSTEM,
+            foreground=FG_PRIMARY,
+            justify="left",
+            lmargin1=26,
+            lmargin2=26,
+            spacing3=8,
+        )
+
     def _append_message(self, speaker: str, message: str) -> None:
+        if speaker == "You":
+            who_tag = "who_you"
+            body_tag = "bubble_you"
+            label = "You"
+        elif speaker == "System":
+            who_tag = "who_system"
+            body_tag = "bubble_system"
+            label = "System"
+        else:
+            who_tag = "who_agent"
+            body_tag = "bubble_agent"
+            label = "Agent"
+
         self.chat_log.configure(state=tk.NORMAL)
-        self.chat_log.insert(tk.END, f"{speaker}: {message}\n\n")
+        self.chat_log.insert(tk.END, f"{label}\n", who_tag)
+        self.chat_log.insert(tk.END, f" {message}\n", body_tag)
+        self.chat_log.insert(tk.END, "\n")
         self.chat_log.configure(state=tk.DISABLED)
         self.chat_log.see(tk.END)
 
@@ -103,7 +240,7 @@ class AgentChatGUI:
         self.entry.configure(state=tk.DISABLED)
 
         def on_progress(message: str) -> None:
-            self._append_message("Agent", message)
+            self._append_message("System", message)
             self._update_progress_panel(message)
             self.root.update_idletasks()
 
@@ -128,7 +265,7 @@ class AgentChatGUI:
         self.entry.configure(state=tk.DISABLED)
 
         def on_progress(message: str) -> None:
-            self._append_message("Agent", message)
+            self._append_message("System", message)
             self._update_progress_panel(message)
             self.root.update_idletasks()
 
