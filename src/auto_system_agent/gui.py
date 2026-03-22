@@ -435,18 +435,13 @@ class AgentChatGUI:
             self._set_step_status(1, 1, state, single_finished.group(1).strip())
 
     def _build_agent(self) -> AutoSystemAgent:
-        config = {
-            "url": self._settings.url,
-            "api_key": self._settings.api_key,
-            "model": self._settings.model,
-            "timeout": self._settings.timeout,
-        }
+        config = self._settings_store.resolve_llm_config(self._settings)
         return AutoSystemAgent(llm_config=config)
 
     def _open_settings_dialog(self) -> None:
         dialog = tk.Toplevel(self.root)
         dialog.title("LLM Settings")
-        dialog.geometry("520x260")
+        dialog.geometry("620x380")
         dialog.transient(self.root)
         dialog.grab_set()
 
@@ -459,10 +454,50 @@ class AgentChatGUI:
             return entry
 
         dialog.columnconfigure(1, weight=1)
-        url_entry = add_row("LLM URL", 0, self._settings.url)
-        key_entry = add_row("API Key", 1, self._settings.api_key, show="*")
-        model_entry = add_row("Model", 2, self._settings.model)
-        timeout_entry = add_row("Timeout (seconds)", 3, str(self._settings.timeout))
+
+        mode_var = tk.StringVar(value=self._settings.provider_mode)
+        mode_label = tk.Label(dialog, text="Provider Mode")
+        mode_label.grid(row=0, column=0, sticky="nw", padx=12, pady=8)
+
+        mode_frame = tk.Frame(dialog)
+        mode_frame.grid(row=0, column=1, sticky="w", padx=12, pady=8)
+        tk.Radiobutton(
+            mode_frame,
+            text="Bundled (use app preconfigured provider)",
+            variable=mode_var,
+            value="bundled",
+        ).pack(anchor="w")
+        tk.Radiobutton(
+            mode_frame,
+            text="Custom (use my own token and endpoint)",
+            variable=mode_var,
+            value="custom",
+        ).pack(anchor="w")
+
+        url_entry = add_row("Custom LLM URL", 1, self._settings.url)
+        key_entry = add_row("Custom API Key", 2, self._settings.api_key, show="*")
+        model_entry = add_row("Custom Model", 3, self._settings.model)
+        timeout_entry = add_row("Custom Timeout (seconds)", 4, str(self._settings.timeout))
+
+        helper_label = tk.Label(
+            dialog,
+            text="Bundled mode reads AUTO_AGENT_DEFAULT_LLM_* env vars.\n"
+            "Custom mode uses values below and stores them in your local settings.",
+            justify=tk.LEFT,
+            anchor="w",
+            fg=FG_MUTED,
+        )
+        helper_label.grid(row=5, column=0, columnspan=2, sticky="w", padx=12, pady=(2, 6))
+
+        custom_controls = [url_entry, key_entry, model_entry, timeout_entry]
+
+        def sync_mode_state(*_args) -> None:
+            state = tk.NORMAL if mode_var.get() == "custom" else tk.DISABLED
+            for control in custom_controls:
+                control.configure(state=state)
+
+        mode_var.trace_add("write", sync_mode_state)
+        sync_mode_state()
 
         def save_and_close() -> None:
             try:
@@ -472,6 +507,7 @@ class AgentChatGUI:
                 return
 
             self._settings = LLMSettings(
+                provider_mode=mode_var.get().strip() or "bundled",
                 url=url_entry.get().strip(),
                 api_key=key_entry.get().strip(),
                 model=model_entry.get().strip() or "gpt-4o-mini",
@@ -479,11 +515,14 @@ class AgentChatGUI:
             )
             self._settings_store.save(self._settings)
             self.agent = self._build_agent()
-            self._append_message("Agent", "LLM settings saved and applied.")
+            if self._settings.provider_mode == "custom":
+                self._append_message("Agent", "LLM settings saved in custom mode and applied.")
+            else:
+                self._append_message("Agent", "LLM settings saved in bundled mode and applied.")
             dialog.destroy()
 
         button_frame = tk.Frame(dialog)
-        button_frame.grid(row=4, column=0, columnspan=2, sticky="e", padx=12, pady=12)
+        button_frame.grid(row=6, column=0, columnspan=2, sticky="e", padx=12, pady=12)
         tk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=(8, 0))
         tk.Button(button_frame, text="Save", command=save_and_close).pack(side=tk.RIGHT)
 
