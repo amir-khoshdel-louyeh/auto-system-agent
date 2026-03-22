@@ -1,6 +1,9 @@
 import tkinter as tk
 from tkinter import messagebox, scrolledtext
+import queue
 import re
+import threading
+from typing import Callable
 
 from auto_system_agent.agent import AutoSystemAgent
 from auto_system_agent.settings import LLMSettings, SettingsStore
@@ -23,6 +26,8 @@ class AgentChatGUI:
         self._settings_store = SettingsStore()
         self._settings = self._settings_store.load()
         self.agent = self._build_agent()
+        self._is_busy = False
+        self._ui_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
         self.root = tk.Tk()
         self.root.title("Auto System Agent")
         self.root.geometry("920x560")
@@ -138,6 +143,7 @@ class AgentChatGUI:
         self.cancel_button.pack(side=tk.LEFT, padx=(8, 0))
 
         self._append_message("Agent", "Welcome. Type help to see example commands.")
+        self.root.after(50, self._drain_ui_queue)
 
     def _configure_chat_styles(self) -> None:
         self.chat_log.tag_configure(
@@ -223,7 +229,7 @@ class AgentChatGUI:
         if not user_input:
             return
 
-        if str(self.send_button["state"]) == "disabled":
+        if self._is_busy or str(self.send_button["state"]) == "disabled":
             return
 
         self.entry.delete(0, tk.END)
@@ -235,50 +241,26 @@ class AgentChatGUI:
             return
 
         self._reset_progress_panel()
-
-        self.send_button.configure(state=tk.DISABLED)
-        self.entry.configure(state=tk.DISABLED)
-
-        def on_progress(message: str) -> None:
-            self._append_message("System", message)
-            self._update_progress_panel(message)
-            self.root.update_idletasks()
-
-        response = self.agent.process(user_input, progress_callback=on_progress)
-        self._append_message("Agent", response)
-        self.entry.configure(state=tk.NORMAL)
-        self.send_button.configure(state=tk.NORMAL)
-        self.entry.focus_set()
-        self._sync_confirmation_controls()
+        self._start_background_task(
+            lambda on_progress: self.agent.process(user_input, progress_callback=on_progress)
+        )
 
     def _on_confirm(self) -> None:
+        if self._is_busy:
+            return
+
         if not self.agent.has_pending_confirmation():
             self._sync_confirmation_controls()
             return
 
         self._append_message("You", "yes")
         self._reset_progress_panel()
-
-        self.send_button.configure(state=tk.DISABLED)
-        self.confirm_button.configure(state=tk.DISABLED)
-        self.cancel_button.configure(state=tk.DISABLED)
-        self.entry.configure(state=tk.DISABLED)
-
-        def on_progress(message: str) -> None:
-            self._append_message("System", message)
-            self._update_progress_panel(message)
-            self.root.update_idletasks()
-
-        response = self.agent.confirm_pending(progress_callback=on_progress)
-        if response:
-            self._append_message("Agent", response)
-
-        self.entry.configure(state=tk.NORMAL)
-        self.send_button.configure(state=tk.NORMAL)
-        self.entry.focus_set()
-        self._sync_confirmation_controls()
+        self._start_background_task(self.agent.confirm_pending)
 
     def _on_cancel(self) -> None:
+        if self._is_busy:
+            return
+
         if not self.agent.has_pending_confirmation():
             self._sync_confirmation_controls()
             return
@@ -291,8 +273,56 @@ class AgentChatGUI:
 
     def _sync_confirmation_controls(self) -> None:
         has_pending = self.agent.has_pending_confirmation()
+        if self._is_busy:
+            self.confirm_button.configure(state=tk.DISABLED)
+            self.cancel_button.configure(state=tk.DISABLED)
+            return
+
         self.confirm_button.configure(state=tk.NORMAL if has_pending else tk.DISABLED)
         self.cancel_button.configure(state=tk.NORMAL if has_pending else tk.DISABLED)
+
+    def _set_busy(self, busy: bool) -> None:
+        self._is_busy = busy
+        self.send_button.configure(state=tk.DISABLED if busy else tk.NORMAL)
+        self.entry.configure(state=tk.DISABLED if busy else tk.NORMAL)
+        self._sync_confirmation_controls()
+
+    def _start_background_task(self, task_fn: Callable[[Callable[[str], None]], str | None]) -> None:
+        self._set_busy(True)
+
+        def worker() -> None:
+            def on_progress(message: str) -> None:
+                self._ui_queue.put(("progress", message))
+
+            try:
+                response = task_fn(on_progress)
+                if response:
+                    self._ui_queue.put(("response", response))
+            except Exception as exc:
+                self._ui_queue.put(("error", f"Unexpected error while processing request: {exc}"))
+            finally:
+                self._ui_queue.put(("done", None))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _drain_ui_queue(self) -> None:
+        try:
+            while True:
+                event_type, payload = self._ui_queue.get_nowait()
+                if event_type == "progress" and payload is not None:
+                    self._append_message("System", payload)
+                    self._update_progress_panel(payload)
+                elif event_type == "response" and payload is not None:
+                    self._append_message("Agent", payload)
+                elif event_type == "error" and payload is not None:
+                    self._append_message("System", payload)
+                elif event_type == "done":
+                    self._set_busy(False)
+                    self.entry.focus_set()
+        except queue.Empty:
+            pass
+
+        self.root.after(50, self._drain_ui_queue)
 
     def _reset_progress_panel(self) -> None:
         self.progress_list.delete(0, tk.END)
