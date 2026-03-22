@@ -1,10 +1,12 @@
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
 
 @dataclass
 class LLMSettings:
+    provider_mode: str = "bundled"
     url: str = ""
     api_key: str = ""
     model: str = "gpt-4o-mini"
@@ -34,6 +36,7 @@ class SettingsStore:
             timeout = 8.0
 
         return LLMSettings(
+            provider_mode=self._normalize_provider_mode(payload.get("provider_mode", "bundled")),
             url=str(payload.get("url", "")).strip(),
             api_key=str(payload.get("api_key", "")).strip(),
             model=str(payload.get("model", "gpt-4o-mini")).strip() or "gpt-4o-mini",
@@ -43,9 +46,56 @@ class SettingsStore:
     def save(self, settings: LLMSettings) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
+            "provider_mode": self._normalize_provider_mode(settings.provider_mode),
             "url": settings.url.strip(),
             "api_key": settings.api_key.strip(),
             "model": settings.model.strip() or "gpt-4o-mini",
             "timeout": float(settings.timeout),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def resolve_llm_config(self, settings: LLMSettings) -> dict:
+        """Build runtime config for LLM clients from bundled/custom sources."""
+        provider_mode = self._normalize_provider_mode(settings.provider_mode)
+
+        if provider_mode == "custom":
+            url = settings.url.strip() or os.getenv("AUTO_AGENT_LLM_URL", "").strip()
+            api_key = settings.api_key.strip() or os.getenv("AUTO_AGENT_LLM_API_KEY", "").strip()
+            model = settings.model.strip() or os.getenv("AUTO_AGENT_LLM_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
+            timeout = self._coerce_timeout(settings.timeout, fallback=8.0)
+            return {
+                "url": url,
+                "api_key": api_key,
+                "model": model,
+                "timeout": timeout,
+            }
+
+        # Bundled mode lets app distributors define a ready-to-use provider.
+        url = os.getenv("AUTO_AGENT_DEFAULT_LLM_URL", "").strip() or os.getenv("AUTO_AGENT_LLM_URL", "").strip()
+        api_key = os.getenv("AUTO_AGENT_DEFAULT_LLM_API_KEY", "").strip() or os.getenv("AUTO_AGENT_LLM_API_KEY", "").strip()
+        model = (
+            os.getenv("AUTO_AGENT_DEFAULT_LLM_MODEL", "").strip()
+            or os.getenv("AUTO_AGENT_LLM_MODEL", "").strip()
+            or "gpt-4o-mini"
+        )
+        timeout_env = os.getenv("AUTO_AGENT_DEFAULT_LLM_TIMEOUT", "").strip() or os.getenv("AUTO_AGENT_LLM_TIMEOUT", "").strip()
+        timeout = self._coerce_timeout(timeout_env, fallback=8.0)
+
+        return {
+            "url": url,
+            "api_key": api_key,
+            "model": model,
+            "timeout": timeout,
+        }
+
+    def _normalize_provider_mode(self, value: object) -> str:
+        normalized = str(value or "").strip().lower()
+        if normalized in {"bundled", "custom"}:
+            return normalized
+        return "bundled"
+
+    def _coerce_timeout(self, value: object, fallback: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return float(fallback)
