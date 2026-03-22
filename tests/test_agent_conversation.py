@@ -222,6 +222,22 @@ class AgentConversationTests(unittest.TestCase):
         self.assertIn("[SUCCESS]", reply)
         self.assertFalse(agent.has_pending_confirmation())
 
+    def test_pending_confirmation_summary_reflects_waiting_action(self):
+        executor = CapturingExecutor()
+        agent = AutoSystemAgent(
+            planner=Planner(),
+            selector=PassThroughSelector(),
+            executor=executor,
+            assistant=FakeAssistant(None),
+        )
+
+        prompt = agent.process("install vlc")
+        self.assertIn("Confirmation required", prompt)
+        self.assertEqual(agent.get_pending_confirmation_summary(), "install_app vlc")
+
+        agent.process("no")
+        self.assertEqual(agent.get_pending_confirmation_summary(), "")
+
     def test_resolves_compress_it_in_multi_step_flow(self):
         executor = CapturingExecutor()
         agent = AutoSystemAgent(

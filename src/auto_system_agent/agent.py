@@ -155,6 +155,19 @@ class AutoSystemAgent:
     def has_pending_confirmation(self) -> bool:
         return self._pending_confirmation is not None
 
+    def get_pending_confirmation_summary(self) -> str:
+        if not self._pending_confirmation:
+            return ""
+
+        tasks: list[PlannedTask] = self._pending_confirmation.get("tasks", [])
+        if not tasks:
+            return ""
+
+        parts = []
+        for task in tasks:
+            parts.append(f"{task.action} {task.target or ''}".strip())
+        return "; ".join(parts)
+
     def confirm_pending(self, progress_callback: Callable[[str], None] | None = None) -> str | None:
         return self._handle_pending_confirmation("yes", progress_callback)
 
