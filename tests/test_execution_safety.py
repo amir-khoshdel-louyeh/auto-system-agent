@@ -34,12 +34,24 @@ class ExecutionSafetyTests(unittest.TestCase):
 
         self.assertFalse(result.success)
         self.assertIn("blocked by safety policy", result.message)
+        self.assertEqual(result.data.get("policy_decision"), "blocked")
+        self.assertEqual(result.data.get("policy_reason"), "interpreter_execution")
+        self.assertIn(result.data.get("risk_level"), {"low", "medium", "high"})
 
     def test_run_command_blocks_risky_flags(self):
         result = run_command("echo -rf")
 
         self.assertFalse(result.success)
         self.assertIn("blocked by safety policy", result.message)
+        self.assertEqual(result.data.get("policy_decision"), "blocked")
+
+    def test_run_command_includes_risk_when_allowed(self):
+        result = run_command("echo hello")
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.data.get("policy_decision"), "approved")
+        self.assertEqual(result.data.get("policy_reason"), "allowed_command")
+        self.assertIn(result.data.get("risk_level"), {"low", "medium", "high"})
 
     def test_install_action_handles_missing_package_manager(self):
         executor = SafeExecutor()
