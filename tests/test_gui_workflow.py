@@ -68,6 +68,18 @@ class FakeEntry:
         self.focus_calls += 1
 
 
+class FakeLabel:
+    def __init__(self):
+        self.text = ""
+        self.fg = ""
+
+    def configure(self, **kwargs):
+        if "text" in kwargs:
+            self.text = kwargs["text"]
+        if "fg" in kwargs:
+            self.fg = kwargs["fg"]
+
+
 class SingleStepPlanner:
     def __init__(self):
         self.calls = []
@@ -136,6 +148,8 @@ def build_gui_harness(agent, user_text):
     gui.send_button = FakeButton(state=tk.NORMAL)
     gui.confirm_button = FakeButton(state=tk.DISABLED)
     gui.cancel_button = FakeButton(state=tk.DISABLED)
+    gui.confirmation_status_label = FakeLabel()
+    gui.confirmation_details_label = FakeLabel()
     gui._step_progress_rows = {}
 
     messages = []
@@ -228,6 +242,30 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertTrue(any("Step 1/2: running create_folder" in item for item in progress_updates))
         self.assertTrue(any("Step 2/2: running list_files" in item for item in progress_updates))
         self.assertTrue(any(speaker == "Agent" and "Step 2: [SUCCESS] list_files:demo" in text for speaker, text in messages))
+
+    def test_confirmation_state_is_visible_and_buttons_are_controllable(self):
+        from auto_system_agent.planner import Planner
+
+        agent = AutoSystemAgent(
+            planner=Planner(),
+            assistant=FakeAssistant(),
+            event_logger=InMemoryLogger(),
+        )
+        gui, messages, _progress = build_gui_harness(agent, "install vlc")
+
+        gui._on_send()
+        self.assertTrue(drain_until_idle(gui), "GUI worker did not finish in time")
+
+        self.assertEqual(gui.confirm_button["state"], tk.NORMAL)
+        self.assertEqual(gui.cancel_button["state"], tk.NORMAL)
+        self.assertIn("Pending confirmation", gui.confirmation_status_label.text)
+        self.assertIn("install_app vlc", gui.confirmation_details_label.text)
+
+        gui._on_cancel()
+        self.assertEqual(gui.confirm_button["state"], tk.DISABLED)
+        self.assertEqual(gui.cancel_button["state"], tk.DISABLED)
+        self.assertIn("No pending confirmation", gui.confirmation_status_label.text)
+        self.assertIn(("Agent", "Cancelled pending action."), messages)
 
 
 if __name__ == "__main__":

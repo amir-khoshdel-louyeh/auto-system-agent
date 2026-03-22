@@ -84,6 +84,46 @@ class AgentChatGUI:
         self.progress_list.pack(fill=tk.BOTH, expand=True)
         self._step_progress_rows: dict[int, int] = {}
 
+        confirmation_frame = tk.Frame(
+            progress_frame,
+            bg=BG_PANEL,
+            highlightbackground="#d0d7e2",
+            highlightthickness=1,
+            padx=8,
+            pady=8,
+        )
+        confirmation_frame.pack(fill=tk.X, pady=(8, 0))
+
+        tk.Label(
+            confirmation_frame,
+            text="Confirmation",
+            font=("TkDefaultFont", 10, "bold"),
+            fg=ACCENT,
+            bg=BG_PANEL,
+        ).pack(anchor="w")
+
+        self.confirmation_status_label = tk.Label(
+            confirmation_frame,
+            text="No pending confirmation.",
+            font=("TkDefaultFont", 9, "bold"),
+            fg="#4b5563",
+            bg=BG_PANEL,
+            wraplength=230,
+            justify=tk.LEFT,
+        )
+        self.confirmation_status_label.pack(anchor="w", pady=(4, 4))
+
+        self.confirmation_details_label = tk.Label(
+            confirmation_frame,
+            text="",
+            font=("TkDefaultFont", 9),
+            fg=FG_MUTED,
+            bg=BG_PANEL,
+            wraplength=230,
+            justify=tk.LEFT,
+        )
+        self.confirmation_details_label.pack(anchor="w")
+
         bottom_frame = tk.Frame(self.root, bg=BG_APP)
         bottom_frame.pack(fill=tk.X, padx=12, pady=(0, 12))
 
@@ -143,6 +183,7 @@ class AgentChatGUI:
         self.cancel_button.pack(side=tk.LEFT, padx=(8, 0))
 
         self._append_message("Agent", "Welcome. Type help to see example commands.")
+        self._sync_confirmation_controls()
         self.root.after(50, self._drain_ui_queue)
 
     def _configure_chat_styles(self) -> None:
@@ -276,10 +317,32 @@ class AgentChatGUI:
         if self._is_busy:
             self.confirm_button.configure(state=tk.DISABLED)
             self.cancel_button.configure(state=tk.DISABLED)
+            self._set_confirmation_status(
+                "Request in progress...",
+                "Please wait for completion before confirming or cancelling.",
+                "#92400e",
+            )
             return
 
         self.confirm_button.configure(state=tk.NORMAL if has_pending else tk.DISABLED)
         self.cancel_button.configure(state=tk.NORMAL if has_pending else tk.DISABLED)
+        if has_pending:
+            summary = self.agent.get_pending_confirmation_summary()
+            details = summary if summary else "High-risk action is pending confirmation."
+            self._set_confirmation_status(
+                "Pending confirmation",
+                details,
+                "#b45309",
+            )
+            return
+
+        self._set_confirmation_status("No pending confirmation.", "", "#4b5563")
+
+    def _set_confirmation_status(self, status: str, details: str, color: str) -> None:
+        if hasattr(self, "confirmation_status_label"):
+            self.confirmation_status_label.configure(text=status, fg=color)
+        if hasattr(self, "confirmation_details_label"):
+            self.confirmation_details_label.configure(text=details)
 
     def _set_busy(self, busy: bool) -> None:
         self._is_busy = busy
