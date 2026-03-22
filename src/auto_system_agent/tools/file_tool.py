@@ -1,4 +1,5 @@
 import shutil
+import os
 from pathlib import Path
 import zipfile
 
@@ -25,6 +26,33 @@ USER_PROTECTED_PATHS = {
 }
 
 
+def _get_sandbox_roots() -> list[Path]:
+    raw_roots = os.getenv("AUTO_AGENT_PATH_ALLOW_ROOTS", "").strip()
+    if not raw_roots:
+        return []
+    roots: list[Path] = []
+    for item in raw_roots.split(os.pathsep):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            roots.append(Path(item).expanduser().resolve())
+        except OSError:
+            continue
+    return roots
+
+
+def _is_in_sandbox(path: Path) -> bool:
+    roots = _get_sandbox_roots()
+    if not roots:
+        return True
+    return any(path == root or root in path.parents for root in roots)
+
+
+def _sandbox_block(path: Path) -> ExecutionResult:
+    return ExecutionResult(success=False, message=f"Path is outside sandbox allow-list roots: {path}")
+
+
 def _is_protected(path: Path) -> bool:
     if path == Path("/").resolve():
         return True
@@ -39,6 +67,8 @@ def _is_protected(path: Path) -> bool:
 def create_folder(path_text: str) -> ExecutionResult:
     try:
         path = Path(path_text).expanduser().resolve()
+        if not _is_in_sandbox(path):
+            return _sandbox_block(path)
         path.mkdir(parents=True, exist_ok=True)
     except OSError as exc:
         return ExecutionResult(success=False, message=f"Could not create folder: {exc}")
@@ -54,6 +84,8 @@ def compress_path(path_text: str) -> ExecutionResult:
 
     if not source.exists():
         return ExecutionResult(success=False, message=f"Path does not exist: {source}")
+    if not _is_in_sandbox(source):
+        return _sandbox_block(source)
 
     try:
         if source.is_dir():
@@ -81,6 +113,8 @@ def list_files(path_text: str) -> ExecutionResult:
 
     if not target.exists() or not target.is_dir():
         return ExecutionResult(success=False, message=f"Invalid directory: {target}")
+    if not _is_in_sandbox(target):
+        return _sandbox_block(target)
 
     try:
         entries = sorted(item.name for item in target.iterdir())
@@ -100,6 +134,10 @@ def move_path(source_text: str, destination_text: str) -> ExecutionResult:
 
     if not source.exists():
         return ExecutionResult(success=False, message=f"Path does not exist: {source}")
+    if not _is_in_sandbox(source):
+        return _sandbox_block(source)
+    if not _is_in_sandbox(destination):
+        return _sandbox_block(destination)
 
     try:
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -118,6 +156,8 @@ def delete_path(path_text: str) -> ExecutionResult:
 
     if not target.exists():
         return ExecutionResult(success=False, message=f"Path does not exist: {target}")
+    if not _is_in_sandbox(target):
+        return _sandbox_block(target)
 
     if _is_protected(target):
         return ExecutionResult(success=False, message=f"Deletion blocked for protected path: {target}")
