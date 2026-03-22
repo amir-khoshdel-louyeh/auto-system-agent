@@ -32,3 +32,29 @@ list files in downloads
 This project focuses on **simplicity and practical functionality**, providing a basic framework for building AI agents that interact with operating systems.
 
 Future improvements may include a graphical interface, more tools, multi-step task planning, and expanded application libraries.
+
+## LLM Token Setup
+
+The app supports two modes so installers can ship a ready-to-use setup while advanced users can override with their own token.
+
+### 1) Bundled mode (preconfigured)
+
+Set these environment variables before launching the app:
+
+- `AUTO_AGENT_DEFAULT_LLM_URL`
+- `AUTO_AGENT_DEFAULT_LLM_API_KEY`
+- `AUTO_AGENT_DEFAULT_LLM_MODEL` (optional, default is `gpt-4o-mini`)
+- `AUTO_AGENT_DEFAULT_LLM_TIMEOUT` (optional, default is `8`)
+
+Then open the GUI and keep **Settings -> LLM Settings -> Provider Mode = Bundled**.
+
+### 2) Custom mode (user token)
+
+Each user can configure their own provider values:
+
+1. Open **Settings -> LLM Settings**.
+2. Select **Provider Mode = Custom**.
+3. Fill in URL, API key, model, and timeout.
+4. Save.
+
+The values are stored locally at `~/.auto_system_agent/settings.json` and are used by both GUI and CLI.
