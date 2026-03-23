@@ -267,6 +267,7 @@ class AgentConversationTests(unittest.TestCase):
         self.assertIn("Step 1: [SUCCESS]", response)
         self.assertIn("Step 2: [ERROR]", response)
         self.assertIn("blocked by safety policy", response)
+        self.assertIn("Reason: interpreter execution", response)
 
 
 if __name__ == "__main__":
