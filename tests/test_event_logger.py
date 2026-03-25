@@ -65,6 +65,8 @@ class EventLoggerTests(unittest.TestCase):
         self.assertEqual(event["user_input"], "create folder demo")
         self.assertEqual(event["planned_tasks"][0]["action"], "create_folder")
         self.assertEqual(event["steps"][0]["tool"], "create_folder")
+        self.assertEqual(event["steps"][0]["audit"]["decision"], "approved")
+        self.assertEqual(event["steps"][0]["audit"]["reason"], "allowed_action")
 
     def test_jsonl_logger_writes_line(self):
         tmp_path = PROJECT_ROOT / "tests" / "tmp_events.jsonl"

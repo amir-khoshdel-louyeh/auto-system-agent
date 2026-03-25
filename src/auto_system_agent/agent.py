@@ -357,12 +357,22 @@ class AutoSystemAgent:
         return any(task.action in HIGH_RISK_ACTIONS for task in tasks)
 
     def _step_payload(self, tool_key: str, task: PlannedTask, result: ExecutionResult) -> dict:
+        decision = str(result.data.get("policy_decision", "")).strip() or "approved"
+        if "blocked" in result.message.lower():
+            decision = "blocked"
+        reason = str(result.data.get("policy_reason", "")).strip() or ("safety_policy" if decision == "blocked" else "allowed_action")
         return {
             "tool": tool_key,
             "task": {
                 "action": task.action,
                 "target": task.target or "",
                 "options": dict(task.options),
+            },
+            "audit": {
+                "decision": decision,
+                "reason": reason,
+                "risk_score": result.data.get("risk_score"),
+                "risk_level": result.data.get("risk_level", ""),
             },
             "result": {
                 "success": result.success,
