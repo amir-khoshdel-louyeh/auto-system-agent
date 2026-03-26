@@ -6,6 +6,7 @@ from auto_system_agent.llm_conversation_assistant import LLMConversationAssistan
 from auto_system_agent.llm_tool_mapper import LLMToolMapper
 from auto_system_agent.models import ExecutionResult
 from auto_system_agent.models import PlannedTask
+from auto_system_agent.models import StepStatus
 from auto_system_agent.planner import Planner
 from auto_system_agent.result_formatter import ResultFormatter
 from auto_system_agent.safe_executor import SafeExecutor
@@ -47,7 +48,7 @@ class AutoSystemAgent:
     def process(
         self,
         user_input: str,
-        progress_callback: Callable[[str], None] | None = None,
+        progress_callback: Callable[[StepStatus], None] | None = None,
     ) -> str:
         pending_reply = self._handle_pending_confirmation(user_input, progress_callback)
         if pending_reply is not None:
@@ -88,9 +89,12 @@ class AutoSystemAgent:
                 self._log_event(user_input=user_input, mode="confirmation_requested", planned_tasks=[task], steps=[], reply=reply)
                 return reply
 
-            self._notify(progress_callback, f"Running {tool_key}...")
+            self._notify(progress_callback, StepStatus(step=1, total=1, tool=tool_key, state="running"))
             result = self._executor.execute(tool_key, task)
-            self._notify(progress_callback, f"Finished {tool_key} ({'ok' if result.success else 'failed'}).")
+            self._notify(
+                progress_callback,
+                StepStatus(step=1, total=1, tool=tool_key, state="done" if result.success else "failed", message=result.message),
+            )
             self._update_context_from_task(task, result)
             reply = self._formatter.format(result)
             self._remember(user_input, reply)
@@ -128,9 +132,12 @@ class AutoSystemAgent:
                 return reply
 
             llm_tool_key = self._selector.select(llm_task)
-            self._notify(progress_callback, f"Running {llm_tool_key}...")
+            self._notify(progress_callback, StepStatus(step=1, total=1, tool=llm_tool_key, state="running"))
             result = self._executor.execute(llm_tool_key, llm_task)
-            self._notify(progress_callback, f"Finished {llm_tool_key} ({'ok' if result.success else 'failed'}).")
+            self._notify(
+                progress_callback,
+                StepStatus(step=1, total=1, tool=llm_tool_key, state="done" if result.success else "failed", message=result.message),
+            )
             self._update_context_from_task(llm_task, result)
             reply = self._formatter.format(result)
             self._remember(user_input, reply)
@@ -178,14 +185,14 @@ class AutoSystemAgent:
         self,
         user_input: str,
         tasks: list[PlannedTask],
-        progress_callback: Callable[[str], None] | None = None,
+        progress_callback: Callable[[StepStatus], None] | None = None,
     ) -> tuple[str, list[dict]]:
         results: list[ExecutionResult] = []
         step_payloads: list[dict] = []
         for index, task in enumerate(tasks, start=1):
             task = self._resolve_task_context(task)
             tool_key = self._selector.select(task)
-            self._notify(progress_callback, f"Step {index}/{len(tasks)}: running {tool_key}...")
+            self._notify(progress_callback, StepStatus(step=index, total=len(tasks), tool=tool_key, state="running"))
             if tool_key == "unknown":
                 unknown_result = ExecutionResult(
                     success=False,
@@ -193,7 +200,10 @@ class AutoSystemAgent:
                 )
                 results.append(unknown_result)
                 step_payloads.append(self._step_payload(tool_key, task, unknown_result))
-                self._notify(progress_callback, f"Step {index}/{len(tasks)} failed: unknown tool.")
+                self._notify(
+                    progress_callback,
+                    StepStatus(step=index, total=len(tasks), tool=tool_key, state="failed", message=unknown_result.message),
+                )
                 break
 
             result = self._executor.execute(tool_key, task)
@@ -202,7 +212,13 @@ class AutoSystemAgent:
             self._update_context_from_task(task, result)
             self._notify(
                 progress_callback,
-                f"Step {index}/{len(tasks)} finished {tool_key} ({'ok' if result.success else 'failed'}).",
+                StepStatus(
+                    step=index,
+                    total=len(tasks),
+                    tool=tool_key,
+                    state="done" if result.success else "failed",
+                    message=result.message,
+                ),
             )
             if not result.success:
                 break
@@ -265,14 +281,14 @@ class AutoSystemAgent:
         if len(self._history) > 20:
             self._history = self._history[-20:]
 
-    def _notify(self, callback: Callable[[str], None] | None, message: str) -> None:
+    def _notify(self, callback: Callable[[StepStatus], None] | None, status: StepStatus) -> None:
         if callback:
-            callback(message)
+            callback(status)
 
     def _handle_pending_confirmation(
         self,
         user_input: str,
-        progress_callback: Callable[[str], None] | None,
+        progress_callback: Callable[[StepStatus], None] | None,
     ) -> str | None:
         if not self._pending_confirmation:
             return None
@@ -323,9 +339,12 @@ class AutoSystemAgent:
             self._remember(user_input, reply)
             return reply
 
-        self._notify(progress_callback, f"Running {tool_key}...")
+        self._notify(progress_callback, StepStatus(step=1, total=1, tool=tool_key, state="running"))
         result = self._executor.execute(tool_key, task)
-        self._notify(progress_callback, f"Finished {tool_key} ({'ok' if result.success else 'failed'}).")
+        self._notify(
+            progress_callback,
+            StepStatus(step=1, total=1, tool=tool_key, state="done" if result.success else "failed", message=result.message),
+        )
         self._update_context_from_task(task, result)
         reply = self._formatter.format(result)
         self._remember(user_input, reply)
