@@ -1,4 +1,5 @@
 import re
+from pathlib import Path
 
 from auto_system_agent.models import PlannedTask
 from auto_system_agent.task_schema import IntermediateTask
@@ -62,6 +63,14 @@ MULTI_STEP_SPLIT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+APP_ALIASES = {
+    "chrome": "google chrome",
+    "google-chrome": "google chrome",
+    "code": "visual studio code",
+    "vscode": "visual studio code",
+    "vlc media player": "vlc",
+}
+
 
 def _extract_first_group(patterns: tuple[re.Pattern[str], ...], text: str) -> str | None:
     for pattern in patterns:
@@ -71,6 +80,27 @@ def _extract_first_group(patterns: tuple[re.Pattern[str], ...], text: str) -> st
             if value:
                 return value
     return None
+
+
+def _strip_wrapping_quotes(value: str) -> str:
+    text = value.strip()
+    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
+        return text[1:-1].strip()
+    return text
+
+
+def _normalize_path_arg(value: str) -> str:
+    text = _strip_wrapping_quotes(value)
+    if not text:
+        return text
+    if text == ".":
+        return "."
+    return str(Path(text).expanduser())
+
+
+def _normalize_install_arg(value: str) -> str:
+    normalized = _strip_wrapping_quotes(value).lower().strip()
+    return APP_ALIASES.get(normalized, normalized)
 
 
 def _extract_two_groups(
@@ -117,39 +147,39 @@ class Planner:
 
         app_name = _extract_first_group(INSTALL_PATTERNS, text)
         if app_name:
-            return self._build_task(action="install_app", target=app_name, raw_input=task_raw_input)
+            return self._build_task(action="install_app", target=_normalize_install_arg(app_name), raw_input=task_raw_input)
 
         folder_name = _extract_first_group(CREATE_FOLDER_PATTERNS, text)
         if folder_name:
-            return self._build_task(action="create_folder", target=folder_name, raw_input=task_raw_input)
+            return self._build_task(action="create_folder", target=_normalize_path_arg(folder_name), raw_input=task_raw_input)
 
         compress_target = _extract_first_group(COMPRESS_PATTERNS, text)
         if compress_target:
-            return self._build_task(action="compress", target=compress_target, raw_input=task_raw_input)
+            return self._build_task(action="compress", target=_normalize_path_arg(compress_target), raw_input=task_raw_input)
 
         move_values = _extract_two_groups(MOVE_PATTERNS, text)
         if move_values:
             source, destination = move_values
             return self._build_task(
                 action="move_path",
-                target=source,
+                target=_normalize_path_arg(source),
                 raw_input=task_raw_input,
-                options={"destination": destination},
+                options={"destination": _normalize_path_arg(destination)},
             )
 
         delete_target = _extract_first_group(DELETE_PATTERNS, text)
         if delete_target:
-            return self._build_task(action="delete_path", target=delete_target, raw_input=task_raw_input)
+            return self._build_task(action="delete_path", target=_normalize_path_arg(delete_target), raw_input=task_raw_input)
 
         for pattern in LIST_FILES_PATTERNS:
             match = pattern.match(text)
             if match:
                 target = match.group(1).strip() if match.group(1) else "."
-                return self._build_task(action="list_files", target=target, raw_input=task_raw_input)
+                return self._build_task(action="list_files", target=_normalize_path_arg(target), raw_input=task_raw_input)
 
         run_target = _extract_first_group(RUN_PATTERNS, text)
         if run_target:
-            return self._build_task(action="run_command", target=run_target, raw_input=task_raw_input)
+            return self._build_task(action="run_command", target=_strip_wrapping_quotes(run_target), raw_input=task_raw_input)
 
         command_head = lowered.split(maxsplit=1)[0] if lowered else ""
         if command_head in DIRECT_COMMAND_PREFIXES:

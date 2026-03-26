@@ -97,6 +97,16 @@ class PlannerVariedPhrasingTests(unittest.TestCase):
         task = self.planner.plan("move")
         self.assertEqual(task.action, "unknown")
 
+    def test_install_aliases_are_normalized(self) -> None:
+        task = self.planner.plan("install chrome")
+        self.assertEqual(task.action, "install_app")
+        self.assertEqual(task.target, "google chrome")
+
+    def test_paths_and_quotes_are_normalized(self) -> None:
+        task = self.planner.plan("create folder '~/demo folder'")
+        self.assertEqual(task.action, "create_folder")
+        self.assertEqual(task.target, str(Path("~/demo folder").expanduser()))
+
 
 if __name__ == "__main__":
     unittest.main()
