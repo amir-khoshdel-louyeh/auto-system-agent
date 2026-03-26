@@ -19,3 +19,14 @@ class ExecutionResult:
     success: bool
     message: str
     data: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class StepStatus:
+    """Structured progress status emitted while executing steps."""
+
+    step: int
+    total: int
+    tool: str
+    state: str
+    message: str = ""
