@@ -1,6 +1,7 @@
 import re
 
 from auto_system_agent.models import PlannedTask
+from auto_system_agent.task_schema import IntermediateTask
 
 
 DIRECT_COMMAND_PREFIXES = {
@@ -112,24 +113,24 @@ class Planner:
         task_raw_input = raw_input or text
 
         if lowered in HELP_WORDS:
-            return PlannedTask(action="help", raw_input=task_raw_input)
+            return self._build_task(action="help", raw_input=task_raw_input)
 
         app_name = _extract_first_group(INSTALL_PATTERNS, text)
         if app_name:
-            return PlannedTask(action="install_app", target=app_name, raw_input=task_raw_input)
+            return self._build_task(action="install_app", target=app_name, raw_input=task_raw_input)
 
         folder_name = _extract_first_group(CREATE_FOLDER_PATTERNS, text)
         if folder_name:
-            return PlannedTask(action="create_folder", target=folder_name, raw_input=task_raw_input)
+            return self._build_task(action="create_folder", target=folder_name, raw_input=task_raw_input)
 
         compress_target = _extract_first_group(COMPRESS_PATTERNS, text)
         if compress_target:
-            return PlannedTask(action="compress", target=compress_target, raw_input=task_raw_input)
+            return self._build_task(action="compress", target=compress_target, raw_input=task_raw_input)
 
         move_values = _extract_two_groups(MOVE_PATTERNS, text)
         if move_values:
             source, destination = move_values
-            return PlannedTask(
+            return self._build_task(
                 action="move_path",
                 target=source,
                 raw_input=task_raw_input,
@@ -138,20 +139,39 @@ class Planner:
 
         delete_target = _extract_first_group(DELETE_PATTERNS, text)
         if delete_target:
-            return PlannedTask(action="delete_path", target=delete_target, raw_input=task_raw_input)
+            return self._build_task(action="delete_path", target=delete_target, raw_input=task_raw_input)
 
         for pattern in LIST_FILES_PATTERNS:
             match = pattern.match(text)
             if match:
                 target = match.group(1).strip() if match.group(1) else "."
-                return PlannedTask(action="list_files", target=target, raw_input=task_raw_input)
+                return self._build_task(action="list_files", target=target, raw_input=task_raw_input)
 
         run_target = _extract_first_group(RUN_PATTERNS, text)
         if run_target:
-            return PlannedTask(action="run_command", target=run_target, raw_input=task_raw_input)
+            return self._build_task(action="run_command", target=run_target, raw_input=task_raw_input)
 
         command_head = lowered.split(maxsplit=1)[0] if lowered else ""
         if command_head in DIRECT_COMMAND_PREFIXES:
-            return PlannedTask(action="run_command", target=text, raw_input=task_raw_input)
+            return self._build_task(action="run_command", target=text, raw_input=task_raw_input)
 
-        return PlannedTask(action="unknown", target=text, raw_input=task_raw_input)
+        return self._build_task(action="unknown", target=text, raw_input=task_raw_input)
+
+    def _build_task(
+        self,
+        *,
+        action: str,
+        target: str = "",
+        raw_input: str,
+        options: dict | None = None,
+    ) -> PlannedTask:
+        try:
+            candidate = IntermediateTask(
+                action=action,  # type: ignore[arg-type]
+                target=target,
+                raw_input=raw_input,
+                options=options or {},
+            )
+            return candidate.to_planned_task()
+        except ValueError:
+            return PlannedTask(action="unknown", target=target, raw_input=raw_input)

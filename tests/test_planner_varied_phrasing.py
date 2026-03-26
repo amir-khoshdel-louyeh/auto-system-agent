@@ -93,6 +93,10 @@ class PlannerVariedPhrasingTests(unittest.TestCase):
         self.assertEqual(tasks[1].action, "list_files")
         self.assertEqual(tasks[1].target, "demo")
 
+    def test_invalid_move_fragment_falls_back_to_unknown(self) -> None:
+        task = self.planner.plan("move")
+        self.assertEqual(task.action, "unknown")
+
 
 if __name__ == "__main__":
     unittest.main()
