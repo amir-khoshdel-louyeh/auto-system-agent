@@ -6,6 +6,7 @@ import threading
 from typing import Callable
 
 from auto_system_agent.agent import AutoSystemAgent
+from auto_system_agent.models import StepStatus
 from auto_system_agent.settings import LLMSettings, SettingsStore
 
 
@@ -27,7 +28,7 @@ class AgentChatGUI:
         self._settings = self._settings_store.load()
         self.agent = self._build_agent()
         self._is_busy = False
-        self._ui_queue: queue.Queue[tuple[str, str | None]] = queue.Queue()
+        self._ui_queue: queue.Queue[tuple[str, StepStatus | str | None]] = queue.Queue()
         self.root = tk.Tk()
         self.root.title("Auto System Agent")
         self.root.geometry("920x560")
@@ -350,12 +351,12 @@ class AgentChatGUI:
         self.entry.configure(state=tk.DISABLED if busy else tk.NORMAL)
         self._sync_confirmation_controls()
 
-    def _start_background_task(self, task_fn: Callable[[Callable[[str], None]], str | None]) -> None:
+    def _start_background_task(self, task_fn: Callable[[Callable[[StepStatus], None]], str | None]) -> None:
         self._set_busy(True)
 
         def worker() -> None:
-            def on_progress(message: str) -> None:
-                self._ui_queue.put(("progress", message))
+            def on_progress(status: StepStatus) -> None:
+                self._ui_queue.put(("progress", status))
 
             try:
                 response = task_fn(on_progress)
@@ -373,12 +374,15 @@ class AgentChatGUI:
             while True:
                 event_type, payload = self._ui_queue.get_nowait()
                 if event_type == "progress" and payload is not None:
-                    self._append_message("System", payload)
-                    self._update_progress_panel(payload)
+                    if isinstance(payload, StepStatus):
+                        self._append_message("System", self._status_to_text(payload))
+                        self._update_progress_panel(payload)
+                    else:
+                        self._append_message("System", str(payload))
                 elif event_type == "response" and payload is not None:
-                    self._append_message("Agent", payload)
+                    self._append_message("Agent", str(payload))
                 elif event_type == "error" and payload is not None:
-                    self._append_message("System", payload)
+                    self._append_message("System", str(payload))
                 elif event_type == "done":
                     self._set_busy(False)
                     self.entry.focus_set()
@@ -403,36 +407,15 @@ class AgentChatGUI:
             self._step_progress_rows[step] = row
         self.progress_list.see(row)
 
-    def _update_progress_panel(self, message: str) -> None:
-        running_match = re.match(r"Step\s+(\d+)/(\d+):\s+running\s+(.+)\.\.\.$", message)
-        if running_match:
-            step = int(running_match.group(1))
-            total = int(running_match.group(2))
-            tool = running_match.group(3).strip()
-            self._set_step_status(step, total, "running", tool)
-            return
+    def _update_progress_panel(self, status: StepStatus) -> None:
+        self._set_step_status(status.step, status.total, status.state, status.tool)
 
-        finished_match = re.match(
-            r"Step\s+(\d+)/(\d+)\s+finished\s+(.+)\s+\((ok|failed)\)\.$",
-            message,
-        )
-        if finished_match:
-            step = int(finished_match.group(1))
-            total = int(finished_match.group(2))
-            tool = finished_match.group(3).strip()
-            state = "done" if finished_match.group(4) == "ok" else "failed"
-            self._set_step_status(step, total, state, tool)
-            return
-
-        single_running = re.match(r"Running\s+(.+)\.\.\.$", message)
-        if single_running:
-            self._set_step_status(1, 1, "running", single_running.group(1).strip())
-            return
-
-        single_finished = re.match(r"Finished\s+(.+)\s+\((ok|failed)\)\.$", message)
-        if single_finished:
-            state = "done" if single_finished.group(2) == "ok" else "failed"
-            self._set_step_status(1, 1, state, single_finished.group(1).strip())
+    def _status_to_text(self, status: StepStatus) -> str:
+        if status.state == "running":
+            return f"Step {status.step}/{status.total}: running {status.tool}..."
+        if status.state == "done":
+            return f"Step {status.step}/{status.total} finished {status.tool} (ok)."
+        return f"Step {status.step}/{status.total} finished {status.tool} (failed)."
 
     def _build_agent(self) -> AutoSystemAgent:
         config = self._settings_store.resolve_llm_config(self._settings)
