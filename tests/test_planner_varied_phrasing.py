@@ -107,6 +107,13 @@ class PlannerVariedPhrasingTests(unittest.TestCase):
         self.assertEqual(task.action, "create_folder")
         self.assertEqual(task.target, str(Path("~/demo folder").expanduser()))
 
+    def test_multi_step_includes_dependencies_and_rollback_hints(self) -> None:
+        tasks = self.planner.plan_tasks("create folder demo then move demo to archive/demo")
+        self.assertEqual(tasks[0].options.get("depends_on_steps"), [])
+        self.assertIn("delete_path", str(tasks[0].options.get("rollback_hint", "")))
+        self.assertEqual(tasks[1].options.get("depends_on_steps"), [1])
+        self.assertIn("move_path", str(tasks[1].options.get("rollback_hint", "")))
+
 
 if __name__ == "__main__":
     unittest.main()

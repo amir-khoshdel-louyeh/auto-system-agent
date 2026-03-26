@@ -135,7 +135,26 @@ class Planner:
         tasks: list[PlannedTask] = []
         for segment in segments:
             tasks.append(self._plan_single(segment, raw_input=text))
+        for index, task in enumerate(tasks):
+            if task.action == "unknown":
+                continue
+            depends_on = [] if index == 0 else [index]
+            task.options["depends_on_steps"] = depends_on
+            task.options["rollback_hint"] = self._rollback_hint(task)
         return tasks
+
+    def _rollback_hint(self, task: PlannedTask) -> str:
+        if task.action == "create_folder" and task.target:
+            return f"delete_path {task.target}"
+        if task.action == "move_path" and task.target:
+            destination = str(task.options.get("destination", "")).strip()
+            if destination:
+                return f"move_path {destination} -> {task.target}"
+        if task.action == "install_app" and task.target:
+            return f"manual uninstall may be required for {task.target}"
+        if task.action == "compress" and task.target:
+            return f"delete generated archive for {task.target}"
+        return "no automatic rollback available"
 
     def _plan_single(self, user_input: str, raw_input: str | None = None) -> PlannedTask:
         text = user_input.strip()
