@@ -11,7 +11,7 @@ from auto_system_agent.planner import Planner
 from auto_system_agent.result_formatter import ResultFormatter
 from auto_system_agent.safe_executor import SafeExecutor
 from auto_system_agent.tool_selector import ToolSelector
-from auto_system_agent.tools.install_tool import extract_known_apps
+from auto_system_agent.tools.install_tool import build_install_command, extract_known_apps
 
 
 APP_REFERENCE_WORDS = {"it", "that", "this", "one", "best one", "the best one", "one of them"}
@@ -19,6 +19,11 @@ PATH_REFERENCE_WORDS = {"it", "that", "this", "them", "there"}
 CONFIRMATION_YES_WORDS = {"yes", "y", "confirm", "ok", "proceed"}
 CONFIRMATION_NO_WORDS = {"no", "n", "cancel", "stop"}
 HIGH_RISK_ACTIONS = {"install_app", "delete_path", "run_command"}
+ACTION_RISK_LEVELS = {
+    "install_app": "medium",
+    "delete_path": "high",
+    "run_command": "high",
+}
 
 
 class AutoSystemAgent:
@@ -174,6 +179,23 @@ class AutoSystemAgent:
         for task in tasks:
             parts.append(f"{task.action} {task.target or ''}".strip())
         return "; ".join(parts)
+
+    def get_pending_confirmation_details(self) -> list[dict[str, str]]:
+        if not self._pending_confirmation:
+            return []
+
+        tasks: list[PlannedTask] = self._pending_confirmation.get("tasks", [])
+        details: list[dict[str, str]] = []
+        for task in tasks:
+            details.append(
+                {
+                    "action": task.action,
+                    "target": task.target or "",
+                    "risk_level": ACTION_RISK_LEVELS.get(task.action, "low"),
+                    "preview": self._preview_for_task(task),
+                }
+            )
+        return details
 
     def confirm_pending(self, progress_callback: Callable[[str], None] | None = None) -> str | None:
         return self._handle_pending_confirmation("yes", progress_callback)
@@ -371,6 +393,22 @@ class AutoSystemAgent:
             "Confirmation required for high-risk action(s): "
             f"{summary}. Reply 'yes' to continue or 'no' to cancel."
         )
+
+    def _preview_for_task(self, task: PlannedTask) -> str:
+        if task.action == "install_app":
+            install_result = build_install_command(task.target or "")
+            if install_result.success:
+                command = install_result.data.get("command", [])
+                return " ".join(str(item) for item in command)
+            return install_result.message
+
+        if task.action == "run_command":
+            return task.target or ""
+
+        if task.action == "delete_path":
+            return f"delete_path {task.target or ''}".strip()
+
+        return f"{task.action} {task.target or ''}".strip()
 
     def _requires_confirmation_for_tasks(self, tasks: list[PlannedTask]) -> bool:
         return any(task.action in HIGH_RISK_ACTIONS for task in tasks)
