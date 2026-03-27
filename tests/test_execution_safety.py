@@ -70,7 +70,7 @@ class ExecutionSafetyTests(unittest.TestCase):
             result = executor.execute("install_app", task)
 
         self.assertFalse(result.success)
-        self.assertIn("Install command not found", result.message)
+        self.assertIn("Install executable not found", result.message)
 
     def test_install_action_retries_transient_failure_then_succeeds(self):
         executor = SafeExecutor()
