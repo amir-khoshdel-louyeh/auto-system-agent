@@ -1,8 +1,9 @@
 import tkinter as tk
 from tkinter import messagebox, scrolledtext
 import queue
-import re
+import os
 import threading
+import time
 from typing import Callable
 
 from auto_system_agent.agent import AutoSystemAgent
@@ -28,7 +29,12 @@ class AgentChatGUI:
         self._settings = self._settings_store.load()
         self.agent = self._build_agent()
         self._is_busy = False
-        self._ui_queue: queue.Queue[tuple[str, StepStatus | str | None]] = queue.Queue()
+        self._ui_queue: queue.Queue[tuple[str, object]] = queue.Queue()
+        self._request_counter = 0
+        self._active_request_id: int | None = None
+        self._cancelled_request_ids: set[int] = set()
+        self._request_started_at: float | None = None
+        self._task_timeout_seconds = float(os.getenv("AUTO_AGENT_GUI_TASK_TIMEOUT", "45") or "45")
         self.root = tk.Tk()
         self.root.title("Auto System Agent")
         self.root.geometry("920x560")
@@ -301,6 +307,12 @@ class AgentChatGUI:
 
     def _on_cancel(self) -> None:
         if self._is_busy:
+            if self._active_request_id is not None:
+                self._cancelled_request_ids.add(self._active_request_id)
+            self._append_message("System", "Cancelled running request.")
+            self._active_request_id = None
+            self._request_started_at = None
+            self._set_busy(False)
             return
 
         if not self.agent.has_pending_confirmation():
@@ -317,10 +329,10 @@ class AgentChatGUI:
         has_pending = self.agent.has_pending_confirmation()
         if self._is_busy:
             self.confirm_button.configure(state=tk.DISABLED)
-            self.cancel_button.configure(state=tk.DISABLED)
+            self.cancel_button.configure(state=tk.NORMAL)
             self._set_confirmation_status(
                 "Request in progress...",
-                "Please wait for completion before confirming or cancelling.",
+                "You can press Cancel to stop waiting for this request.",
                 "#92400e",
             )
             return
@@ -352,40 +364,64 @@ class AgentChatGUI:
         self._sync_confirmation_controls()
 
     def _start_background_task(self, task_fn: Callable[[Callable[[StepStatus], None]], str | None]) -> None:
+        self._request_counter += 1
+        request_id = self._request_counter
+        self._active_request_id = request_id
+        self._request_started_at = time.time()
         self._set_busy(True)
 
         def worker() -> None:
             def on_progress(status: StepStatus) -> None:
-                self._ui_queue.put(("progress", status))
+                self._ui_queue.put(("progress", (request_id, status)))
 
             try:
                 response = task_fn(on_progress)
                 if response:
-                    self._ui_queue.put(("response", response))
+                    self._ui_queue.put(("response", (request_id, response)))
             except Exception as exc:
-                self._ui_queue.put(("error", f"Unexpected error while processing request: {exc}"))
+                self._ui_queue.put(("error", (request_id, f"Unexpected error while processing request: {exc}")))
             finally:
-                self._ui_queue.put(("done", None))
+                self._ui_queue.put(("done", (request_id, None)))
 
         threading.Thread(target=worker, daemon=True).start()
 
     def _drain_ui_queue(self) -> None:
+        if self._is_busy and self._request_started_at is not None:
+            elapsed = time.time() - self._request_started_at
+            if elapsed > self._task_timeout_seconds and self._active_request_id is not None:
+                self._cancelled_request_ids.add(self._active_request_id)
+                self._append_message("System", f"Request timed out after {int(self._task_timeout_seconds)}s.")
+                self._active_request_id = None
+                self._request_started_at = None
+                self._set_busy(False)
+
         try:
             while True:
                 event_type, payload = self._ui_queue.get_nowait()
-                if event_type == "progress" and payload is not None:
-                    if isinstance(payload, StepStatus):
-                        self._append_message("System", self._status_to_text(payload))
-                        self._update_progress_panel(payload)
+                if event_type == "progress" and isinstance(payload, tuple):
+                    request_id, status = payload
+                    if not self._should_accept_event(request_id):
+                        continue
+                    if isinstance(status, StepStatus):
+                        self._append_message("System", self._status_to_text(status))
+                        self._update_progress_panel(status)
                     else:
-                        self._append_message("System", str(payload))
-                elif event_type == "response" and payload is not None:
-                    self._append_message("Agent", str(payload))
-                elif event_type == "error" and payload is not None:
-                    self._append_message("System", str(payload))
-                elif event_type == "done":
-                    self._set_busy(False)
-                    self.entry.focus_set()
+                        self._append_message("System", str(status))
+                elif event_type == "response" and isinstance(payload, tuple):
+                    request_id, response = payload
+                    if self._should_accept_event(request_id) and response is not None:
+                        self._append_message("Agent", str(response))
+                elif event_type == "error" and isinstance(payload, tuple):
+                    request_id, error_text = payload
+                    if self._should_accept_event(request_id) and error_text is not None:
+                        self._append_message("System", str(error_text))
+                elif event_type == "done" and isinstance(payload, tuple):
+                    request_id, _ = payload
+                    if self._active_request_id == request_id:
+                        self._active_request_id = None
+                        self._request_started_at = None
+                        self._set_busy(False)
+                        self.entry.focus_set()
         except queue.Empty:
             pass
 
@@ -416,6 +452,11 @@ class AgentChatGUI:
         if status.state == "done":
             return f"Step {status.step}/{status.total} finished {status.tool} (ok)."
         return f"Step {status.step}/{status.total} finished {status.tool} (failed)."
+
+    def _should_accept_event(self, request_id: int) -> bool:
+        if request_id in self._cancelled_request_ids:
+            return False
+        return self._active_request_id == request_id
 
     def _build_agent(self) -> AutoSystemAgent:
         config = self._settings_store.resolve_llm_config(self._settings)
