@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import List
 
 from auto_system_agent.models import ExecutionResult
-from auto_system_agent.os_utils import detect_os
+from auto_system_agent.os_utils import detect_linux_package_manager, detect_os
 
 
 def _load_app_library() -> dict:
@@ -20,6 +20,17 @@ def get_known_app_names() -> list[str]:
 def extract_known_apps(text: str) -> list[str]:
     lowered = text.lower()
     return [app_name for app_name in get_known_app_names() if app_name in lowered]
+
+
+def _build_linux_install_command(package_name: str) -> list[str] | None:
+    package_manager = detect_linux_package_manager()
+    if package_manager == "apt":
+        return ["sudo", "apt", "install", "-y", package_name]
+    if package_manager == "dnf":
+        return ["sudo", "dnf", "install", "-y", package_name]
+    if package_manager == "pacman":
+        return ["sudo", "pacman", "-S", "--noconfirm", package_name]
+    return None
 
 
 def build_install_command(app_name: str) -> ExecutionResult:
@@ -40,7 +51,13 @@ def build_install_command(app_name: str) -> ExecutionResult:
     package_name = library[normalized][os_name]
     command: List[str]
     if os_name == "linux":
-        command = ["sudo", "apt", "install", "-y", package_name]
+        linux_command = _build_linux_install_command(package_name)
+        if linux_command is None:
+            return ExecutionResult(
+                success=False,
+                message="Unsupported Linux distribution for installation automation.",
+            )
+        command = linux_command
     elif os_name == "macos":
         command = ["brew", "install", package_name]
     else:
