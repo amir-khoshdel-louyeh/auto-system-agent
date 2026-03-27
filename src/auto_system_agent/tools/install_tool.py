@@ -8,6 +8,15 @@ from auto_system_agent.models import ExecutionResult
 from auto_system_agent.os_utils import detect_linux_package_manager, detect_os
 
 
+APP_ALIASES = {
+    "chrome": "google chrome",
+    "google chrome browser": "google chrome",
+    "v l c": "vlc",
+    "vlc media player": "vlc",
+    "mozilla firefox": "firefox",
+}
+
+
 def _load_app_library() -> dict:
     data_path = Path(__file__).resolve().parent.parent / "data" / "app_library.json"
     with data_path.open("r", encoding="utf-8") as file_obj:
@@ -21,7 +30,54 @@ def get_known_app_names() -> list[str]:
 
 def extract_known_apps(text: str) -> list[str]:
     lowered = text.lower()
-    return [app_name for app_name in get_known_app_names() if app_name in lowered]
+    known: list[str] = []
+    for app_name in get_known_app_names():
+        if app_name in lowered:
+            known.append(app_name)
+
+    for alias, canonical in APP_ALIASES.items():
+        if alias in lowered and canonical not in known:
+            known.append(canonical)
+
+    return known
+
+
+def _tokenize(text: str) -> set[str]:
+    return {token for token in text.lower().replace("-", " ").split() if token}
+
+
+def _resolve_app_name(library: dict, app_name: str) -> tuple[str | None, float]:
+    normalized = app_name.strip().lower()
+    if not normalized:
+        return None, 0.0
+
+    if normalized in library:
+        return normalized, 1.0
+
+    if normalized in APP_ALIASES and APP_ALIASES[normalized] in library:
+        return APP_ALIASES[normalized], 0.95
+
+    best_match = None
+    best_score = 0.0
+    requested_tokens = _tokenize(normalized)
+    for candidate in library.keys():
+        if normalized in candidate or candidate in normalized:
+            score = 0.85
+        else:
+            candidate_tokens = _tokenize(candidate)
+            if not candidate_tokens:
+                continue
+            overlap = len(requested_tokens & candidate_tokens)
+            union = len(requested_tokens | candidate_tokens) or 1
+            score = overlap / union
+
+        if score > best_score:
+            best_score = score
+            best_match = candidate
+
+    if best_match is None:
+        return None, 0.0
+    return best_match, best_score
 
 
 def _build_linux_install_command(package_name: str) -> list[str] | None:
@@ -68,16 +124,22 @@ def build_install_command(app_name: str) -> ExecutionResult:
         return ExecutionResult(success=False, message="No application name was provided.")
 
     library = _load_app_library()
-    normalized = app_name.strip().lower()
+    matched_app, confidence = _resolve_app_name(library, app_name)
     os_name = detect_os()
 
-    if normalized not in library or os_name not in library[normalized]:
+    if matched_app is None or confidence < 0.5:
         return ExecutionResult(
             success=False,
             message=f"Unsupported application '{app_name}' for {os_name}.",
         )
 
-    package_name = library[normalized][os_name]
+    if os_name not in library[matched_app]:
+        return ExecutionResult(
+            success=False,
+            message=f"Unsupported application '{app_name}' for {os_name}.",
+        )
+
+    package_name = library[matched_app][os_name]
     command: List[str]
     if os_name == "linux":
         linux_command = _build_linux_install_command(package_name)
@@ -94,6 +156,6 @@ def build_install_command(app_name: str) -> ExecutionResult:
 
     return ExecutionResult(
         success=True,
-        message=f"Install command prepared for {app_name}.",
-        data={"command": command},
+        message=f"Install command prepared for {matched_app}.",
+        data={"command": command, "matched_app": matched_app, "match_confidence": confidence},
     )
