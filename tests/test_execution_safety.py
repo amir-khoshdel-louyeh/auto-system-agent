@@ -1,9 +1,11 @@
 import sys
 import tempfile
 import unittest
+import os
 from pathlib import Path
 from unittest.mock import patch
 import zipfile
+import subprocess
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
@@ -69,6 +71,56 @@ class ExecutionSafetyTests(unittest.TestCase):
 
         self.assertFalse(result.success)
         self.assertIn("Install command not found", result.message)
+
+    def test_install_action_retries_transient_failure_then_succeeds(self):
+        executor = SafeExecutor()
+        task = PlannedTask(action="install_app", target="vlc", raw_input="install vlc")
+
+        with patch(
+            "auto_system_agent.safe_executor.build_install_command",
+            return_value=ExecutionResult(
+                success=True,
+                message="prepared",
+                data={"command": ["apt", "install", "demo"]},
+            ),
+        ):
+            with patch.dict(os.environ, {"AUTO_AGENT_INSTALL_RETRIES": "2"}, clear=False):
+                with patch(
+                    "auto_system_agent.safe_executor.subprocess.run",
+                    side_effect=[
+                        subprocess.CompletedProcess(args=["apt"], returncode=100, stdout="", stderr="Temporary failure resolving host"),
+                        subprocess.CompletedProcess(args=["apt"], returncode=0, stdout="ok", stderr=""),
+                    ],
+                ):
+                    result = executor.execute("install_app", task)
+
+        self.assertTrue(result.success)
+        self.assertIn("after retry", result.message)
+
+    def test_install_action_fails_after_transient_retries_exhausted(self):
+        executor = SafeExecutor()
+        task = PlannedTask(action="install_app", target="vlc", raw_input="install vlc")
+
+        with patch(
+            "auto_system_agent.safe_executor.build_install_command",
+            return_value=ExecutionResult(
+                success=True,
+                message="prepared",
+                data={"command": ["apt", "install", "demo"]},
+            ),
+        ):
+            with patch.dict(os.environ, {"AUTO_AGENT_INSTALL_RETRIES": "1"}, clear=False):
+                with patch(
+                    "auto_system_agent.safe_executor.subprocess.run",
+                    side_effect=[
+                        subprocess.CompletedProcess(args=["apt"], returncode=100, stdout="", stderr="Temporary failure resolving host"),
+                        subprocess.CompletedProcess(args=["apt"], returncode=100, stdout="", stderr="Temporary failure resolving host"),
+                    ],
+                ):
+                    result = executor.execute("install_app", task)
+
+        self.assertFalse(result.success)
+        self.assertIn("Installation failed with code", result.message)
 
     def test_compress_path_supports_single_files(self):
         with tempfile.TemporaryDirectory() as temp_dir:
