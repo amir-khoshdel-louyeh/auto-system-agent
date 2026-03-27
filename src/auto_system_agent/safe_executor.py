@@ -10,7 +10,7 @@ from auto_system_agent.tools.file_tool import (
     list_files,
     move_path,
 )
-from auto_system_agent.tools.install_tool import build_install_command
+from auto_system_agent.tools.install_tool import build_install_command, verify_install_environment
 
 
 def _is_transient_install_failure(output_text: str) -> bool:
@@ -39,6 +39,10 @@ class SafeExecutor:
                 return result
 
             command = result.data["command"]
+            env_check = verify_install_environment(command)
+            if not env_check.success:
+                return env_check
+
             retries = int(os.getenv("AUTO_AGENT_INSTALL_RETRIES", "2") or "2")
             attempts = max(1, retries + 1)
             last_failure = ""
