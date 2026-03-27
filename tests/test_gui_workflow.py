@@ -13,7 +13,7 @@ if str(SRC_DIR) not in sys.path:
 
 from auto_system_agent.agent import AutoSystemAgent
 from auto_system_agent.gui import AgentChatGUI
-from auto_system_agent.models import ExecutionResult, PlannedTask
+from auto_system_agent.models import ExecutionResult, PlannedTask, StepStatus
 
 
 class InMemoryLogger:
@@ -158,8 +158,8 @@ def build_gui_harness(agent, user_text):
     def append_message(speaker, message):
         messages.append((speaker, message))
 
-    def update_progress(message):
-        progress_updates.append(message)
+    def update_progress(status):
+        progress_updates.append(status)
 
     gui._append_message = append_message
     gui._update_progress_panel = update_progress
@@ -205,7 +205,7 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(formatter.format_many_calls, [])
 
         self.assertIn(("You", "create folder demo"), messages)
-        self.assertTrue(any(speaker == "System" and "Running create_folder" in text for speaker, text in messages))
+        self.assertTrue(any(speaker == "System" and "running create_folder" in text.lower() for speaker, text in messages))
         self.assertIn(("Agent", "[SUCCESS] create_folder:demo"), messages)
 
     def test_on_send_runs_multi_step_pipeline_and_displays_final_summary(self):
@@ -239,8 +239,8 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(formatter.format_calls, [])
         self.assertEqual(formatter.format_many_calls, [["create_folder:demo", "list_files:demo"]])
 
-        self.assertTrue(any("Step 1/2: running create_folder" in item for item in progress_updates))
-        self.assertTrue(any("Step 2/2: running list_files" in item for item in progress_updates))
+        self.assertTrue(any(isinstance(item, StepStatus) and item.step == 1 and item.state == "running" for item in progress_updates))
+        self.assertTrue(any(isinstance(item, StepStatus) and item.step == 2 and item.tool == "list_files" for item in progress_updates))
         self.assertTrue(any(speaker == "Agent" and "Step 2: [SUCCESS] list_files:demo" in text for speaker, text in messages))
 
     def test_confirmation_state_is_visible_and_buttons_are_controllable(self):

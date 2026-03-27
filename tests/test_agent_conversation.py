@@ -8,6 +8,7 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from auto_system_agent.agent import AutoSystemAgent
+from auto_system_agent.models import StepStatus
 from auto_system_agent.planner import Planner
 from auto_system_agent.models import PlannedTask
 from auto_system_agent.safe_executor import SafeExecutor
@@ -156,8 +157,8 @@ class AgentConversationTests(unittest.TestCase):
         )
 
         agent.process("create folder demo then list files in .", progress_callback=updates.append)
-        self.assertTrue(any("Step 1/2: running create_folder" in item for item in updates))
-        self.assertTrue(any("Step 2/2: running list_files" in item for item in updates))
+        self.assertTrue(any(isinstance(item, StepStatus) and item.step == 1 and item.state == "running" for item in updates))
+        self.assertTrue(any(isinstance(item, StepStatus) and item.step == 2 and item.tool == "list_files" for item in updates))
 
     def test_resolves_install_it_from_previous_chat_suggestion(self):
         class SequenceAssistant:
