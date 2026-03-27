@@ -29,6 +29,17 @@ class FakeAssistant:
         return None
 
 
+class DummyAgent:
+    def has_pending_confirmation(self):
+        return False
+
+    def get_pending_confirmation_summary(self):
+        return ""
+
+    def cancel_pending(self):
+        return ""
+
+
 class FakeRoot:
     def after(self, _delay_ms, _callback):
         return None
@@ -273,7 +284,7 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertIn(("Agent", "Cancelled pending action."), messages)
 
     def test_cancel_stops_waiting_for_running_request(self):
-        gui, messages, _progress = build_gui_harness(agent=None, user_text="")
+        gui, messages, _progress = build_gui_harness(agent=DummyAgent(), user_text="")
 
         def long_task(_on_progress):
             time.sleep(0.2)
@@ -286,7 +297,7 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertFalse(any(speaker == "Agent" and "should be ignored" in text for speaker, text in messages))
 
     def test_timeout_stops_waiting_for_running_request(self):
-        gui, messages, _progress = build_gui_harness(agent=None, user_text="")
+        gui, messages, _progress = build_gui_harness(agent=DummyAgent(), user_text="")
         gui._task_timeout_seconds = 0.05
 
         def long_task(_on_progress):
