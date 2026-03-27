@@ -151,6 +151,11 @@ def build_gui_harness(agent, user_text):
     gui.confirmation_status_label = FakeLabel()
     gui.confirmation_details_label = FakeLabel()
     gui._step_progress_rows = {}
+    gui._request_counter = 0
+    gui._active_request_id = None
+    gui._cancelled_request_ids = set()
+    gui._request_started_at = None
+    gui._task_timeout_seconds = 45.0
 
     messages = []
     progress_updates = []
@@ -266,6 +271,32 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(gui.cancel_button["state"], tk.DISABLED)
         self.assertIn("No pending confirmation", gui.confirmation_status_label.text)
         self.assertIn(("Agent", "Cancelled pending action."), messages)
+
+    def test_cancel_stops_waiting_for_running_request(self):
+        gui, messages, _progress = build_gui_harness(agent=None, user_text="")
+
+        def long_task(_on_progress):
+            time.sleep(0.2)
+            return "should be ignored"
+
+        gui._start_background_task(long_task)
+        gui._on_cancel()
+        self.assertTrue(drain_until_idle(gui), "GUI worker did not settle after cancel")
+        self.assertTrue(any(speaker == "System" and "Cancelled running request" in text for speaker, text in messages))
+        self.assertFalse(any(speaker == "Agent" and "should be ignored" in text for speaker, text in messages))
+
+    def test_timeout_stops_waiting_for_running_request(self):
+        gui, messages, _progress = build_gui_harness(agent=None, user_text="")
+        gui._task_timeout_seconds = 0.05
+
+        def long_task(_on_progress):
+            time.sleep(0.2)
+            return "late response"
+
+        gui._start_background_task(long_task)
+        self.assertTrue(drain_until_idle(gui), "GUI worker did not settle after timeout")
+        self.assertTrue(any(speaker == "System" and "timed out" in text.lower() for speaker, text in messages))
+        self.assertFalse(any(speaker == "Agent" and "late response" in text for speaker, text in messages))
 
 
 if __name__ == "__main__":
