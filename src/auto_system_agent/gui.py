@@ -91,6 +91,26 @@ class AgentChatGUI:
         self.progress_list.pack(fill=tk.BOTH, expand=True)
         self._step_progress_rows: dict[int, int] = {}
 
+        tk.Label(
+            progress_frame,
+            text="Timeline",
+            font=("TkDefaultFont", 10, "bold"),
+            fg=ACCENT,
+            bg=BG_PANEL,
+        ).pack(anchor="w", pady=(8, 4))
+        self.timeline_list = tk.Listbox(
+            progress_frame,
+            height=6,
+            bg="#f8fafc",
+            fg=FG_PRIMARY,
+            borderwidth=0,
+            highlightthickness=0,
+            selectbackground="#dbeafe",
+            selectforeground=FG_PRIMARY,
+            font=("TkDefaultFont", 9),
+        )
+        self.timeline_list.pack(fill=tk.X)
+
         confirmation_frame = tk.Frame(
             progress_frame,
             bg=BG_PANEL,
@@ -493,21 +513,25 @@ class AgentChatGUI:
                     if isinstance(status, StepStatus):
                         self._append_message("System", self._status_to_text(status))
                         self._update_progress_panel(status)
+                        self._append_timeline(self._timeline_text_for_status(status))
                     else:
                         self._append_message("System", str(status))
                 elif event_type == "response" and isinstance(payload, tuple):
                     request_id, response = payload
                     if self._should_accept_event(request_id) and response is not None:
                         self._append_message("Agent", str(response))
+                        self._append_timeline("result available")
                 elif event_type == "error" and isinstance(payload, tuple):
                     request_id, error_text = payload
                     if self._should_accept_event(request_id) and error_text is not None:
                         self._append_message("System", str(error_text))
+                        self._append_timeline("error")
                 elif event_type == "done" and isinstance(payload, tuple):
                     request_id, _ = payload
                     if self._active_request_id == request_id:
                         self._active_request_id = None
                         self._request_started_at = None
+                        self._append_timeline("request finished")
                         self._set_busy(False)
                         self.entry.focus_set()
         except queue.Empty:
@@ -540,6 +564,21 @@ class AgentChatGUI:
         if status.state == "done":
             return f"Step {status.step}/{status.total} finished {status.tool} (ok)."
         return f"Step {status.step}/{status.total} finished {status.tool} (failed)."
+
+    def _timeline_text_for_status(self, status: StepStatus) -> str:
+        if status.state == "running":
+            return f"{status.step}/{status.total} run {status.tool}"
+        if status.state == "done":
+            return f"{status.step}/{status.total} ok {status.tool}"
+        return f"{status.step}/{status.total} fail {status.tool}"
+
+    def _append_timeline(self, text: str) -> None:
+        if not hasattr(self, "timeline_list"):
+            return
+        self.timeline_list.insert(tk.END, text)
+        while self.timeline_list.size() > 40:
+            self.timeline_list.delete(0)
+        self.timeline_list.see(tk.END)
 
     def _should_accept_event(self, request_id: int) -> bool:
         if request_id in self._cancelled_request_ids:
