@@ -131,6 +131,55 @@ class AgentChatGUI:
         )
         self.confirmation_details_label.pack(anchor="w")
 
+        self.risk_badges_label = tk.Label(
+            confirmation_frame,
+            text="",
+            font=("TkDefaultFont", 9, "bold"),
+            fg="#1f2937",
+            bg=BG_PANEL,
+            wraplength=230,
+            justify=tk.LEFT,
+        )
+        self.risk_badges_label.pack(anchor="w", pady=(4, 4))
+
+        tk.Label(
+            confirmation_frame,
+            text="Command Preview",
+            font=("TkDefaultFont", 9, "bold"),
+            fg=FG_MUTED,
+            bg=BG_PANEL,
+        ).pack(anchor="w")
+
+        preview_row = tk.Frame(confirmation_frame, bg=BG_PANEL)
+        preview_row.pack(fill=tk.X, pady=(2, 0))
+        self.command_preview_var = tk.StringVar(value="")
+        self.command_preview_entry = tk.Entry(
+            preview_row,
+            textvariable=self.command_preview_var,
+            state=tk.DISABLED,
+            disabledforeground=FG_PRIMARY,
+            bg="#f8fafc",
+            relief=tk.FLAT,
+            borderwidth=0,
+            highlightbackground="#c7d2e0",
+            highlightthickness=1,
+            font=("TkDefaultFont", 9),
+        )
+        self.command_preview_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        self.copy_preview_button = tk.Button(
+            preview_row,
+            text="Copy",
+            state=tk.DISABLED,
+            command=self._copy_preview_text,
+            bg="#2563eb",
+            fg="#ffffff",
+            activebackground="#1d4ed8",
+            activeforeground="#ffffff",
+            relief=tk.FLAT,
+            padx=8,
+        )
+        self.copy_preview_button.pack(side=tk.LEFT, padx=(6, 0))
+
         bottom_frame = tk.Frame(self.root, bg=BG_APP)
         bottom_frame.pack(fill=tk.X, padx=12, pady=(0, 12))
 
@@ -340,16 +389,55 @@ class AgentChatGUI:
         self.confirm_button.configure(state=tk.NORMAL if has_pending else tk.DISABLED)
         self.cancel_button.configure(state=tk.NORMAL if has_pending else tk.DISABLED)
         if has_pending:
+            self._render_pending_confirmation_card()
+            return
+
+        self._set_confirmation_status("No pending confirmation.", "", "#4b5563")
+        if hasattr(self, "risk_badges_label"):
+            self.risk_badges_label.configure(text="")
+        if hasattr(self, "command_preview_var"):
+            self.command_preview_var.set("")
+        if hasattr(self, "copy_preview_button"):
+            self.copy_preview_button.configure(state=tk.DISABLED)
+
+    def _render_pending_confirmation_card(self) -> None:
+        details_fn = getattr(self.agent, "get_pending_confirmation_details", None)
+        if callable(details_fn):
+            details = details_fn()
+        else:
+            details = []
+
+        if not details:
             summary = self.agent.get_pending_confirmation_summary()
-            details = summary if summary else "High-risk action is pending confirmation."
             self._set_confirmation_status(
                 "Pending confirmation",
-                details,
+                summary if summary else "High-risk action is pending confirmation.",
                 "#b45309",
             )
             return
 
-        self._set_confirmation_status("No pending confirmation.", "", "#4b5563")
+        summary = "; ".join(f"{item['action']} {item['target']}".strip() for item in details)
+        self._set_confirmation_status("Pending confirmation", summary, "#b45309")
+
+        badge_parts = [f"[{item['risk_level'].upper()}] {item['action']}" for item in details]
+        if hasattr(self, "risk_badges_label"):
+            self.risk_badges_label.configure(text=" ".join(badge_parts))
+
+        preview_text = " | ".join(item["preview"] for item in details if item.get("preview"))
+        if hasattr(self, "command_preview_var"):
+            self.command_preview_var.set(preview_text)
+        if hasattr(self, "copy_preview_button"):
+            self.copy_preview_button.configure(state=tk.NORMAL if preview_text else tk.DISABLED)
+
+    def _copy_preview_text(self) -> None:
+        if not hasattr(self, "command_preview_var"):
+            return
+        preview_text = self.command_preview_var.get().strip()
+        if not preview_text:
+            return
+        self.root.clipboard_clear()
+        self.root.clipboard_append(preview_text)
+        self._append_message("System", "Copied command preview to clipboard.")
 
     def _set_confirmation_status(self, status: str, details: str, color: str) -> None:
         if hasattr(self, "confirmation_status_label"):
