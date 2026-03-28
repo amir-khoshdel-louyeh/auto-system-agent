@@ -62,6 +62,9 @@ class LLMConversationAssistant:
                 return {"type": "chat", "response": plain_text}
             return None
 
+        if not self._validate_schema(parsed):
+            return None
+
         item_type = str(parsed.get("type", "")).strip().lower()
         if item_type == "chat":
             response = str(parsed.get("response", "")).strip()
@@ -84,6 +87,23 @@ class LLMConversationAssistant:
             }
 
         return None
+
+    def _validate_schema(self, payload: dict) -> bool:
+        item_type = payload.get("type")
+        if not isinstance(item_type, str):
+            return False
+
+        normalized = item_type.strip().lower()
+        if normalized == "chat":
+            return isinstance(payload.get("response"), str) and bool(str(payload.get("response", "")).strip())
+
+        if normalized == "tool":
+            action_ok = isinstance(payload.get("action"), str) and bool(str(payload.get("action", "")).strip())
+            target_ok = "target" not in payload or isinstance(payload.get("target"), str)
+            destination_ok = "destination" not in payload or isinstance(payload.get("destination"), str)
+            return action_ok and target_ok and destination_ok
+
+        return False
 
     def _extract_text(self, response_json: dict) -> str | None:
         content = (
