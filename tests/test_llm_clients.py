@@ -32,6 +32,20 @@ class LLMClientBehaviorTests(unittest.TestCase):
         self.assertEqual(result["type"], "chat")
         self.assertIn("VLC", result["response"])
 
+    def test_tool_mapper_rejects_invalid_schema_payload(self):
+        mapper = LLMToolMapper(config={"url": "http://example.local"})
+        mapper._post_json = lambda payload: {"action": 123}  # type: ignore[attr-defined]
+
+        action = mapper.map_intent("install vlc", {"install_app"})
+        self.assertIsNone(action)
+
+    def test_conversation_assistant_rejects_invalid_tool_schema(self):
+        assistant = LLMConversationAssistant(config={"url": "http://example.local"})
+        assistant._post_json = lambda payload: {"type": "tool", "action": "install_app", "target": 99}  # type: ignore[attr-defined]
+
+        result = assistant.resolve("install vlc", {"install_app"}, [])
+        self.assertIsNone(result)
+
 
 if __name__ == "__main__":
     unittest.main()
