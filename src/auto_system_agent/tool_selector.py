@@ -28,9 +28,26 @@ class ToolSelector:
         if llm_selected in self.SUPPORTED_ACTIONS:
             return llm_selected
 
+        guarded = self._select_guarded(task.raw_input)
+        if guarded in self.SUPPORTED_ACTIONS:
+            return guarded
+
         return "unknown"
 
     def _select_deterministic(self, task: PlannedTask) -> str:
         if task.action in self.SUPPORTED_ACTIONS:
             return task.action
+        return "unknown"
+
+    def _select_guarded(self, raw_input: str) -> str:
+        text = (raw_input or "").strip().lower()
+        if not text:
+            return "unknown"
+
+        if text.startswith("run ") or text.startswith("execute "):
+            return "run_command"
+        if " list files" in f" {text}" or text.startswith("list files") or text.startswith("show files"):
+            return "list_files"
+        if text.startswith("install "):
+            return "install_app"
         return "unknown"
