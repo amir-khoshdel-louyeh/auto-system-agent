@@ -66,6 +66,7 @@ class AutoSystemAgent:
                 "Ask me about apps, or request actions like install, create folder, "
                 "compress, move, delete, or run a command."
             )
+            self._log_unresolved_intent(user_input=user_input, reason="planner_returned_no_tasks", planned_tasks=[])
             self._remember(user_input, reply)
             self._log_event(user_input=user_input, mode="fallback", planned_tasks=[], steps=[], reply=reply)
             return reply
@@ -159,6 +160,11 @@ class AutoSystemAgent:
             "I can help with general questions and system tasks. "
             "Ask me about apps, or request actions like install, create folder, "
             "compress, move, delete, or run a command."
+        )
+        self._log_unresolved_intent(
+            user_input=user_input,
+            reason="llm_unresolved_after_deterministic",
+            planned_tasks=tasks,
         )
         self._remember(user_input, reply)
         self._log_event(user_input=user_input, mode="fallback", planned_tasks=tasks, steps=[], reply=reply)
@@ -460,5 +466,16 @@ class AutoSystemAgent:
                 ],
                 "steps": steps,
                 "reply": reply,
+            }
+        )
+
+    def _log_unresolved_intent(self, *, user_input: str, reason: str, planned_tasks: list[PlannedTask]) -> None:
+        self._event_logger.log(
+            {
+                "mode": "unresolved_intent",
+                "reason": reason,
+                "user_input": user_input,
+                "planned_actions": [task.action for task in planned_tasks],
+                "history_size": len(self._history),
             }
         )
