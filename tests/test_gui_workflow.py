@@ -41,8 +41,17 @@ class DummyAgent:
 
 
 class FakeRoot:
+    def __init__(self):
+        self.clipboard_text = ""
+
     def after(self, _delay_ms, _callback):
         return None
+
+    def clipboard_clear(self):
+        self.clipboard_text = ""
+
+    def clipboard_append(self, text):
+        self.clipboard_text = text
 
 
 class FakeButton:
@@ -89,6 +98,39 @@ class FakeLabel:
             self.text = kwargs["text"]
         if "fg" in kwargs:
             self.fg = kwargs["fg"]
+
+
+class FakeVar:
+    def __init__(self, value=""):
+        self._value = value
+
+    def get(self):
+        return self._value
+
+    def set(self, value):
+        self._value = value
+
+
+class FakeListbox:
+    def __init__(self):
+        self.items = []
+
+    def insert(self, _where, text):
+        self.items.append(text)
+
+    def delete(self, index):
+        if not self.items:
+            return
+        if index == 0:
+            self.items.pop(0)
+            return
+        self.items.pop(index)
+
+    def size(self):
+        return len(self.items)
+
+    def see(self, _index):
+        return None
 
 
 class SingleStepPlanner:
@@ -161,6 +203,10 @@ def build_gui_harness(agent, user_text):
     gui.cancel_button = FakeButton(state=tk.DISABLED)
     gui.confirmation_status_label = FakeLabel()
     gui.confirmation_details_label = FakeLabel()
+    gui.risk_badges_label = FakeLabel()
+    gui.command_preview_var = FakeVar("")
+    gui.copy_preview_button = FakeButton(state=tk.DISABLED)
+    gui.timeline_list = FakeListbox()
     gui._step_progress_rows = {}
     gui._request_counter = 0
     gui._active_request_id = None
@@ -258,6 +304,7 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertTrue(any(isinstance(item, StepStatus) and item.step == 1 and item.state == "running" for item in progress_updates))
         self.assertTrue(any(isinstance(item, StepStatus) and item.step == 2 and item.tool == "list_files" for item in progress_updates))
         self.assertTrue(any(speaker == "Agent" and "Step 2: [SUCCESS] list_files:demo" in text for speaker, text in messages))
+        self.assertGreater(gui.timeline_list.size(), 0)
 
     def test_confirmation_state_is_visible_and_buttons_are_controllable(self):
         from auto_system_agent.planner import Planner
@@ -276,6 +323,12 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(gui.cancel_button["state"], tk.NORMAL)
         self.assertIn("Pending confirmation", gui.confirmation_status_label.text)
         self.assertIn("install_app vlc", gui.confirmation_details_label.text)
+        self.assertIn("[MEDIUM] install_app", gui.risk_badges_label.text)
+        self.assertNotEqual(gui.command_preview_var.get().strip(), "")
+        self.assertEqual(gui.copy_preview_button["state"], tk.NORMAL)
+
+        gui._copy_preview_text()
+        self.assertEqual(gui.root.clipboard_text, gui.command_preview_var.get())
 
         gui._on_cancel()
         self.assertEqual(gui.confirm_button["state"], tk.DISABLED)
