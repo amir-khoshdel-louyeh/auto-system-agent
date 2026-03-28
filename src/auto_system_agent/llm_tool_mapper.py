@@ -47,12 +47,37 @@ class LLMToolMapper:
         if raw_response is None:
             return None
 
+        if not self._validate_response_schema(raw_response):
+            return None
+
         action = self._extract_action(raw_response)
         if action == "none":
             return None
         if action in allowed_actions:
             return action
         return None
+
+    def _validate_response_schema(self, response_json: dict) -> bool:
+        if "action" in response_json:
+            return isinstance(response_json.get("action"), str)
+
+        content = (
+            response_json.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
+        if not isinstance(content, str) or not content.strip():
+            return False
+
+        text = content.strip()
+        if text.startswith("{"):
+            try:
+                parsed = json.loads(text)
+            except json.JSONDecodeError:
+                return False
+            return isinstance(parsed, dict) and isinstance(parsed.get("action"), str)
+
+        return bool(re.search(r'"action"\s*:\s*"[a-z_]+"', text))
 
     def _post_json(self, payload: dict) -> Optional[dict]:
         body = json.dumps(payload).encode("utf-8")
