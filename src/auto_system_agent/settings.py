@@ -11,6 +11,9 @@ class LLMSettings:
     api_key: str = ""
     model: str = "gpt-4o-mini"
     timeout: float = 8.0
+    gui_timeout_seconds: float = 45.0
+    install_retries: int = 2
+    confirm_high_risk: bool = True
 
 
 class SettingsStore:
@@ -35,12 +38,29 @@ class SettingsStore:
         except (TypeError, ValueError):
             timeout = 8.0
 
+        gui_timeout_value = payload.get("gui_timeout_seconds", 45.0)
+        try:
+            gui_timeout_seconds = float(gui_timeout_value)
+        except (TypeError, ValueError):
+            gui_timeout_seconds = 45.0
+
+        retries_value = payload.get("install_retries", 2)
+        try:
+            install_retries = int(retries_value)
+        except (TypeError, ValueError):
+            install_retries = 2
+
+        confirm_high_risk = bool(payload.get("confirm_high_risk", True))
+
         return LLMSettings(
             provider_mode=self._normalize_provider_mode(payload.get("provider_mode", "bundled")),
             url=str(payload.get("url", "")).strip(),
             api_key=str(payload.get("api_key", "")).strip(),
             model=str(payload.get("model", "gpt-4o-mini")).strip() or "gpt-4o-mini",
             timeout=timeout,
+            gui_timeout_seconds=gui_timeout_seconds,
+            install_retries=max(0, install_retries),
+            confirm_high_risk=confirm_high_risk,
         )
 
     def save(self, settings: LLMSettings) -> None:
@@ -51,6 +71,9 @@ class SettingsStore:
             "api_key": settings.api_key.strip(),
             "model": settings.model.strip() or "gpt-4o-mini",
             "timeout": float(settings.timeout),
+            "gui_timeout_seconds": float(settings.gui_timeout_seconds),
+            "install_retries": int(settings.install_retries),
+            "confirm_high_risk": bool(settings.confirm_high_risk),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
