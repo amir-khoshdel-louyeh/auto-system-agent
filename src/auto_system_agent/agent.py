@@ -38,6 +38,7 @@ class AutoSystemAgent:
         assistant: LLMConversationAssistant | None = None,
         event_logger: EventLogger | None = None,
         llm_config: dict | None = None,
+        confirm_high_risk: bool = True,
     ) -> None:
         llm_mapper = LLMToolMapper(config=llm_config)
         self._planner = planner or Planner()
@@ -49,6 +50,7 @@ class AutoSystemAgent:
         self._history: list[dict[str, str]] = []
         self._context: dict[str, str] = {"last_app": "", "last_path": ""}
         self._pending_confirmation: dict | None = None
+        self._confirm_high_risk = confirm_high_risk
 
     def process(
         self,
@@ -417,6 +419,8 @@ class AutoSystemAgent:
         return f"{task.action} {task.target or ''}".strip()
 
     def _requires_confirmation_for_tasks(self, tasks: list[PlannedTask]) -> bool:
+        if not self._confirm_high_risk:
+            return False
         return any(task.action in HIGH_RISK_ACTIONS for task in tasks)
 
     def _step_payload(self, tool_key: str, task: PlannedTask, result: ExecutionResult) -> dict:
