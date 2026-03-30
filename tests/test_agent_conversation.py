@@ -223,6 +223,21 @@ class AgentConversationTests(unittest.TestCase):
         self.assertIn("[SUCCESS]", reply)
         self.assertFalse(agent.has_pending_confirmation())
 
+    def test_can_disable_high_risk_confirmation(self):
+        executor = CapturingExecutor()
+        agent = AutoSystemAgent(
+            planner=Planner(),
+            selector=PassThroughSelector(),
+            executor=executor,
+            assistant=FakeAssistant(None),
+            confirm_high_risk=False,
+        )
+
+        response = agent.process("install vlc")
+        self.assertIn("[SUCCESS]", response)
+        self.assertFalse(agent.has_pending_confirmation())
+        self.assertEqual(executor.calls[-1][0], "install_app")
+
     def test_pending_confirmation_summary_reflects_waiting_action(self):
         executor = CapturingExecutor()
         agent = AutoSystemAgent(
