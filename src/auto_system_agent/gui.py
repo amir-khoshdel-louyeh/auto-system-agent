@@ -41,8 +41,18 @@ class AgentChatGUI:
         self.root.configure(bg=BG_APP)
 
         menu_bar = tk.Menu(self.root)
+        tools_menu = tk.Menu(menu_bar, tearoff=0)
+        tools_menu.add_command(label="Insert: install vlc", command=lambda: self._insert_tool_command("install vlc"))
+        tools_menu.add_command(label="Insert: list files in .", command=lambda: self._insert_tool_command("list files in ."))
+        tools_menu.add_command(label="Insert: create folder demo", command=lambda: self._insert_tool_command("create folder demo"))
+        tools_menu.add_separator()
+        tools_menu.add_command(label="Clear Timeline", command=self._clear_timeline)
+        tools_menu.add_command(label="Clear Progress", command=self._reset_progress_panel)
+        menu_bar.add_cascade(label="Tools", menu=tools_menu)
+
         settings_menu = tk.Menu(menu_bar, tearoff=0)
         settings_menu.add_command(label="LLM Settings", command=self._open_settings_dialog)
+        settings_menu.add_command(label="App Options", command=self._open_options_dialog)
         menu_bar.add_cascade(label="Settings", menu=settings_menu)
         self.root.config(menu=menu_bar)
 
@@ -543,6 +553,82 @@ class AgentChatGUI:
         self.progress_list.delete(0, tk.END)
         self._step_progress_rows.clear()
 
+    def _clear_timeline(self) -> None:
+        if hasattr(self, "timeline_list"):
+            self.timeline_list.delete(0, tk.END)
+
+    def _insert_tool_command(self, command_text: str) -> None:
+        if hasattr(self, "entry"):
+            self.entry.delete(0, tk.END)
+            self.entry.insert(0, command_text)
+            self.entry.focus_set()
+
+    def _apply_runtime_options(self) -> None:
+        self._task_timeout_seconds = float(self._settings.gui_timeout_seconds)
+        os.environ["AUTO_AGENT_GUI_TASK_TIMEOUT"] = str(self._settings.gui_timeout_seconds)
+        os.environ["AUTO_AGENT_INSTALL_RETRIES"] = str(self._settings.install_retries)
+
+    def _open_options_dialog(self) -> None:
+        dialog = tk.Toplevel(self.root)
+        dialog.title("App Options")
+        dialog.geometry("520x240")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        tk.Label(dialog, text="GUI Request Timeout (seconds)").grid(row=0, column=0, sticky="w", padx=12, pady=10)
+        timeout_entry = tk.Entry(dialog, width=20)
+        timeout_entry.grid(row=0, column=1, sticky="w", padx=12, pady=10)
+        timeout_entry.insert(0, str(self._settings.gui_timeout_seconds))
+
+        tk.Label(dialog, text="Install Retries").grid(row=1, column=0, sticky="w", padx=12, pady=10)
+        retries_entry = tk.Entry(dialog, width=20)
+        retries_entry.grid(row=1, column=1, sticky="w", padx=12, pady=10)
+        retries_entry.insert(0, str(self._settings.install_retries))
+
+        confirm_var = tk.BooleanVar(value=self._settings.confirm_high_risk)
+        confirm_check = tk.Checkbutton(
+            dialog,
+            text="Require confirmation for high-risk actions",
+            variable=confirm_var,
+        )
+        confirm_check.grid(row=2, column=0, columnspan=2, sticky="w", padx=12, pady=6)
+
+        helper = tk.Label(
+            dialog,
+            text="These options apply immediately and are saved in local settings.",
+            fg=FG_MUTED,
+            justify=tk.LEFT,
+        )
+        helper.grid(row=3, column=0, columnspan=2, sticky="w", padx=12, pady=8)
+
+        def save_and_close() -> None:
+            try:
+                gui_timeout = float(timeout_entry.get().strip() or "45")
+                install_retries = int(retries_entry.get().strip() or "2")
+            except ValueError:
+                messagebox.showerror("Invalid value", "Timeout must be numeric and retries must be integer.", parent=dialog)
+                return
+
+            if gui_timeout <= 0:
+                messagebox.showerror("Invalid value", "GUI timeout must be > 0.", parent=dialog)
+                return
+            if install_retries < 0:
+                messagebox.showerror("Invalid value", "Install retries cannot be negative.", parent=dialog)
+                return
+
+            self._settings.gui_timeout_seconds = gui_timeout
+            self._settings.install_retries = install_retries
+            self._settings.confirm_high_risk = bool(confirm_var.get())
+            self._settings_store.save(self._settings)
+            self._apply_runtime_options()
+            self._append_message("System", "App options saved and applied.")
+            dialog.destroy()
+
+        button_frame = tk.Frame(dialog)
+        button_frame.grid(row=4, column=0, columnspan=2, sticky="e", padx=12, pady=12)
+        tk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=(8, 0))
+        tk.Button(button_frame, text="Save", command=save_and_close).pack(side=tk.RIGHT)
+
     def _set_step_status(self, step: int, total: int, state: str, tool: str) -> None:
         text = f"{step}/{total} | {state:<7} | {tool}"
         if step in self._step_progress_rows:
@@ -678,6 +764,7 @@ class AgentChatGUI:
         tk.Button(button_frame, text="Save", command=save_and_close).pack(side=tk.RIGHT)
 
     def run(self) -> None:
+        self._apply_runtime_options()
         self.root.mainloop()
 
 
