@@ -673,7 +673,7 @@ class AgentChatGUI:
 
     def _build_agent(self) -> AutoSystemAgent:
         config = self._settings_store.resolve_llm_config(self._settings)
-        return AutoSystemAgent(llm_config=config)
+        return AutoSystemAgent(llm_config=config, confirm_high_risk=self._settings.confirm_high_risk)
 
     def _open_settings_dialog(self) -> None:
         dialog = tk.Toplevel(self.root)
