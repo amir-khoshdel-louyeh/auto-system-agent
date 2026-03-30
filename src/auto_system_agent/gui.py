@@ -42,9 +42,9 @@ class AgentChatGUI:
 
         menu_bar = tk.Menu(self.root)
         tools_menu = tk.Menu(menu_bar, tearoff=0)
-        tools_menu.add_command(label="Insert: install vlc", command=lambda: self._insert_tool_command("install vlc"))
-        tools_menu.add_command(label="Insert: list files in .", command=lambda: self._insert_tool_command("list files in ."))
-        tools_menu.add_command(label="Insert: create folder demo", command=lambda: self._insert_tool_command("create folder demo"))
+        tools_menu.add_command(label="install vlc", command=lambda: self._insert_tool_command("install vlc"))
+        tools_menu.add_command(label="list files in .", command=lambda: self._insert_tool_command("list files in ."))
+        tools_menu.add_command(label="create folder demo", command=lambda: self._insert_tool_command("create folder demo"))
         tools_menu.add_separator()
         tools_menu.add_command(label="Clear Timeline", command=self._clear_timeline)
         tools_menu.add_command(label="Clear Progress", command=self._reset_progress_panel)
