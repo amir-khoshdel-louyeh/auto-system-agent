@@ -1,4 +1,5 @@
 import queue
+import os
 import sys
 import time
 import unittest
@@ -79,6 +80,9 @@ class FakeEntry:
 
     def delete(self, _start, _end):
         self.text = ""
+
+    def insert(self, _index, value):
+        self.text = value
 
     def configure(self, **kwargs):
         if "state" in kwargs:
@@ -361,6 +365,25 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertTrue(drain_until_idle(gui), "GUI worker did not settle after timeout")
         self.assertTrue(any(speaker == "System" and "timed out" in text.lower() for speaker, text in messages))
         self.assertFalse(any(speaker == "Agent" and "late response" in text for speaker, text in messages))
+
+    def test_insert_tool_command_populates_entry(self):
+        gui, _messages, _progress = build_gui_harness(agent=DummyAgent(), user_text="")
+
+        gui._insert_tool_command("list files in .")
+        self.assertEqual(gui.entry.text, "list files in .")
+
+    def test_apply_runtime_options_updates_env(self):
+        gui, _messages, _progress = build_gui_harness(agent=DummyAgent(), user_text="")
+
+        class DummySettings:
+            gui_timeout_seconds = 12.0
+            install_retries = 5
+
+        gui._settings = DummySettings()
+        gui._apply_runtime_options()
+        self.assertEqual(gui._task_timeout_seconds, 12.0)
+        self.assertEqual(os.environ.get("AUTO_AGENT_GUI_TASK_TIMEOUT"), "12.0")
+        self.assertEqual(os.environ.get("AUTO_AGENT_INSTALL_RETRIES"), "5")
 
 
 if __name__ == "__main__":
