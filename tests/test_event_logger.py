@@ -45,6 +45,18 @@ class FakeAssistant:
         return None
 
 
+class UnknownPlanner:
+    def plan_tasks(self, user_input: str):
+        return [PlannedTask(action="unknown", target=user_input, raw_input=user_input)]
+
+
+class UnknownSelector:
+    SUPPORTED_ACTIONS = {"create_folder", "run_command", "install_app", "list_files"}
+
+    def select(self, task):
+        return "unknown"
+
+
 class EventLoggerTests(unittest.TestCase):
     def test_agent_writes_structured_event(self):
         logger = InMemoryLogger()
@@ -84,6 +96,23 @@ class EventLoggerTests(unittest.TestCase):
         self.assertIn("timestamp", parsed)
 
         tmp_path.unlink()
+
+    def test_agent_logs_unresolved_intent_telemetry(self):
+        logger = InMemoryLogger()
+        agent = AutoSystemAgent(
+            planner=UnknownPlanner(),
+            selector=UnknownSelector(),
+            assistant=FakeAssistant(),
+            event_logger=logger,
+        )
+
+        reply = agent.process("do something mysterious")
+        self.assertIn("I can help with general questions", reply)
+
+        unresolved = [event for event in logger.events if event.get("mode") == "unresolved_intent"]
+        self.assertEqual(len(unresolved), 1)
+        self.assertEqual(unresolved[0]["reason"], "llm_unresolved_after_deterministic")
+        self.assertIn("unknown", unresolved[0]["planned_actions"])
 
 
 if __name__ == "__main__":
