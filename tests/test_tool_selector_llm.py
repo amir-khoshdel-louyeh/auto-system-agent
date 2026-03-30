@@ -52,6 +52,20 @@ class ToolSelectorLLMTests(unittest.TestCase):
         task = PlannedTask(action="unknown", raw_input="wipe this machine")
         self.assertEqual(selector.select(task), "unknown")
 
+    def test_guarded_fallback_maps_run_prefix(self):
+        mapper = FakeMapper(None)
+        selector = ToolSelector(llm_mapper=mapper)
+
+        task = PlannedTask(action="unknown", raw_input="run uname -a")
+        self.assertEqual(selector.select(task), "run_command")
+
+    def test_guarded_fallback_maps_list_files_phrase(self):
+        mapper = FakeMapper(None)
+        selector = ToolSelector(llm_mapper=mapper)
+
+        task = PlannedTask(action="unknown", raw_input="show files in downloads")
+        self.assertEqual(selector.select(task), "list_files")
+
 
 if __name__ == "__main__":
     unittest.main()
