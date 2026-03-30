@@ -32,6 +32,9 @@ class SettingsStoreTests(unittest.TestCase):
             api_key="abc123",
             model="gpt-4o-mini",
             timeout=9.5,
+            gui_timeout_seconds=33,
+            install_retries=4,
+            confirm_high_risk=False,
         )
 
         self.store.save(settings)
@@ -42,6 +45,9 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(loaded.api_key, "abc123")
         self.assertEqual(loaded.model, "gpt-4o-mini")
         self.assertEqual(loaded.timeout, 9.5)
+        self.assertEqual(loaded.gui_timeout_seconds, 33.0)
+        self.assertEqual(loaded.install_retries, 4)
+        self.assertFalse(loaded.confirm_high_risk)
 
     def test_resolve_uses_custom_values_when_mode_is_custom(self):
         settings = LLMSettings(
