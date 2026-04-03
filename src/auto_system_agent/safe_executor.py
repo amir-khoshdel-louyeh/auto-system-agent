@@ -1,5 +1,7 @@
 import subprocess
 import os
+import shlex
+from pathlib import Path
 
 from auto_system_agent.models import ExecutionResult, PlannedTask
 from auto_system_agent.tools.command_tool import run_command
@@ -31,6 +33,46 @@ def _is_transient_install_failure(output_text: str) -> bool:
 
 class SafeExecutor:
     """Executes only predefined safe operations."""
+
+    def __init__(self) -> None:
+        self._working_directory = Path.cwd()
+
+    def _handle_navigation_command(self, command_text: str) -> ExecutionResult | None:
+        text = command_text.strip()
+        if not text:
+            return None
+
+        try:
+            parts = shlex.split(text)
+        except ValueError as exc:
+            return ExecutionResult(success=False, message=f"Invalid command syntax: {exc}")
+
+        if not parts:
+            return None
+
+        if parts[0] == "pwd":
+            return ExecutionResult(success=True, message=str(self._working_directory))
+
+        if parts[0] == "ls":
+            target = str(self._working_directory)
+            if len(parts) > 1:
+                target = str((self._working_directory / parts[1]).resolve())
+            return list_files(target)
+
+        if parts[0] == "cd":
+            destination = parts[1] if len(parts) > 1 else "~"
+            if destination == "~":
+                target = Path.home().resolve()
+            else:
+                target = (self._working_directory / destination).expanduser().resolve()
+
+            if not target.exists() or not target.is_dir():
+                return ExecutionResult(success=False, message=f"Invalid directory: {target}")
+
+            self._working_directory = target
+            return ExecutionResult(success=True, message=f"Current directory: {self._working_directory}")
+
+        return None
 
     def execute(self, tool_key: str, task: PlannedTask) -> ExecutionResult:
         if tool_key == "install_app":
@@ -100,7 +142,11 @@ class SafeExecutor:
             return delete_path(task.target or "")
 
         if tool_key == "run_command":
-            return run_command(task.target or "")
+            command_text = task.target or ""
+            navigation_result = self._handle_navigation_command(command_text)
+            if navigation_result is not None:
+                return navigation_result
+            return run_command(command_text)
 
         if tool_key == "help":
             return ExecutionResult(
@@ -108,7 +154,7 @@ class SafeExecutor:
                 message=(
                     "Try commands like: install vlc, create folder demo, compress demo, "
                     "move demo.txt to archive/demo.txt, delete archive/demo.txt, "
-                    "list files in ., run pwd, or direct shell commands like ls -la."
+                    "list files in ., run pwd, cd .., cd ~, or direct shell commands like ls -la."
                 ),
             )
 
