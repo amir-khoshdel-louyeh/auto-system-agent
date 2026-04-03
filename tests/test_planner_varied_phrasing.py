@@ -80,6 +80,11 @@ class PlannerVariedPhrasingTests(unittest.TestCase):
         self.assertEqual(task.action, "run_command")
         self.assertEqual(task.target, "pwd")
 
+    def test_cd_prefix_maps_to_run_command(self) -> None:
+        task = self.planner.plan("cd ..")
+        self.assertEqual(task.action, "run_command")
+        self.assertEqual(task.target, "cd ..")
+
     def test_help_keyword_maps_to_help_action(self) -> None:
         task = self.planner.plan("help")
         self.assertEqual(task.action, "help")
