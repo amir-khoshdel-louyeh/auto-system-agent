@@ -6,6 +6,7 @@ from auto_system_agent.task_schema import IntermediateTask
 
 
 DIRECT_COMMAND_PREFIXES = {
+    "cd",
     "ls",
     "pwd",
     "whoami",
