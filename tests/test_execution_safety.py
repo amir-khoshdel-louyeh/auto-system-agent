@@ -165,6 +165,35 @@ class ExecutionSafetyTests(unittest.TestCase):
             self.assertTrue(result.success)
             self.assertFalse(target.exists())
 
+    def test_navigation_pwd_and_cd_commands(self):
+        executor = SafeExecutor()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            parent = Path(temp_dir).resolve()
+            child = parent / "child"
+            child.mkdir()
+
+            executor._working_directory = child
+            result_pwd = executor.execute("run_command", PlannedTask(action="run_command", target="pwd"))
+            self.assertTrue(result_pwd.success)
+            self.assertEqual(result_pwd.message, str(child))
+
+            result_cd_up = executor.execute("run_command", PlannedTask(action="run_command", target="cd .."))
+            self.assertTrue(result_cd_up.success)
+            self.assertIn(str(parent), result_cd_up.message)
+
+            result_pwd_after = executor.execute("run_command", PlannedTask(action="run_command", target="pwd"))
+            self.assertEqual(result_pwd_after.message, str(parent))
+
+    def test_navigation_cd_home_and_ls(self):
+        executor = SafeExecutor()
+        result_cd_home = executor.execute("run_command", PlannedTask(action="run_command", target="cd ~"))
+        self.assertTrue(result_cd_home.success)
+        self.assertIn(str(Path.home().resolve()), result_cd_home.message)
+
+        result_ls = executor.execute("run_command", PlannedTask(action="run_command", target="ls"))
+        self.assertTrue(result_ls.success)
+        self.assertIn("Contents of", result_ls.message)
+
 
 if __name__ == "__main__":
     unittest.main()
