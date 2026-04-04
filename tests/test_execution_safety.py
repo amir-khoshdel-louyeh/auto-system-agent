@@ -228,6 +228,32 @@ class ExecutionSafetyTests(unittest.TestCase):
             result_rm_recursive = executor.execute("run_command", PlannedTask(action="run_command", target="rm -r demo"))
             self.assertTrue(result_rm_recursive.success)
 
+    def test_file_viewing_commands_cat_less_head_tail(self):
+        executor = SafeExecutor()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executor._working_directory = Path(temp_dir).resolve()
+            target = Path(temp_dir) / "notes.txt"
+            target.write_text("\n".join([f"line {i}" for i in range(1, 21)]), encoding="utf-8")
+
+            result_cat = executor.execute("run_command", PlannedTask(action="run_command", target="cat notes.txt"))
+            self.assertTrue(result_cat.success)
+            self.assertIn("line 1", result_cat.message)
+            self.assertIn("line 20", result_cat.message)
+
+            result_head = executor.execute("run_command", PlannedTask(action="run_command", target="head notes.txt"))
+            self.assertTrue(result_head.success)
+            self.assertIn("line 1", result_head.message)
+            self.assertNotIn("line 20", result_head.message)
+
+            result_tail = executor.execute("run_command", PlannedTask(action="run_command", target="tail notes.txt"))
+            self.assertTrue(result_tail.success)
+            self.assertIn("line 20", result_tail.message)
+            self.assertNotIn("line 1", result_tail.message)
+
+            result_less = executor.execute("run_command", PlannedTask(action="run_command", target="less notes.txt"))
+            self.assertTrue(result_less.success)
+            self.assertIn("line 1", result_less.message)
+
 
 if __name__ == "__main__":
     unittest.main()
