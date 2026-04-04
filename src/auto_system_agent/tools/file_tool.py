@@ -189,6 +189,40 @@ def create_empty_file(path_text: str) -> ExecutionResult:
     return ExecutionResult(success=True, message=f"File ready: {target}")
 
 
+def view_file(path_text: str, *, mode: str = "all", line_count: int = 10) -> ExecutionResult:
+    try:
+        target = Path(path_text).expanduser().resolve()
+    except OSError as exc:
+        return ExecutionResult(success=False, message=f"Could not resolve path: {exc}")
+
+    if not target.exists() or not target.is_file():
+        return ExecutionResult(success=False, message=f"Invalid file path: {target}")
+    if not _is_in_sandbox(target):
+        return _sandbox_block(target)
+
+    try:
+        content = target.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return ExecutionResult(success=False, message=f"File is not UTF-8 text: {target}")
+    except OSError as exc:
+        return ExecutionResult(success=False, message=f"Could not read file: {exc}")
+
+    lines = content.splitlines()
+    selected_lines = lines
+    if mode == "head":
+        selected_lines = lines[: max(1, line_count)]
+    elif mode == "tail":
+        selected_lines = lines[-max(1, line_count):]
+    elif mode == "less":
+        selected_lines = lines[: max(1, line_count)]
+
+    preview = "\n".join(selected_lines)
+    if mode == "less" and len(lines) > len(selected_lines):
+        preview += f"\n... ({len(lines) - len(selected_lines)} more lines)"
+
+    return ExecutionResult(success=True, message=preview if preview else "(empty file)")
+
+
 def delete_path(path_text: str) -> ExecutionResult:
     try:
         target = Path(path_text).expanduser().resolve()
