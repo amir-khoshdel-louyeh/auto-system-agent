@@ -7,6 +7,8 @@ from auto_system_agent.models import ExecutionResult, PlannedTask
 from auto_system_agent.tools.command_tool import run_command
 from auto_system_agent.tools.file_tool import (
     compress_path,
+    copy_path,
+    create_empty_file,
     create_folder,
     delete_path,
     list_files,
@@ -71,6 +73,47 @@ class SafeExecutor:
 
             self._working_directory = target
             return ExecutionResult(success=True, message=f"Current directory: {self._working_directory}")
+
+        if parts[0] == "mkdir":
+            if len(parts) < 2:
+                return ExecutionResult(success=False, message="mkdir requires a folder name.")
+            target = str((self._working_directory / parts[1]).expanduser())
+            return create_folder(target)
+
+        if parts[0] == "touch":
+            if len(parts) < 2:
+                return ExecutionResult(success=False, message="touch requires a file path.")
+            target = str((self._working_directory / parts[1]).expanduser())
+            return create_empty_file(target)
+
+        if parts[0] == "cp":
+            if len(parts) < 3:
+                return ExecutionResult(success=False, message="cp requires source and destination.")
+            source = str((self._working_directory / parts[1]).expanduser())
+            destination = str((self._working_directory / parts[2]).expanduser())
+            return copy_path(source, destination)
+
+        if parts[0] == "mv":
+            if len(parts) < 3:
+                return ExecutionResult(success=False, message="mv requires source and destination.")
+            source = str((self._working_directory / parts[1]).expanduser())
+            destination = str((self._working_directory / parts[2]).expanduser())
+            return move_path(source, destination)
+
+        if parts[0] == "rm":
+            if len(parts) < 2:
+                return ExecutionResult(success=False, message="rm requires a path.")
+
+            recursive = len(parts) >= 3 and parts[1] == "-r"
+            target_arg = parts[2] if recursive else parts[1]
+            target = (self._working_directory / target_arg).expanduser().resolve()
+            if not target.exists():
+                return ExecutionResult(success=False, message=f"Path does not exist: {target}")
+
+            if target.is_dir() and not recursive:
+                return ExecutionResult(success=False, message="rm cannot delete a folder without -r.")
+
+            return delete_path(str(target))
 
         return None
 
