@@ -7,8 +7,13 @@ from auto_system_agent.task_schema import IntermediateTask
 
 DIRECT_COMMAND_PREFIXES = {
     "cd",
+    "cp",
     "ls",
+    "mkdir",
+    "mv",
     "pwd",
+    "rm",
+    "touch",
     "whoami",
     "echo",
     "cat",
