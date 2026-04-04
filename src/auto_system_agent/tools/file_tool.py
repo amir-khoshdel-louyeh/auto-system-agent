@@ -148,6 +148,47 @@ def move_path(source_text: str, destination_text: str) -> ExecutionResult:
     return ExecutionResult(success=True, message=f"Moved to: {moved_to}")
 
 
+def copy_path(source_text: str, destination_text: str) -> ExecutionResult:
+    try:
+        source = Path(source_text).expanduser().resolve()
+        destination = Path(destination_text).expanduser().resolve()
+    except OSError as exc:
+        return ExecutionResult(success=False, message=f"Could not resolve path: {exc}")
+
+    if not source.exists() or not source.is_file():
+        return ExecutionResult(success=False, message=f"Invalid file source: {source}")
+    if not _is_in_sandbox(source):
+        return _sandbox_block(source)
+    if not _is_in_sandbox(destination):
+        return _sandbox_block(destination)
+
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        copied_to = shutil.copy2(str(source), str(destination))
+    except OSError as exc:
+        return ExecutionResult(success=False, message=f"Could not copy path: {exc}")
+
+    return ExecutionResult(success=True, message=f"Copied to: {copied_to}")
+
+
+def create_empty_file(path_text: str) -> ExecutionResult:
+    try:
+        target = Path(path_text).expanduser().resolve()
+    except OSError as exc:
+        return ExecutionResult(success=False, message=f"Could not resolve path: {exc}")
+
+    if not _is_in_sandbox(target):
+        return _sandbox_block(target)
+
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.touch(exist_ok=True)
+    except OSError as exc:
+        return ExecutionResult(success=False, message=f"Could not create file: {exc}")
+
+    return ExecutionResult(success=True, message=f"File ready: {target}")
+
+
 def delete_path(path_text: str) -> ExecutionResult:
     try:
         target = Path(path_text).expanduser().resolve()
