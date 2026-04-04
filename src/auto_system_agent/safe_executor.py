@@ -13,6 +13,7 @@ from auto_system_agent.tools.file_tool import (
     delete_path,
     list_files,
     move_path,
+    view_file,
 )
 from auto_system_agent.tools.install_tool import build_install_command, verify_install_environment
 
@@ -115,6 +116,19 @@ class SafeExecutor:
 
             return delete_path(str(target))
 
+        if parts[0] in {"cat", "less", "head", "tail"}:
+            if len(parts) < 2:
+                return ExecutionResult(success=False, message=f"{parts[0]} requires a file path.")
+
+            target = str((self._working_directory / parts[1]).expanduser())
+            if parts[0] == "cat":
+                return view_file(target, mode="all")
+            if parts[0] == "less":
+                return view_file(target, mode="less", line_count=25)
+            if parts[0] == "head":
+                return view_file(target, mode="head", line_count=10)
+            return view_file(target, mode="tail", line_count=10)
+
         return None
 
     def execute(self, tool_key: str, task: PlannedTask) -> ExecutionResult:
@@ -197,7 +211,7 @@ class SafeExecutor:
                 message=(
                     "Try commands like: install vlc, create folder demo, compress demo, "
                     "move demo.txt to archive/demo.txt, delete archive/demo.txt, "
-                    "list files in ., run pwd, cd .., cd ~, or direct shell commands like ls -la."
+                    "list files in ., run pwd, cd .., cat notes.txt, head notes.txt, tail notes.txt, or ls -la."
                 ),
             )
 
