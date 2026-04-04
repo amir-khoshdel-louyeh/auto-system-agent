@@ -92,6 +92,13 @@ class PlannerVariedPhrasingTests(unittest.TestCase):
                 self.assertEqual(task.action, "run_command")
                 self.assertEqual(task.target, text)
 
+    def test_file_viewing_prefixes_map_to_run_command(self) -> None:
+        for text in ["cat file.txt", "less file.txt", "head file.txt", "tail file.txt"]:
+            with self.subTest(text=text):
+                task = self.planner.plan(text)
+                self.assertEqual(task.action, "run_command")
+                self.assertEqual(task.target, text)
+
     def test_help_keyword_maps_to_help_action(self) -> None:
         task = self.planner.plan("help")
         self.assertEqual(task.action, "help")
