@@ -194,6 +194,40 @@ class ExecutionSafetyTests(unittest.TestCase):
         self.assertTrue(result_ls.success)
         self.assertIn("Contents of", result_ls.message)
 
+    def test_file_management_mkdir_touch_cp_mv_rm_commands(self):
+        executor = SafeExecutor()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executor._working_directory = Path(temp_dir).resolve()
+
+            result_mkdir = executor.execute("run_command", PlannedTask(action="run_command", target="mkdir demo"))
+            self.assertTrue(result_mkdir.success)
+
+            result_touch = executor.execute("run_command", PlannedTask(action="run_command", target="touch demo/a.txt"))
+            self.assertTrue(result_touch.success)
+
+            result_cp = executor.execute("run_command", PlannedTask(action="run_command", target="cp demo/a.txt demo/b.txt"))
+            self.assertTrue(result_cp.success)
+
+            result_mv = executor.execute("run_command", PlannedTask(action="run_command", target="mv demo/b.txt demo/c.txt"))
+            self.assertTrue(result_mv.success)
+
+            result_rm_file = executor.execute("run_command", PlannedTask(action="run_command", target="rm demo/c.txt"))
+            self.assertTrue(result_rm_file.success)
+
+    def test_rm_requires_recursive_flag_for_folder(self):
+        executor = SafeExecutor()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executor._working_directory = Path(temp_dir).resolve()
+            folder = Path(temp_dir) / "demo"
+            folder.mkdir()
+
+            result_rm = executor.execute("run_command", PlannedTask(action="run_command", target="rm demo"))
+            self.assertFalse(result_rm.success)
+            self.assertIn("without -r", result_rm.message)
+
+            result_rm_recursive = executor.execute("run_command", PlannedTask(action="run_command", target="rm -r demo"))
+            self.assertTrue(result_rm_recursive.success)
+
 
 if __name__ == "__main__":
     unittest.main()
