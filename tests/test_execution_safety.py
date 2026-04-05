@@ -248,7 +248,7 @@ class ExecutionSafetyTests(unittest.TestCase):
             result_tail = executor.execute("run_command", PlannedTask(action="run_command", target="tail notes.txt"))
             self.assertTrue(result_tail.success)
             self.assertIn("line 20", result_tail.message)
-            self.assertNotIn("line 1", result_tail.message)
+            self.assertNotIn("line 2", result_tail.message)
 
             result_less = executor.execute("run_command", PlannedTask(action="run_command", target="less notes.txt"))
             self.assertTrue(result_less.success)
