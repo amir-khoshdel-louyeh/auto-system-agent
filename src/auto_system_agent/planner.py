@@ -7,8 +7,10 @@ from auto_system_agent.task_schema import IntermediateTask
 
 DIRECT_COMMAND_PREFIXES = {
     "cd",
+    "chmod",
     "clear",
     "cp",
+    "curl",
     "exit",
     "find",
     "grep",
@@ -20,7 +22,9 @@ DIRECT_COMMAND_PREFIXES = {
     "mv",
     "pwd",
     "rm",
+    "sudo",
     "tail",
+    "ping",
     "top",
     "touch",
     "whoami",
