@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 import zipfile
 import subprocess
+from urllib import error
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
@@ -290,6 +291,54 @@ class ExecutionSafetyTests(unittest.TestCase):
         exit_result = executor.execute("run_command", PlannedTask(action="run_command", target="exit"))
         self.assertTrue(exit_result.success)
         self.assertIn("closed", exit_result.message.lower())
+
+    def test_permissions_commands_chmod_and_sudo(self):
+        executor = SafeExecutor()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executor._working_directory = Path(temp_dir).resolve()
+            target = Path(temp_dir) / "script.sh"
+            target.write_text("echo hi\n", encoding="utf-8")
+
+            chmod_result = executor.execute("run_command", PlannedTask(action="run_command", target="chmod +x script.sh"))
+            self.assertTrue(chmod_result.success)
+            self.assertIn("Made executable", chmod_result.message)
+
+        with patch(
+            "auto_system_agent.safe_executor.subprocess.run",
+            return_value=subprocess.CompletedProcess(args=["sudo"], returncode=0, stdout="ok", stderr=""),
+        ):
+            sudo_result = executor.execute("run_command", PlannedTask(action="run_command", target="sudo ls"))
+        self.assertTrue(sudo_result.success)
+
+    def test_networking_commands_ping_and_curl(self):
+        executor = SafeExecutor()
+
+        with patch(
+            "auto_system_agent.safe_executor.subprocess.run",
+            return_value=subprocess.CompletedProcess(args=["ping"], returncode=0, stdout="PING ok", stderr=""),
+        ):
+            ping_result = executor.execute("run_command", PlannedTask(action="run_command", target="ping google.com"))
+        self.assertTrue(ping_result.success)
+        self.assertIn("PING", ping_result.message)
+
+        class _FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                return False
+
+            def read(self, _size=None):
+                return b"hello"
+
+        with patch("auto_system_agent.safe_executor.request.urlopen", return_value=_FakeResponse()):
+            curl_result = executor.execute("run_command", PlannedTask(action="run_command", target="curl https://example.com"))
+        self.assertTrue(curl_result.success)
+        self.assertIn("hello", curl_result.message)
+
+        with patch("auto_system_agent.safe_executor.request.urlopen", side_effect=error.URLError("down")):
+            curl_fail = executor.execute("run_command", PlannedTask(action="run_command", target="curl https://example.com"))
+        self.assertFalse(curl_fail.success)
 
 
 if __name__ == "__main__":
