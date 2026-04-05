@@ -11,6 +11,8 @@ from auto_system_agent.tools.file_tool import (
     create_empty_file,
     create_folder,
     delete_path,
+    find_files_by_name,
+    grep_in_file,
     list_files,
     move_path,
     view_file,
@@ -39,6 +41,7 @@ class SafeExecutor:
 
     def __init__(self) -> None:
         self._working_directory = Path.cwd()
+        self._command_history: list[str] = []
 
     def _handle_navigation_command(self, command_text: str) -> ExecutionResult | None:
         text = command_text.strip()
@@ -52,6 +55,41 @@ class SafeExecutor:
 
         if not parts:
             return None
+
+        self._command_history.append(text)
+        if len(self._command_history) > 200:
+            self._command_history = self._command_history[-200:]
+
+        if parts[0] == "clear":
+            return ExecutionResult(success=True, message="Terminal cleared.")
+
+        if parts[0] == "history":
+            if not self._command_history:
+                return ExecutionResult(success=True, message="(no history)")
+            lines = [f"{idx}: {cmd}" for idx, cmd in enumerate(self._command_history, start=1)]
+            return ExecutionResult(success=True, message="\n".join(lines))
+
+        if parts[0] == "exit":
+            self._working_directory = Path.cwd()
+            self._command_history = []
+            return ExecutionResult(success=True, message="Terminal session closed.")
+
+        if parts[0] == "top":
+            try:
+                completed = subprocess.run(
+                    ["ps", "-eo", "pid,comm,%cpu,%mem", "--sort=-%cpu"],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+            except OSError as exc:
+                return ExecutionResult(success=False, message=f"Could not list processes: {exc}")
+
+            output_lines = (completed.stdout or "").splitlines()
+            if not output_lines:
+                return ExecutionResult(success=False, message="Could not list processes.")
+            preview = "\n".join(output_lines[:16])
+            return ExecutionResult(success=True, message=preview)
 
         if parts[0] == "pwd":
             return ExecutionResult(success=True, message=str(self._working_directory))
@@ -128,6 +166,20 @@ class SafeExecutor:
             if parts[0] == "head":
                 return view_file(target, mode="head", line_count=10)
             return view_file(target, mode="tail", line_count=10)
+
+        if parts[0] == "grep":
+            if len(parts) < 3:
+                return ExecutionResult(success=False, message="grep requires search text and file path.")
+            search_text = parts[1]
+            target = str((self._working_directory / parts[2]).expanduser())
+            return grep_in_file(search_text, target)
+
+        if parts[0] == "find":
+            if len(parts) < 4 or parts[2] != "-name":
+                return ExecutionResult(success=False, message="find usage: find <path> -name <filename>")
+            start_path = str((self._working_directory / parts[1]).expanduser())
+            filename = parts[3]
+            return find_files_by_name(start_path, filename)
 
         return None
 
@@ -211,7 +263,7 @@ class SafeExecutor:
                 message=(
                     "Try commands like: install vlc, create folder demo, compress demo, "
                     "move demo.txt to archive/demo.txt, delete archive/demo.txt, "
-                    "list files in ., run pwd, cd .., cat notes.txt, head notes.txt, tail notes.txt, or ls -la."
+                    "list files in ., run pwd, grep 'text' notes.txt, find . -name notes.txt, top, history, or ls -la."
                 ),
             )
 
