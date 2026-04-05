@@ -223,6 +223,58 @@ def view_file(path_text: str, *, mode: str = "all", line_count: int = 10) -> Exe
     return ExecutionResult(success=True, message=preview if preview else "(empty file)")
 
 
+def grep_in_file(search_text: str, path_text: str) -> ExecutionResult:
+    try:
+        target = Path(path_text).expanduser().resolve()
+    except OSError as exc:
+        return ExecutionResult(success=False, message=f"Could not resolve path: {exc}")
+
+    if not target.exists() or not target.is_file():
+        return ExecutionResult(success=False, message=f"Invalid file path: {target}")
+    if not _is_in_sandbox(target):
+        return _sandbox_block(target)
+
+    try:
+        lines = target.read_text(encoding="utf-8").splitlines()
+    except UnicodeDecodeError:
+        return ExecutionResult(success=False, message=f"File is not UTF-8 text: {target}")
+    except OSError as exc:
+        return ExecutionResult(success=False, message=f"Could not read file: {exc}")
+
+    needle = search_text
+    matches = [f"{idx}:{line}" for idx, line in enumerate(lines, start=1) if needle in line]
+    if not matches:
+        return ExecutionResult(success=True, message="(no matches)")
+    return ExecutionResult(success=True, message="\n".join(matches))
+
+
+def find_files_by_name(start_path_text: str, filename: str) -> ExecutionResult:
+    try:
+        start_path = Path(start_path_text).expanduser().resolve()
+    except OSError as exc:
+        return ExecutionResult(success=False, message=f"Could not resolve path: {exc}")
+
+    if not start_path.exists() or not start_path.is_dir():
+        return ExecutionResult(success=False, message=f"Invalid directory: {start_path}")
+    if not _is_in_sandbox(start_path):
+        return _sandbox_block(start_path)
+
+    results: list[str] = []
+    try:
+        for root, _dirs, files in os.walk(start_path):
+            root_path = Path(root)
+            if not _is_in_sandbox(root_path):
+                continue
+            if filename in files:
+                results.append(str(root_path / filename))
+    except OSError as exc:
+        return ExecutionResult(success=False, message=f"Could not search path: {exc}")
+
+    if not results:
+        return ExecutionResult(success=True, message="(no files found)")
+    return ExecutionResult(success=True, message="\n".join(sorted(results)))
+
+
 def delete_path(path_text: str) -> ExecutionResult:
     try:
         target = Path(path_text).expanduser().resolve()
