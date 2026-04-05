@@ -2,9 +2,10 @@ import subprocess
 import os
 import shlex
 from pathlib import Path
+from urllib import error, parse, request
 
 from auto_system_agent.models import ExecutionResult, PlannedTask
-from auto_system_agent.tools.command_tool import run_command
+from auto_system_agent.tools.command_tool import COMMAND_TOOL_POLICY, run_command
 from auto_system_agent.tools.file_tool import (
     compress_path,
     copy_path,
@@ -14,6 +15,7 @@ from auto_system_agent.tools.file_tool import (
     find_files_by_name,
     grep_in_file,
     list_files,
+    make_executable,
     move_path,
     view_file,
 )
@@ -42,6 +44,25 @@ class SafeExecutor:
     def __init__(self) -> None:
         self._working_directory = Path.cwd()
         self._command_history: list[str] = []
+
+    def _check_sudo_policy(self, inner_parts: list[str]) -> ExecutionResult | None:
+        if not inner_parts:
+            return ExecutionResult(success=False, message="sudo requires a command.")
+
+        if any(token in COMMAND_TOOL_POLICY["blocked_separators"] for token in inner_parts):
+            return ExecutionResult(success=False, message="Command chaining is blocked by safety policy.")
+
+        executable_name = Path(inner_parts[0]).name.lower()
+        if executable_name in COMMAND_TOOL_POLICY["blocked_interpreters"]:
+            return ExecutionResult(success=False, message="Interpreter and shell execution is blocked by safety policy.")
+        if executable_name in COMMAND_TOOL_POLICY["blocked_commands"]:
+            return ExecutionResult(success=False, message="Command blocked by safety policy.")
+
+        lowered_args = [token.lower() for token in inner_parts[1:]]
+        if any(token in COMMAND_TOOL_POLICY["blocked_arguments"] for token in lowered_args):
+            return ExecutionResult(success=False, message="Command blocked by safety policy.")
+
+        return None
 
     def _handle_navigation_command(self, command_text: str) -> ExecutionResult | None:
         text = command_text.strip()
@@ -167,6 +188,42 @@ class SafeExecutor:
                 return view_file(target, mode="head", line_count=10)
             return view_file(target, mode="tail", line_count=10)
 
+        if parts[0] == "chmod":
+            if len(parts) < 3 or parts[1] != "+x":
+                return ExecutionResult(success=False, message="chmod usage: chmod +x <file>")
+            target = str((self._working_directory / parts[2]).expanduser())
+            return make_executable(target)
+
+        if parts[0] == "sudo":
+            if len(parts) < 2:
+                return ExecutionResult(success=False, message="sudo requires a command.")
+
+            inner_parts = parts[1:]
+            policy_result = self._check_sudo_policy(inner_parts)
+            if policy_result is not None:
+                return policy_result
+
+            try:
+                completed = subprocess.run(
+                    ["sudo", "-n", *inner_parts],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=20,
+                    cwd=str(self._working_directory),
+                )
+            except FileNotFoundError:
+                return ExecutionResult(success=False, message="sudo is not available on this system.")
+            except subprocess.TimeoutExpired:
+                return ExecutionResult(success=False, message="sudo command timed out.")
+            except OSError as exc:
+                return ExecutionResult(success=False, message=f"Could not execute sudo command: {exc}")
+
+            output = ((completed.stdout or "") + (completed.stderr or "")).strip()
+            if completed.returncode != 0:
+                return ExecutionResult(success=False, message=f"sudo command failed with code {completed.returncode}.\n{output}")
+            return ExecutionResult(success=True, message=output or "sudo command executed successfully.")
+
         if parts[0] == "grep":
             if len(parts) < 3:
                 return ExecutionResult(success=False, message="grep requires search text and file path.")
@@ -180,6 +237,48 @@ class SafeExecutor:
             start_path = str((self._working_directory / parts[1]).expanduser())
             filename = parts[3]
             return find_files_by_name(start_path, filename)
+
+        if parts[0] == "ping":
+            if len(parts) < 2:
+                return ExecutionResult(success=False, message="ping requires a host.")
+            host = parts[1]
+            if any(ch in host for ch in [";", "&", "|", " "]):
+                return ExecutionResult(success=False, message="Invalid ping host.")
+            try:
+                completed = subprocess.run(
+                    ["ping", "-c", "4", "-W", "2", host],
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=15,
+                )
+            except FileNotFoundError:
+                return ExecutionResult(success=False, message="ping is not available on this system.")
+            except subprocess.TimeoutExpired:
+                return ExecutionResult(success=False, message="ping command timed out.")
+            except OSError as exc:
+                return ExecutionResult(success=False, message=f"Could not execute ping: {exc}")
+
+            output = ((completed.stdout or "") + (completed.stderr or "")).strip()
+            if completed.returncode != 0:
+                return ExecutionResult(success=False, message=f"ping failed with code {completed.returncode}.\n{output}")
+            return ExecutionResult(success=True, message=output)
+
+        if parts[0] == "curl":
+            if len(parts) < 2:
+                return ExecutionResult(success=False, message="curl requires a URL.")
+            url = parts[1].strip()
+            parsed = parse.urlparse(url)
+            if parsed.scheme not in {"http", "https"}:
+                return ExecutionResult(success=False, message="curl only supports http/https URLs.")
+            try:
+                with request.urlopen(url, timeout=10) as response:
+                    body = response.read(4096).decode("utf-8", errors="replace")
+            except error.URLError as exc:
+                return ExecutionResult(success=False, message=f"curl failed: {exc}")
+            except TimeoutError:
+                return ExecutionResult(success=False, message="curl request timed out.")
+            return ExecutionResult(success=True, message=body or "(empty response)")
 
         return None
 
@@ -263,7 +362,7 @@ class SafeExecutor:
                 message=(
                     "Try commands like: install vlc, create folder demo, compress demo, "
                     "move demo.txt to archive/demo.txt, delete archive/demo.txt, "
-                    "list files in ., run pwd, grep 'text' notes.txt, find . -name notes.txt, top, history, or ls -la."
+                    "list files in ., run pwd, grep 'text' notes.txt, find . -name notes.txt, ping example.com, curl https://example.com, top, history, or ls -la."
                 ),
             )
 
