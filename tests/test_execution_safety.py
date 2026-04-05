@@ -255,6 +255,42 @@ class ExecutionSafetyTests(unittest.TestCase):
             self.assertTrue(result_less.success)
             self.assertIn("line 1", result_less.message)
 
+    def test_search_commands_grep_and_find(self):
+        executor = SafeExecutor()
+        with tempfile.TemporaryDirectory() as temp_dir:
+            executor._working_directory = Path(temp_dir).resolve()
+            nested = Path(temp_dir) / "nested"
+            nested.mkdir()
+            target = nested / "sample.txt"
+            target.write_text("hello\nsearch me\nbye\n", encoding="utf-8")
+
+            grep_result = executor.execute("run_command", PlannedTask(action="run_command", target="grep search nested/sample.txt"))
+            self.assertTrue(grep_result.success)
+            self.assertIn("2:search me", grep_result.message)
+
+            find_result = executor.execute("run_command", PlannedTask(action="run_command", target="find . -name sample.txt"))
+            self.assertTrue(find_result.success)
+            self.assertIn("sample.txt", find_result.message)
+
+    def test_system_commands_history_clear_top_exit(self):
+        executor = SafeExecutor()
+
+        executor.execute("run_command", PlannedTask(action="run_command", target="pwd"))
+        history_result = executor.execute("run_command", PlannedTask(action="run_command", target="history"))
+        self.assertTrue(history_result.success)
+        self.assertIn("pwd", history_result.message)
+
+        clear_result = executor.execute("run_command", PlannedTask(action="run_command", target="clear"))
+        self.assertTrue(clear_result.success)
+        self.assertIn("cleared", clear_result.message.lower())
+
+        top_result = executor.execute("run_command", PlannedTask(action="run_command", target="top"))
+        self.assertTrue(top_result.success)
+
+        exit_result = executor.execute("run_command", PlannedTask(action="run_command", target="exit"))
+        self.assertTrue(exit_result.success)
+        self.assertIn("closed", exit_result.message.lower())
+
 
 if __name__ == "__main__":
     unittest.main()
