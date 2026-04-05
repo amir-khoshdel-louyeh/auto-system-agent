@@ -1,5 +1,6 @@
 import shutil
 import os
+import stat
 from pathlib import Path
 import zipfile
 
@@ -187,6 +188,26 @@ def create_empty_file(path_text: str) -> ExecutionResult:
         return ExecutionResult(success=False, message=f"Could not create file: {exc}")
 
     return ExecutionResult(success=True, message=f"File ready: {target}")
+
+
+def make_executable(path_text: str) -> ExecutionResult:
+    try:
+        target = Path(path_text).expanduser().resolve()
+    except OSError as exc:
+        return ExecutionResult(success=False, message=f"Could not resolve path: {exc}")
+
+    if not target.exists() or not target.is_file():
+        return ExecutionResult(success=False, message=f"Invalid file path: {target}")
+    if not _is_in_sandbox(target):
+        return _sandbox_block(target)
+
+    try:
+        current_mode = target.stat().st_mode
+        target.chmod(current_mode | stat.S_IXUSR)
+    except OSError as exc:
+        return ExecutionResult(success=False, message=f"Could not change permissions: {exc}")
+
+    return ExecutionResult(success=True, message=f"Made executable: {target}")
 
 
 def view_file(path_text: str, *, mode: str = "all", line_count: int = 10) -> ExecutionResult:
