@@ -106,6 +106,13 @@ class PlannerVariedPhrasingTests(unittest.TestCase):
                 self.assertEqual(task.action, "run_command")
                 self.assertEqual(task.target, text)
 
+    def test_permissions_and_network_prefixes_map_to_run_command(self) -> None:
+        for text in ["chmod +x file.sh", "sudo ls", "ping google.com", "curl https://example.com"]:
+            with self.subTest(text=text):
+                task = self.planner.plan(text)
+                self.assertEqual(task.action, "run_command")
+                self.assertEqual(task.target, text)
+
     def test_help_keyword_maps_to_help_action(self) -> None:
         task = self.planner.plan("help")
         self.assertEqual(task.action, "help")
