@@ -58,3 +58,11 @@ Each user can configure their own provider values:
 4. Save.
 
 The values are stored locally at `~/.auto_system_agent/settings.json` and are used by both GUI and CLI.
+
+## Author
+
+Amir Khoshdel Louyeh
+
+## License
+
+MIT
