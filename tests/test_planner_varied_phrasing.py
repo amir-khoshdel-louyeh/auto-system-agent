@@ -113,6 +113,19 @@ class PlannerVariedPhrasingTests(unittest.TestCase):
                 self.assertEqual(task.action, "run_command")
                 self.assertEqual(task.target, text)
 
+    def test_git_prefixes_map_to_run_command(self) -> None:
+        for text in [
+            "git clone https://example.com/repo.git",
+            "git status",
+            "git add .",
+            'git commit -m "message"',
+            "git push",
+        ]:
+            with self.subTest(text=text):
+                task = self.planner.plan(text)
+                self.assertEqual(task.action, "run_command")
+                self.assertEqual(task.target, text)
+
     def test_help_keyword_maps_to_help_action(self) -> None:
         task = self.planner.plan("help")
         self.assertEqual(task.action, "help")

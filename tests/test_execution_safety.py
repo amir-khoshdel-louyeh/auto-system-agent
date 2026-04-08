@@ -340,6 +340,48 @@ class ExecutionSafetyTests(unittest.TestCase):
             curl_fail = executor.execute("run_command", PlannedTask(action="run_command", target="curl https://example.com"))
         self.assertFalse(curl_fail.success)
 
+    def test_git_commands_clone_status_add_commit_push(self):
+        executor = SafeExecutor()
+
+        responses = [
+            subprocess.CompletedProcess(args=["git", "status"], returncode=0, stdout="On branch main", stderr=""),
+            subprocess.CompletedProcess(args=["git", "add", "."], returncode=0, stdout="", stderr=""),
+            subprocess.CompletedProcess(args=["git", "commit"], returncode=0, stdout="[main abc123] msg", stderr=""),
+            subprocess.CompletedProcess(args=["git", "push"], returncode=0, stdout="Everything up-to-date", stderr=""),
+            subprocess.CompletedProcess(args=["git", "clone"], returncode=0, stdout="Cloning into 'repo'...", stderr=""),
+        ]
+        with patch("auto_system_agent.safe_executor.subprocess.run", side_effect=responses):
+            status_result = executor.execute("run_command", PlannedTask(action="run_command", target="git status"))
+            add_result = executor.execute("run_command", PlannedTask(action="run_command", target="git add ."))
+            commit_result = executor.execute("run_command", PlannedTask(action="run_command", target='git commit -m "msg"'))
+            push_result = executor.execute("run_command", PlannedTask(action="run_command", target="git push"))
+            clone_result = executor.execute("run_command", PlannedTask(action="run_command", target="git clone https://example.com/repo.git"))
+
+        self.assertTrue(status_result.success)
+        self.assertIn("On branch", status_result.message)
+        self.assertTrue(add_result.success)
+        self.assertTrue(commit_result.success)
+        self.assertIn("abc123", commit_result.message)
+        self.assertTrue(push_result.success)
+        self.assertIn("up-to-date", push_result.message)
+        self.assertTrue(clone_result.success)
+        self.assertIn("Cloning", clone_result.message)
+
+    def test_git_rejects_unsupported_or_invalid_usage(self):
+        executor = SafeExecutor()
+
+        blocked = executor.execute("run_command", PlannedTask(action="run_command", target="git reset --hard"))
+        self.assertFalse(blocked.success)
+        self.assertIn("Unsupported git command", blocked.message)
+
+        missing_msg = executor.execute("run_command", PlannedTask(action="run_command", target="git commit -m"))
+        self.assertFalse(missing_msg.success)
+        self.assertIn("git commit usage", missing_msg.message)
+
+        bad_clone = executor.execute("run_command", PlannedTask(action="run_command", target="git clone not-a-url"))
+        self.assertFalse(bad_clone.success)
+        self.assertIn("requires an http(s), ssh, or git@ URL", bad_clone.message)
+
 
 if __name__ == "__main__":
     unittest.main()

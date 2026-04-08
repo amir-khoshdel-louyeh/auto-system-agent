@@ -13,6 +13,7 @@ DIRECT_COMMAND_PREFIXES = {
     "curl",
     "exit",
     "find",
+    "git",
     "grep",
     "head",
     "history",

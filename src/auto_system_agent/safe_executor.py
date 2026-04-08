@@ -64,6 +64,71 @@ class SafeExecutor:
 
         return None
 
+    def _handle_git_command(self, parts: list[str]) -> ExecutionResult:
+        if len(parts) < 2:
+            return ExecutionResult(success=False, message="git requires a subcommand.")
+
+        subcommand = parts[1]
+
+        if subcommand == "status":
+            if len(parts) != 2:
+                return ExecutionResult(success=False, message="git status does not accept extra arguments in safe mode.")
+            command = ["git", "status"]
+        elif subcommand == "add":
+            if len(parts) != 3 or parts[2] != ".":
+                return ExecutionResult(success=False, message="git add usage in safe mode: git add .")
+            command = ["git", "add", "."]
+        elif subcommand == "commit":
+            if len(parts) != 4 or parts[2] != "-m" or not parts[3].strip():
+                return ExecutionResult(success=False, message='git commit usage in safe mode: git commit -m "message"')
+            command = ["git", "commit", "-m", parts[3]]
+        elif subcommand == "push":
+            if len(parts) != 2:
+                return ExecutionResult(success=False, message="git push does not accept extra arguments in safe mode.")
+            command = ["git", "push"]
+        elif subcommand == "clone":
+            if len(parts) != 3:
+                return ExecutionResult(success=False, message="git clone usage in safe mode: git clone <repo_url>")
+
+            repo_url = parts[2].strip()
+            if not repo_url or any(ch in repo_url for ch in [";", "&", "|"]):
+                return ExecutionResult(success=False, message="Invalid repository URL for git clone.")
+
+            allowed_prefixes = ("http://", "https://", "git@", "ssh://")
+            if not repo_url.startswith(allowed_prefixes):
+                return ExecutionResult(success=False, message="git clone requires an http(s), ssh, or git@ URL.")
+
+            command = ["git", "clone", repo_url]
+        else:
+            return ExecutionResult(
+                success=False,
+                message=(
+                    "Unsupported git command in safe mode. "
+                    "Allowed: git clone <repo_url>, git status, git add ., git commit -m \"message\", git push."
+                ),
+            )
+
+        try:
+            completed = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                check=False,
+                timeout=120,
+                cwd=str(self._working_directory),
+            )
+        except FileNotFoundError:
+            return ExecutionResult(success=False, message="git is not available on this system.")
+        except subprocess.TimeoutExpired:
+            return ExecutionResult(success=False, message="git command timed out.")
+        except OSError as exc:
+            return ExecutionResult(success=False, message=f"Could not execute git command: {exc}")
+
+        output = ((completed.stdout or "") + (completed.stderr or "")).strip()
+        if completed.returncode != 0:
+            return ExecutionResult(success=False, message=f"git command failed with code {completed.returncode}.\n{output}")
+        return ExecutionResult(success=True, message=output or "git command executed successfully.")
+
     def _handle_navigation_command(self, command_text: str) -> ExecutionResult | None:
         text = command_text.strip()
         if not text:
@@ -280,6 +345,9 @@ class SafeExecutor:
                 return ExecutionResult(success=False, message="curl request timed out.")
             return ExecutionResult(success=True, message=body or "(empty response)")
 
+        if parts[0] == "git":
+            return self._handle_git_command(parts)
+
         return None
 
     def execute(self, tool_key: str, task: PlannedTask) -> ExecutionResult:
@@ -362,7 +430,9 @@ class SafeExecutor:
                 message=(
                     "Try commands like: install vlc, create folder demo, compress demo, "
                     "move demo.txt to archive/demo.txt, delete archive/demo.txt, "
-                    "list files in ., run pwd, grep 'text' notes.txt, find . -name notes.txt, ping example.com, curl https://example.com, top, history, or ls -la."
+                    "list files in ., run pwd, grep 'text' notes.txt, find . -name notes.txt, "
+                    "git status, git add ., git commit -m 'message', git push, ping example.com, "
+                    "curl https://example.com, top, history, or ls -la."
                 ),
             )
 
