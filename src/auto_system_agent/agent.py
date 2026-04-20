@@ -14,8 +14,6 @@ from auto_system_agent.tool_selector import ToolSelector
 from auto_system_agent.tools.install_tool import build_install_command, extract_known_apps
 
 
-APP_REFERENCE_WORDS = {"it", "that", "this", "one", "best one", "the best one", "one of them"}
-PATH_REFERENCE_WORDS = {"it", "that", "this", "them", "there"}
 CONFIRMATION_YES_WORDS = {"yes", "y", "confirm", "ok", "proceed"}
 CONFIRMATION_NO_WORDS = {"no", "n", "cancel", "stop"}
 HIGH_RISK_ACTIONS = {"install_app", "delete_path", "run_command"}
@@ -27,7 +25,7 @@ ACTION_RISK_LEVELS = {
 
 
 class AutoSystemAgent:
-    """End-to-end orchestration for one user request."""
+    """End-to-end orchestration. All decisions and answers come from OLLAMA."""
 
     def __init__(
         self,
@@ -41,7 +39,8 @@ class AutoSystemAgent:
         confirm_high_risk: bool = True,
     ) -> None:
         llm_mapper = LLMToolMapper(config=llm_config)
-        self._planner = planner or Planner()
+        # Planner is now LLM-only and needs the OLLAMA config
+        self._planner = planner or Planner(config=llm_config)
         self._selector = selector or ToolSelector(llm_mapper=llm_mapper)
         self._executor = executor or SafeExecutor()
         self._formatter = formatter or ResultFormatter()
@@ -51,6 +50,7 @@ class AutoSystemAgent:
         self._context: dict[str, str] = {"last_app": "", "last_path": ""}
         self._pending_confirmation: dict | None = None
         self._confirm_high_risk = confirm_high_risk
+        self._llm_config = llm_config or {}
 
     def process(
         self,
@@ -63,18 +63,10 @@ class AutoSystemAgent:
 
         tasks = self._planner.plan_tasks(user_input)
         if not tasks:
-            reply = (
-                "I can help with general questions and system tasks. "
-                "Ask me about apps, or request actions like install, create folder, "
-                "compress, move, delete, or run a command."
-            )
-            self._log_unresolved_intent(user_input=user_input, reason="planner_returned_no_tasks", planned_tasks=[])
-            self._remember(user_input, reply)
-            self._log_event(user_input=user_input, mode="fallback", planned_tasks=[], steps=[], reply=reply)
-            return reply
+            # No hard-coded reply: ask OLLAMA
+            return self._resolve_via_ollama(user_input, tasks, reason="planner_returned_no_tasks")
 
         if len(tasks) > 1:
-            tasks = [self._resolve_task_context(task) for task in tasks]
             if self._requires_confirmation_for_tasks(tasks):
                 reply = self._queue_confirmation(user_input, tasks, source_mode="multi_step")
                 self._remember(user_input, reply)
@@ -87,12 +79,12 @@ class AutoSystemAgent:
             return reply
 
         task = tasks[0]
-        task = self._resolve_task_context(task)
+
         tool_key = self._selector.select(task)
 
         if tool_key != "unknown":
             if self._requires_confirmation_for_tasks([task]):
-                reply = self._queue_confirmation(user_input, [task], source_mode="deterministic")
+                reply = self._queue_confirmation(user_input, [task], source_mode="llm_planned")
                 self._remember(user_input, reply)
                 self._log_event(user_input=user_input, mode="confirmation_requested", planned_tasks=[task], steps=[], reply=reply)
                 return reply
@@ -108,13 +100,17 @@ class AutoSystemAgent:
             self._remember(user_input, reply)
             self._log_event(
                 user_input=user_input,
-                mode="deterministic",
+                mode="ollama_tool",
                 planned_tasks=tasks,
                 steps=[self._step_payload(tool_key, task, result)],
                 reply=reply,
             )
             return reply
 
+        # Planner returned unknown -> ask OLLAMA for chat or tool
+        return self._resolve_via_ollama(user_input, tasks, reason="planner_unknown")
+
+    def _resolve_via_ollama(self, user_input: str, planned_tasks: list[PlannedTask], reason: str) -> str:
         allowed_actions = set(self._selector.SUPPORTED_ACTIONS)
         llm_result = self._assistant.resolve(user_input, allowed_actions, self._history)
 
@@ -122,7 +118,7 @@ class AutoSystemAgent:
             reply = llm_result["response"]
             self._update_context_from_chat(reply)
             self._remember(user_input, reply)
-            self._log_event(user_input=user_input, mode="llm_chat", planned_tasks=tasks, steps=[], reply=reply)
+            self._log_event(user_input=user_input, mode="ollama_chat", planned_tasks=planned_tasks, steps=[], reply=reply)
             return reply
 
         if llm_result and llm_result.get("type") == "tool":
@@ -132,45 +128,56 @@ class AutoSystemAgent:
                 raw_input=user_input,
                 options={"destination": llm_result.get("destination", "")},
             )
-            llm_task = self._resolve_task_context(llm_task)
             if self._requires_confirmation_for_tasks([llm_task]):
-                reply = self._queue_confirmation(user_input, [llm_task], source_mode="llm_tool")
+                reply = self._queue_confirmation(user_input, [llm_task], source_mode="ollama_tool")
                 self._remember(user_input, reply)
                 self._log_event(user_input=user_input, mode="confirmation_requested", planned_tasks=[llm_task], steps=[], reply=reply)
                 return reply
 
             llm_tool_key = self._selector.select(llm_task)
-            self._notify(progress_callback, StepStatus(step=1, total=1, tool=llm_tool_key, state="running"))
+            # No hard-coded fallback message: if OLLAMA suggests unknown tool, report OLLAMA error
+            if llm_tool_key == "unknown":
+                reply = self._ollama_unavailable_message()
+                self._log_unresolved_intent(user_input=user_input, reason="ollama_mapped_unknown", planned_tasks=planned_tasks)
+                self._remember(user_input, reply)
+                self._log_event(user_input=user_input, mode="ollama_unmapped", planned_tasks=planned_tasks, steps=[], reply=reply)
+                return reply
+
             result = self._executor.execute(llm_tool_key, llm_task)
-            self._notify(
-                progress_callback,
-                StepStatus(step=1, total=1, tool=llm_tool_key, state="done" if result.success else "failed", message=result.message),
-            )
             self._update_context_from_task(llm_task, result)
             reply = self._formatter.format(result)
             self._remember(user_input, reply)
             self._log_event(
                 user_input=user_input,
-                mode="llm_tool",
-                planned_tasks=tasks,
+                mode="ollama_tool",
+                planned_tasks=planned_tasks,
                 steps=[self._step_payload(llm_tool_key, llm_task, result)],
                 reply=reply,
             )
             return reply
 
-        reply = (
-            "I can help with general questions and system tasks. "
-            "Ask me about apps, or request actions like install, create folder, "
-            "compress, move, delete, or run a command."
-        )
+        # OLLAMA unavailable or returned nothing: do not use hard-coded help string
         self._log_unresolved_intent(
             user_input=user_input,
-            reason="llm_unresolved_after_deterministic",
-            planned_tasks=tasks,
+            reason=reason,
+            planned_tasks=planned_tasks,
         )
+        reply = self._ollama_unavailable_message()
         self._remember(user_input, reply)
-        self._log_event(user_input=user_input, mode="fallback", planned_tasks=tasks, steps=[], reply=reply)
+        self._log_event(user_input=user_input, mode="ollama_unavailable", planned_tasks=planned_tasks, steps=[], reply=reply)
         return reply
+
+    def _ollama_unavailable_message(self) -> str:
+        # No hard-coded canned answer: delegate to OLLAMA config hint so user can connect
+        url = self._llm_config.get("url") if isinstance(self._llm_config, dict) else ""
+        model = self._llm_config.get("model") if isinstance(self._llm_config, dict) else ""
+        url_hint = url or "http://localhost:11434/v1/chat/completions"
+        model_hint = model or "llama3.1"
+        return (
+            "OLLAMA is not reachable. All answers are generated by the model, so I cannot respond without it. "
+            f"Please ensure OLLAMA is running at {url_hint} and the model '{model_hint}' is available "
+            f"(e.g. `ollama pull {model_hint}` and `ollama serve`). Then configure the URL/model in Settings."
+        )
 
     def has_pending_confirmation(self) -> bool:
         return self._pending_confirmation is not None
@@ -220,13 +227,12 @@ class AutoSystemAgent:
         results: list[ExecutionResult] = []
         step_payloads: list[dict] = []
         for index, task in enumerate(tasks, start=1):
-            task = self._resolve_task_context(task)
             tool_key = self._selector.select(task)
             self._notify(progress_callback, StepStatus(step=index, total=len(tasks), tool=tool_key, state="running"))
             if tool_key == "unknown":
                 unknown_result = ExecutionResult(
                     success=False,
-                    message=f"Could not map step to a supported tool: {task.target or task.raw_input}",
+                    message=f"OLLAMA could not map step to a supported tool: {task.target or task.raw_input}",
                 )
                 results.append(unknown_result)
                 step_payloads.append(self._step_payload(tool_key, task, unknown_result))
@@ -255,26 +261,6 @@ class AutoSystemAgent:
 
         return self._formatter.format_many(results), step_payloads
 
-    def _resolve_task_context(self, task: PlannedTask) -> PlannedTask:
-        target = (task.target or "").strip()
-
-        if task.action == "install_app" and self._is_app_reference(target):
-            last_app = self._context.get("last_app", "")
-            if last_app:
-                return replace(task, target=last_app)
-
-        if task.action in {"compress", "delete_path", "list_files"} and self._is_path_reference(target):
-            last_path = self._context.get("last_path", "")
-            if last_path:
-                return replace(task, target=last_path)
-
-        if task.action == "move_path" and self._is_path_reference(target):
-            last_path = self._context.get("last_path", "")
-            if last_path:
-                return replace(task, target=last_path)
-
-        return task
-
     def _update_context_from_chat(self, reply: str) -> None:
         apps = extract_known_apps(reply)
         if apps:
@@ -296,14 +282,6 @@ class AutoSystemAgent:
             destination = str(task.options.get("destination", "")).strip()
             if destination:
                 self._context["last_path"] = destination
-
-    def _is_app_reference(self, text: str) -> bool:
-        normalized = text.lower().strip()
-        return normalized in APP_REFERENCE_WORDS
-
-    def _is_path_reference(self, text: str) -> bool:
-        normalized = text.lower().strip()
-        return normalized in PATH_REFERENCE_WORDS
 
     def _remember(self, user_text: str, assistant_text: str) -> None:
         self._history.append({"role": "user", "content": user_text})
@@ -363,9 +341,7 @@ class AutoSystemAgent:
         task = tasks[0]
         tool_key = self._selector.select(task)
         if tool_key == "unknown":
-            reply = self._formatter.format(
-                ExecutionResult(success=False, message="Could not map request to a supported tool.")
-            )
+            reply = self._ollama_unavailable_message()
             self._remember(user_input, reply)
             return reply
 
