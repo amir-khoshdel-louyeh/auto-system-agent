@@ -1,0 +1,14 @@
+# No third-party dependencies required
+# All imports are from the Python Standard Library:
+# - tkinter (GUI, requires system Tk - usually bundled with Python)
+# - json, os, re, urllib.request, urllib.error, urllib.parse
+# - pathlib, dataclasses, typing, platform, shlex, shutil
+# - subprocess, tempfile, threading, queue, time, sys, zipfile, stat, datetime
+#
+# Local package: src/auto_system_agent (imported via sys.path modification in main.py:6-7)
+#
+# Python >= 3.10 is recommended (uses X | Y union syntax, e.g. src/auto_system_agent/agent.py:32)
+# Python 3.14 tested.
+
+# To run:  python main.py [--gui]
+# To test: python -m unittest discover -s tests -v
