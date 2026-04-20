@@ -35,19 +35,18 @@ class AgentChatGUI:
         self._cancelled_request_ids: set[int] = set()
         self._request_started_at: float | None = None
         self._task_timeout_seconds = float(os.getenv("AUTO_AGENT_GUI_TASK_TIMEOUT", "45") or "45")
+        self._geometry_save_after_id: str | None = None
+        self._pending_geometry: str | None = None
         self.root = tk.Tk()
         self.root.title("Auto System Agent")
-        self.root.geometry("920x560")
         self.root.configure(bg=BG_APP)
+        self.root.minsize(720, 400)
+        self.root.resizable(True, True)
+        self._apply_saved_window_geometry()
+        self._setup_window_geometry_persistence()
 
         menu_bar = tk.Menu(self.root)
         tools_menu = tk.Menu(menu_bar, tearoff=0)
-        tools_menu.add_command(label="install vlc", command=lambda: self._insert_tool_command("install vlc"))
-        tools_menu.add_command(label="list files in .", command=lambda: self._insert_tool_command("list files in ."))
-        tools_menu.add_command(label="create folder demo", command=lambda: self._insert_tool_command("create folder demo"))
-        tools_menu.add_separator()
-        tools_menu.add_command(label="Clear Timeline", command=self._clear_timeline)
-        tools_menu.add_command(label="Clear Progress", command=self._reset_progress_panel)
         menu_bar.add_cascade(label="Tools", menu=tools_menu)
 
         settings_menu = tk.Menu(menu_bar, tearoff=0)
@@ -364,7 +363,7 @@ class AgentChatGUI:
 
         if user_input.lower() in {"exit", "quit"}:
             self._append_message("Agent", "Closing chat window.")
-            self.root.after(300, self.root.destroy)
+            self.root.after(300, self._on_close)
             return
 
         self._reset_progress_panel()
@@ -563,6 +562,92 @@ class AgentChatGUI:
             self.entry.insert(0, command_text)
             self.entry.focus_set()
 
+    def _apply_saved_window_geometry(self) -> None:
+        geometry = getattr(self._settings, "window_geometry", "920x560")
+        if not isinstance(geometry, str) or not geometry.strip():
+            geometry = "920x560"
+        geometry = geometry.strip()
+        try:
+            self.root.geometry(geometry)
+        except Exception:
+            try:
+                self.root.geometry("920x560")
+            except Exception:
+                pass
+
+    def _setup_window_geometry_persistence(self) -> None:
+        try:
+            self.root.bind("<Configure>", self._on_window_configure)
+        except Exception:
+            pass
+        try:
+            self.root.protocol("WM_DELETE_WINDOW", self._on_close)
+        except Exception:
+            pass
+
+    def _on_window_configure(self, event) -> None:
+        try:
+            if event.widget is not self.root:
+                return
+        except Exception:
+            return
+        try:
+            geom = self.root.geometry()
+        except Exception:
+            return
+        self._pending_geometry = geom
+        if self._geometry_save_after_id is not None:
+            try:
+                self.root.after_cancel(self._geometry_save_after_id)
+            except Exception:
+                pass
+        try:
+            self._geometry_save_after_id = self.root.after(600, self._save_window_geometry)
+        except Exception:
+            self._geometry_save_after_id = None
+
+    def _save_window_geometry(self) -> None:
+        self._geometry_save_after_id = None
+        geometry = self._pending_geometry
+        if geometry is None:
+            try:
+                geometry = self.root.geometry()
+            except Exception:
+                return
+        if not geometry or not isinstance(geometry, str):
+            return
+        geometry = geometry.strip()
+        if not geometry:
+            return
+        if geometry == getattr(self._settings, "window_geometry", None):
+            self._pending_geometry = None
+            return
+        self._settings.window_geometry = geometry
+        try:
+            self._settings_store.save(self._settings)
+        except Exception:
+            pass
+        self._pending_geometry = None
+
+    def _on_close(self) -> None:
+        if self._geometry_save_after_id is not None:
+            try:
+                self.root.after_cancel(self._geometry_save_after_id)
+            except Exception:
+                pass
+            self._geometry_save_after_id = None
+        try:
+            geometry = self.root.geometry()
+            if geometry and isinstance(geometry, str) and geometry.strip():
+                self._settings.window_geometry = geometry.strip()
+                self._settings_store.save(self._settings)
+        except Exception:
+            pass
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
+
     def _apply_runtime_options(self) -> None:
         self._task_timeout_seconds = float(self._settings.gui_timeout_seconds)
         os.environ["AUTO_AGENT_GUI_TASK_TIMEOUT"] = str(self._settings.gui_timeout_seconds)
@@ -743,12 +828,20 @@ class AgentChatGUI:
                 messagebox.showerror("Invalid value", "Timeout must be a number.", parent=dialog)
                 return
 
+            previous_geometry = getattr(self._settings, "window_geometry", "920x560")
+            previous_gui_timeout = getattr(self._settings, "gui_timeout_seconds", 45.0)
+            previous_retries = getattr(self._settings, "install_retries", 2)
+            previous_confirm = getattr(self._settings, "confirm_high_risk", True)
             self._settings = LLMSettings(
                 provider_mode=mode_var.get().strip() or "bundled",
                 url=url_entry.get().strip(),
                 api_key=key_entry.get().strip(),
                 model=model_entry.get().strip() or "gpt-4o-mini",
                 timeout=timeout_value,
+                gui_timeout_seconds=previous_gui_timeout,
+                install_retries=previous_retries,
+                confirm_high_risk=previous_confirm,
+                window_geometry=previous_geometry,
             )
             self._settings_store.save(self._settings)
             self.agent = self._build_agent()
