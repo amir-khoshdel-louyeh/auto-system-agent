@@ -1,144 +1,62 @@
+import json
+import os
 import re
-from pathlib import Path
+from urllib import error, request
 
 from auto_system_agent.models import PlannedTask
 from auto_system_agent.task_schema import IntermediateTask
 
 
-DIRECT_COMMAND_PREFIXES = {
-    "cd",
-    "chmod",
-    "clear",
-    "cp",
-    "curl",
-    "exit",
-    "find",
-    "git",
-    "grep",
-    "head",
-    "history",
-    "less",
-    "ls",
-    "mkdir",
-    "mv",
-    "pwd",
-    "rm",
-    "sudo",
-    "tail",
-    "ping",
-    "top",
-    "touch",
-    "whoami",
-    "echo",
-    "cat",
-    "date",
-    "uname",
-    "df",
-    "du",
-    "ps",
+SUPPORTED_ACTIONS = {
+    "install_app",
+    "create_folder",
+    "compress",
+    "move_path",
+    "delete_path",
+    "list_files",
+    "run_command",
+    "help",
 }
 
-HELP_WORDS = {"help"}
-
-
-INSTALL_PATTERNS = (
-    re.compile(r"^(?:please\s+)?install(?:\s+app)?\s+(.+)$", re.IGNORECASE),
-    re.compile(r"^can\s+you\s+install\s+(.+)$", re.IGNORECASE),
-)
-
-CREATE_FOLDER_PATTERNS = (
-    re.compile(r"^(?:please\s+)?create\s+(?:folder|directory)\s+(.+)$", re.IGNORECASE),
-    re.compile(r"^(?:please\s+)?make\s+(?:folder|directory)\s+(.+)$", re.IGNORECASE),
-)
-
-COMPRESS_PATTERNS = (
-    re.compile(r"^(?:please\s+)?compress\s+(.+)$", re.IGNORECASE),
-    re.compile(r"^(?:please\s+)?zip\s+(.+)$", re.IGNORECASE),
-    re.compile(r"^(?:please\s+)?archive\s+(.+)$", re.IGNORECASE),
-)
-
-LIST_FILES_PATTERNS = (
-    re.compile(r"^(?:please\s+)?list\s+files(?:\s+in\s+(.+))?$", re.IGNORECASE),
-    re.compile(r"^(?:please\s+)?show\s+files(?:\s+in\s+(.+))?$", re.IGNORECASE),
-    re.compile(r"^(?:please\s+)?list\s+directory(?:\s+(.+))?$", re.IGNORECASE),
-)
-
-MOVE_PATTERNS = (
-    re.compile(r"^(?:please\s+)?move\s+(.+?)\s+to\s+(.+)$", re.IGNORECASE),
-    re.compile(r"^(?:please\s+)?rename\s+(.+?)\s+to\s+(.+)$", re.IGNORECASE),
-)
-
-DELETE_PATTERNS = (
-    re.compile(r"^(?:please\s+)?delete\s+(?:file|folder|directory)?\s*(.+)$", re.IGNORECASE),
-    re.compile(r"^(?:please\s+)?remove\s+(?:file|folder|directory)?\s*(.+)$", re.IGNORECASE),
-)
-
-RUN_PATTERNS = (
-    re.compile(r"^(?:please\s+)?run\s+(.+)$", re.IGNORECASE),
-    re.compile(r"^(?:please\s+)?execute\s+(.+)$", re.IGNORECASE),
-)
-
-MULTI_STEP_SPLIT_PATTERN = re.compile(
-    r"\s*(?:,?\s+and then\s+|,?\s+then\s+|;\s*|,\s+(?=(?:install|create|make|compress|zip|archive|move|rename|delete|remove|list|show|run|execute)\b))",
-    re.IGNORECASE,
-)
-
-APP_ALIASES = {
-    "chrome": "google chrome",
-    "google-chrome": "google chrome",
-    "code": "visual studio code",
-    "vscode": "visual studio code",
-    "vlc media player": "vlc",
-}
-
-
-def _extract_first_group(patterns: tuple[re.Pattern[str], ...], text: str) -> str | None:
-    for pattern in patterns:
-        match = pattern.match(text)
-        if match:
-            value = match.group(1).strip()
-            if value:
-                return value
-    return None
-
-
-def _strip_wrapping_quotes(value: str) -> str:
-    text = value.strip()
-    if len(text) >= 2 and text[0] == text[-1] and text[0] in {'"', "'"}:
-        return text[1:-1].strip()
-    return text
-
-
-def _normalize_path_arg(value: str) -> str:
-    text = _strip_wrapping_quotes(value)
-    if not text:
-        return text
-    if text == ".":
-        return "."
-    return str(Path(text).expanduser())
-
-
-def _normalize_install_arg(value: str) -> str:
-    normalized = _strip_wrapping_quotes(value).lower().strip()
-    return APP_ALIASES.get(normalized, normalized)
-
-
-def _extract_two_groups(
-    patterns: tuple[re.Pattern[str], ...],
-    text: str,
-) -> tuple[str, str] | None:
-    for pattern in patterns:
-        match = pattern.match(text)
-        if match:
-            source = match.group(1).strip()
-            destination = match.group(2).strip()
-            if source and destination:
-                return source, destination
-    return None
+OLLAMA_DEFAULT_URL = "http://localhost:11434/v1/chat/completions"
+OLLAMA_DEFAULT_MODEL = "llama3.1"
 
 
 class Planner:
-    """Converts raw user text into a normalized task."""
+    """LLM-only planner that delegates all intent parsing to OLLAMA.
+
+    No regex or hard-coded command matching remains. Every planning decision
+    is requested from the configured OLLAMA model. Tools themselves stay
+    local; the model only decides *what* to do.
+    """
+
+    def __init__(self, config: dict | None = None) -> None:
+        config = config or {}
+        self._url = (
+            str(config.get("url") or os.getenv("AUTO_AGENT_OLLAMA_URL", "")).strip()
+            or str(config.get("url") or os.getenv("AUTO_AGENT_LLM_URL", "")).strip()
+            or os.getenv("AUTO_AGENT_DEFAULT_LLM_URL", "").strip()
+            or OLLAMA_DEFAULT_URL
+        )
+        self._model = (
+            str(config.get("model") or os.getenv("AUTO_AGENT_OLLAMA_MODEL", "")).strip()
+            or str(config.get("model") or os.getenv("AUTO_AGENT_LLM_MODEL", "")).strip()
+            or os.getenv("AUTO_AGENT_DEFAULT_LLM_MODEL", "").strip()
+            or OLLAMA_DEFAULT_MODEL
+        )
+        timeout_raw = str(
+            config.get("timeout")
+            or os.getenv("AUTO_AGENT_OLLAMA_TIMEOUT", "")
+            or os.getenv("AUTO_AGENT_LLM_TIMEOUT", "")
+            or os.getenv("AUTO_AGENT_DEFAULT_LLM_TIMEOUT", "")
+            or "30"
+        ).strip()
+        try:
+            self._timeout = float(timeout_raw) if timeout_raw else 30.0
+        except ValueError:
+            self._timeout = 30.0
+        api_key_raw = str(config.get("api_key") or os.getenv("AUTO_AGENT_OLLAMA_API_KEY", "") or os.getenv("AUTO_AGENT_LLM_API_KEY", "")).strip()
+        self._api_key = api_key_raw
 
     def plan(self, user_input: str) -> PlannedTask:
         return self.plan_tasks(user_input)[0]
@@ -148,19 +66,99 @@ class Planner:
         if not text:
             return [PlannedTask(action="unknown", target="", raw_input="")]
 
-        segments = [segment.strip() for segment in MULTI_STEP_SPLIT_PATTERN.split(text) if segment.strip()]
-        if len(segments) <= 1:
-            return [self._plan_single(text)]
+        llm_tasks = self._plan_via_ollama(text)
+        if llm_tasks is not None:
+            return llm_tasks
+
+        # OLLAMA unavailable or returned no usable tasks -> unknown so
+        # Agent can ask the model for a conversational answer.
+        return [PlannedTask(action="unknown", target=text, raw_input=text)]
+
+    # --- OLLAMA interaction ---
+
+    def _plan_via_ollama(self, user_input: str) -> list[PlannedTask] | None:
+        if not self._url:
+            return None
+
+        system_prompt = (
+            "You are the planner for a desktop automation agent. "
+            "Given the user's instruction, decide whether it requests a system task or is general conversation.\n"
+            f"Allowed tool actions are: {sorted(SUPPORTED_ACTIONS)} and unknown.\n"
+            "unknown means the message is not a system task and should be answered conversationally.\n"
+            "Respond ONLY as strict JSON with this shape:\n"
+            '{"tasks": [{"action": "<action>", "target": "<target>", "options": {"destination": "<dest>"}}]}\n'
+            "Rules:\n"
+            "- For install_app, target is app name (e.g. vlc).\n"
+            "- For create_folder, target is folder path.\n"
+            "- For compress, target is path to compress.\n"
+            "- For move_path, target is source path and options.destination is destination path.\n"
+            "- For delete_path, target is path to delete.\n"
+            "- For list_files, target is directory path (use '.' for current dir).\n"
+            "- For run_command, target is the exact shell command to run.\n"
+            "- For help, target is empty.\n"
+            "- If the instruction contains multiple steps, return multiple entries in tasks in order.\n"
+            "- If it is general chat, return {\"tasks\": [{\"action\": \"unknown\", \"target\": \"\"}]}\n"
+            "- Never add fields outside the schema. Keep target strings as the user wrote them (do not invent paths)."
+        )
+
+        payload = {
+            "model": self._model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_input},
+            ],
+            "temperature": 0,
+            "stream": False,
+        }
+
+        raw = self._post_json(payload)
+        if raw is None:
+            return None
+
+        parsed = self._extract_json(raw)
+        if parsed is None:
+            return None
+
+        tasks_raw = parsed.get("tasks")
+        if not isinstance(tasks_raw, list):
+            # also accept single task shape
+            if "action" in parsed:
+                tasks_raw = [parsed]
+            else:
+                return None
 
         tasks: list[PlannedTask] = []
-        for segment in segments:
-            tasks.append(self._plan_single(segment, raw_input=text))
-        for index, task in enumerate(tasks):
-            if task.action == "unknown":
+        for item in tasks_raw:
+            if not isinstance(item, dict):
                 continue
-            depends_on = [] if index == 0 else [index]
-            task.options["depends_on_steps"] = depends_on
-            task.options["rollback_hint"] = self._rollback_hint(task)
+            action = str(item.get("action", "")).strip()
+            target = str(item.get("target", "") or "").strip()
+            options = item.get("options") if isinstance(item.get("options"), dict) else {}
+            # Normalize unknown handling
+            if action not in SUPPORTED_ACTIONS and action != "unknown":
+                action = "unknown"
+            try:
+                candidate = IntermediateTask(
+                    action=action,  # type: ignore[arg-type]
+                    target=target,
+                    raw_input=user_input,
+                    options=options or {},
+                )
+                tasks.append(candidate.to_planned_task())
+            except ValueError:
+                tasks.append(PlannedTask(action="unknown", target=target, raw_input=user_input, options=options or {}))
+
+        if not tasks:
+            return None
+
+        # Attach sequencing metadata for multi-step
+        if len(tasks) > 1:
+            for index, task in enumerate(tasks):
+                if task.action == "unknown":
+                    continue
+                task.options["depends_on_steps"] = [] if index == 0 else [index]
+                task.options["rollback_hint"] = self._rollback_hint(task)
+
         return tasks
 
     def _rollback_hint(self, task: PlannedTask) -> str:
@@ -176,71 +174,73 @@ class Planner:
             return f"delete generated archive for {task.target}"
         return "no automatic rollback available"
 
-    def _plan_single(self, user_input: str, raw_input: str | None = None) -> PlannedTask:
-        text = user_input.strip()
-        lowered = text.lower()
-        task_raw_input = raw_input or text
-
-        if lowered in HELP_WORDS:
-            return self._build_task(action="help", raw_input=task_raw_input)
-
-        app_name = _extract_first_group(INSTALL_PATTERNS, text)
-        if app_name:
-            return self._build_task(action="install_app", target=_normalize_install_arg(app_name), raw_input=task_raw_input)
-
-        folder_name = _extract_first_group(CREATE_FOLDER_PATTERNS, text)
-        if folder_name:
-            return self._build_task(action="create_folder", target=_normalize_path_arg(folder_name), raw_input=task_raw_input)
-
-        compress_target = _extract_first_group(COMPRESS_PATTERNS, text)
-        if compress_target:
-            return self._build_task(action="compress", target=_normalize_path_arg(compress_target), raw_input=task_raw_input)
-
-        move_values = _extract_two_groups(MOVE_PATTERNS, text)
-        if move_values:
-            source, destination = move_values
-            return self._build_task(
-                action="move_path",
-                target=_normalize_path_arg(source),
-                raw_input=task_raw_input,
-                options={"destination": _normalize_path_arg(destination)},
-            )
-
-        delete_target = _extract_first_group(DELETE_PATTERNS, text)
-        if delete_target:
-            return self._build_task(action="delete_path", target=_normalize_path_arg(delete_target), raw_input=task_raw_input)
-
-        for pattern in LIST_FILES_PATTERNS:
-            match = pattern.match(text)
-            if match:
-                target = match.group(1).strip() if match.group(1) else "."
-                return self._build_task(action="list_files", target=_normalize_path_arg(target), raw_input=task_raw_input)
-
-        run_target = _extract_first_group(RUN_PATTERNS, text)
-        if run_target:
-            return self._build_task(action="run_command", target=_strip_wrapping_quotes(run_target), raw_input=task_raw_input)
-
-        command_head = lowered.split(maxsplit=1)[0] if lowered else ""
-        if command_head in DIRECT_COMMAND_PREFIXES:
-            return self._build_task(action="run_command", target=text, raw_input=task_raw_input)
-
-        return self._build_task(action="unknown", target=text, raw_input=task_raw_input)
-
-    def _build_task(
-        self,
-        *,
-        action: str,
-        target: str = "",
-        raw_input: str,
-        options: dict | None = None,
-    ) -> PlannedTask:
+    def _post_json(self, payload: dict) -> dict | None:
+        body = json.dumps(payload).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if self._api_key:
+            headers["Authorization"] = f"Bearer {self._api_key}"
+        req = request.Request(self._url, data=body, headers=headers, method="POST")
         try:
-            candidate = IntermediateTask(
-                action=action,  # type: ignore[arg-type]
-                target=target,
-                raw_input=raw_input,
-                options=options or {},
-            )
-            return candidate.to_planned_task()
-        except ValueError:
-            return PlannedTask(action="unknown", target=target, raw_input=raw_input)
+            with request.urlopen(req, timeout=self._timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except (error.URLError, error.HTTPError, json.JSONDecodeError, TimeoutError, OSError, Exception):
+            # Try native Ollama /api/chat as fallback if the URL was the default OpenAI-compat
+            # and the server speaks native protocol.
+            if self._url.endswith("/v1/chat/completions"):
+                native_url = self._url.replace("/v1/chat/completions", "/api/chat")
+                native_payload = {
+                    "model": self._model,
+                    "messages": payload["messages"],
+                    "stream": False,
+                }
+                native_body = json.dumps(native_payload).encode("utf-8")
+                native_req = request.Request(native_url, data=native_body, headers=headers, method="POST")
+                try:
+                    with request.urlopen(native_req, timeout=self._timeout) as resp:
+                        native_raw = json.loads(resp.read().decode("utf-8"))
+                        # Normalize native Ollama shape to OpenAI shape
+                        content = native_raw.get("message", {}).get("content", "")
+                        if content:
+                            return {"choices": [{"message": {"content": content}}]}
+                        return native_raw
+                except Exception:
+                    return None
+            return None
+
+    def _extract_json(self, response_json: dict) -> dict | None:
+        if isinstance(response_json, dict) and "tasks" in response_json:
+            return response_json
+        if isinstance(response_json, dict) and "action" in response_json:
+            return response_json
+
+        content = (
+            response_json.get("choices", [{}])[0]
+            .get("message", {})
+            .get("content", "")
+        )
+        if not isinstance(content, str):
+            return None
+        text = content.strip()
+        if not text:
+            return None
+        # Strip code fences
+        if text.startswith("```"):
+            text = re.sub(r"^```(?:json)?\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
+            text = text.strip()
+        # Extract first JSON object
+        if text.startswith("{") and text.endswith("}"):
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    return parsed
+            except json.JSONDecodeError:
+                pass
+        match = re.search(r"\{.*\}", text, re.DOTALL)
+        if not match:
+            return None
+        try:
+            parsed = json.loads(match.group(0))
+            return parsed if isinstance(parsed, dict) else None
+        except json.JSONDecodeError:
+            return None
