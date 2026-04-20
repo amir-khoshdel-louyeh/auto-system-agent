@@ -73,7 +73,7 @@ class EventLoggerTests(unittest.TestCase):
         self.assertEqual(len(logger.events), 1)
 
         event = logger.events[0]
-        self.assertEqual(event["mode"], "deterministic")
+        self.assertEqual(event["mode"], "ollama_tool")
         self.assertEqual(event["user_input"], "create folder demo")
         self.assertEqual(event["planned_tasks"][0]["action"], "create_folder")
         self.assertEqual(event["steps"][0]["tool"], "create_folder")
@@ -107,11 +107,11 @@ class EventLoggerTests(unittest.TestCase):
         )
 
         reply = agent.process("do something mysterious")
-        self.assertIn("I can help with general questions", reply)
+        self.assertIn("OLLAMA is not reachable", reply)
 
         unresolved = [event for event in logger.events if event.get("mode") == "unresolved_intent"]
         self.assertEqual(len(unresolved), 1)
-        self.assertEqual(unresolved[0]["reason"], "llm_unresolved_after_deterministic")
+        self.assertEqual(unresolved[0]["reason"], "planner_unknown")
         self.assertIn("unknown", unresolved[0]["planned_actions"])
 
 

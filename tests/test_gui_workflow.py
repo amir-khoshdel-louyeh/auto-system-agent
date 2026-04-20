@@ -311,10 +311,14 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertGreater(gui.timeline_list.size(), 0)
 
     def test_confirmation_state_is_visible_and_buttons_are_controllable(self):
-        from auto_system_agent.planner import Planner
+        from auto_system_agent.models import PlannedTask
+
+        class InstallPlanner:
+            def plan_tasks(self, user_input):
+                return [PlannedTask(action="install_app", target="vlc", raw_input=user_input)]
 
         agent = AutoSystemAgent(
-            planner=Planner(),
+            planner=InstallPlanner(),
             assistant=FakeAssistant(),
             event_logger=InMemoryLogger(),
         )

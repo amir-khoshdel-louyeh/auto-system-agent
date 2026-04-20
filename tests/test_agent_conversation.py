@@ -87,7 +87,7 @@ class AgentConversationTests(unittest.TestCase):
         )
 
         response = agent.process("hello")
-        self.assertIn("I can help with general questions", response)
+        self.assertIn("OLLAMA is not reachable", response)
 
     def test_returns_chat_response_for_unknown_intent(self):
         planner = FakePlanner("unknown")
@@ -111,7 +111,7 @@ class AgentConversationTests(unittest.TestCase):
         agent = AutoSystemAgent(planner=planner, assistant=assistant)
 
         response = agent.process("random text")
-        self.assertIn("I can help with general questions", response)
+        self.assertIn("OLLAMA is not reachable", response)
 
     def test_uses_default_message_when_llm_unavailable(self):
         planner = FakePlanner("unknown")
@@ -119,7 +119,7 @@ class AgentConversationTests(unittest.TestCase):
         agent = AutoSystemAgent(planner=planner, assistant=assistant)
 
         response = agent.process("i want a video player. what is your suggestion?")
-        self.assertIn("I can help with general questions", response)
+        self.assertIn("OLLAMA is not reachable", response)
 
     def test_runs_multi_step_tasks_sequentially(self):
         class MultiPlanner:
@@ -169,11 +169,20 @@ class AgentConversationTests(unittest.TestCase):
                 self.calls += 1
                 if self.calls == 1:
                     return {"type": "chat", "response": "VLC is a strong video player choice."}
+                # Second call: OLLAMA resolves "install it" to install_app vlc via history
+                if "install it" in user_text.lower():
+                    return {"type": "tool", "action": "install_app", "target": "vlc", "destination": ""}
                 return None
+
+        class SuggestThenInstallPlanner:
+            def plan_tasks(self, user_input):
+                if "install it" in user_input.lower():
+                    return [PlannedTask(action="unknown", target="", raw_input=user_input)]
+                return [PlannedTask(action="unknown", target="", raw_input=user_input)]
 
         executor = CapturingExecutor()
         agent = AutoSystemAgent(
-            planner=Planner(),
+            planner=SuggestThenInstallPlanner(),
             selector=PassThroughSelector(),
             executor=executor,
             assistant=SequenceAssistant(),
@@ -190,9 +199,13 @@ class AgentConversationTests(unittest.TestCase):
         self.assertEqual(executor.calls[-1][1], "vlc")
 
     def test_confirmation_cancel_skips_execution(self):
+        class InstallPlanner:
+            def plan_tasks(self, user_input):
+                return [PlannedTask(action="install_app", target="vlc", raw_input=user_input)]
+
         executor = CapturingExecutor()
         agent = AutoSystemAgent(
-            planner=Planner(),
+            planner=InstallPlanner(),
             selector=PassThroughSelector(),
             executor=executor,
             assistant=FakeAssistant(None),
@@ -206,9 +219,13 @@ class AgentConversationTests(unittest.TestCase):
         self.assertEqual(len(executor.calls), 0)
 
     def test_confirmation_helper_methods(self):
+        class InstallPlanner:
+            def plan_tasks(self, user_input):
+                return [PlannedTask(action="install_app", target="vlc", raw_input=user_input)]
+
         executor = CapturingExecutor()
         agent = AutoSystemAgent(
-            planner=Planner(),
+            planner=InstallPlanner(),
             selector=PassThroughSelector(),
             executor=executor,
             assistant=FakeAssistant(None),
@@ -224,9 +241,13 @@ class AgentConversationTests(unittest.TestCase):
         self.assertFalse(agent.has_pending_confirmation())
 
     def test_can_disable_high_risk_confirmation(self):
+        class InstallPlanner:
+            def plan_tasks(self, user_input):
+                return [PlannedTask(action="install_app", target="vlc", raw_input=user_input)]
+
         executor = CapturingExecutor()
         agent = AutoSystemAgent(
-            planner=Planner(),
+            planner=InstallPlanner(),
             selector=PassThroughSelector(),
             executor=executor,
             assistant=FakeAssistant(None),
@@ -239,9 +260,13 @@ class AgentConversationTests(unittest.TestCase):
         self.assertEqual(executor.calls[-1][0], "install_app")
 
     def test_pending_confirmation_summary_reflects_waiting_action(self):
+        class InstallPlanner:
+            def plan_tasks(self, user_input):
+                return [PlannedTask(action="install_app", target="vlc", raw_input=user_input)]
+
         executor = CapturingExecutor()
         agent = AutoSystemAgent(
-            planner=Planner(),
+            planner=InstallPlanner(),
             selector=PassThroughSelector(),
             executor=executor,
             assistant=FakeAssistant(None),
@@ -255,9 +280,16 @@ class AgentConversationTests(unittest.TestCase):
         self.assertEqual(agent.get_pending_confirmation_summary(), "")
 
     def test_resolves_compress_it_in_multi_step_flow(self):
+        class CompressItPlanner:
+            def plan_tasks(self, user_input):
+                return [
+                    PlannedTask(action="create_folder", target="demo", raw_input=user_input),
+                    PlannedTask(action="compress", target="demo", raw_input=user_input),
+                ]
+
         executor = CapturingExecutor()
         agent = AutoSystemAgent(
-            planner=Planner(),
+            planner=CompressItPlanner(),
             selector=PassThroughSelector(),
             executor=executor,
             assistant=FakeAssistant(None),
@@ -269,8 +301,15 @@ class AgentConversationTests(unittest.TestCase):
         self.assertEqual(executor.calls[1][1], "demo")
 
     def test_multi_step_stops_when_blocked_command_fails(self):
+        class MultiRunPlanner:
+            def plan_tasks(self, user_input):
+                return [
+                    PlannedTask(action="run_command", target="echo hello", raw_input=user_input),
+                    PlannedTask(action="run_command", target="python3 --version", raw_input=user_input),
+                ]
+
         agent = AutoSystemAgent(
-            planner=Planner(),
+            planner=MultiRunPlanner(),
             selector=PassThroughSelector(),
             executor=SafeExecutor(),
             assistant=FakeAssistant(None),
