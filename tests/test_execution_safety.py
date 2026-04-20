@@ -85,15 +85,19 @@ class ExecutionSafetyTests(unittest.TestCase):
                 data={"command": ["apt", "install", "demo"]},
             ),
         ):
-            with patch.dict(os.environ, {"AUTO_AGENT_INSTALL_RETRIES": "2"}, clear=False):
-                with patch(
-                    "auto_system_agent.safe_executor.subprocess.run",
-                    side_effect=[
-                        subprocess.CompletedProcess(args=["apt"], returncode=100, stdout="", stderr="Temporary failure resolving host"),
-                        subprocess.CompletedProcess(args=["apt"], returncode=0, stdout="ok", stderr=""),
-                    ],
-                ):
-                    result = executor.execute("install_app", task)
+            with patch(
+                "auto_system_agent.safe_executor.verify_install_environment",
+                return_value=ExecutionResult(success=True, message="ok"),
+            ):
+                with patch.dict(os.environ, {"AUTO_AGENT_INSTALL_RETRIES": "2"}, clear=False):
+                    with patch(
+                        "auto_system_agent.safe_executor.subprocess.run",
+                        side_effect=[
+                            subprocess.CompletedProcess(args=["apt"], returncode=100, stdout="", stderr="Temporary failure resolving host"),
+                            subprocess.CompletedProcess(args=["apt"], returncode=0, stdout="ok", stderr=""),
+                        ],
+                    ):
+                        result = executor.execute("install_app", task)
 
         self.assertTrue(result.success)
         self.assertIn("after retry", result.message)
@@ -110,15 +114,19 @@ class ExecutionSafetyTests(unittest.TestCase):
                 data={"command": ["apt", "install", "demo"]},
             ),
         ):
-            with patch.dict(os.environ, {"AUTO_AGENT_INSTALL_RETRIES": "1"}, clear=False):
-                with patch(
-                    "auto_system_agent.safe_executor.subprocess.run",
-                    side_effect=[
-                        subprocess.CompletedProcess(args=["apt"], returncode=100, stdout="", stderr="Temporary failure resolving host"),
-                        subprocess.CompletedProcess(args=["apt"], returncode=100, stdout="", stderr="Temporary failure resolving host"),
-                    ],
-                ):
-                    result = executor.execute("install_app", task)
+            with patch(
+                "auto_system_agent.safe_executor.verify_install_environment",
+                return_value=ExecutionResult(success=True, message="ok"),
+            ):
+                with patch.dict(os.environ, {"AUTO_AGENT_INSTALL_RETRIES": "1"}, clear=False):
+                    with patch(
+                        "auto_system_agent.safe_executor.subprocess.run",
+                        side_effect=[
+                            subprocess.CompletedProcess(args=["apt"], returncode=100, stdout="", stderr="Temporary failure resolving host"),
+                            subprocess.CompletedProcess(args=["apt"], returncode=100, stdout="", stderr="Temporary failure resolving host"),
+                        ],
+                    ):
+                        result = executor.execute("install_app", task)
 
         self.assertFalse(result.success)
         self.assertIn("Installation failed with code", result.message)

@@ -1,6 +1,8 @@
+import json
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
@@ -10,155 +12,56 @@ if str(SRC_DIR) not in sys.path:
 from auto_system_agent.planner import Planner
 
 
+def _mock_ollama_response(tasks):
+    payload = {"tasks": tasks}
+    body = json.dumps({"choices": [{"message": {"content": json.dumps(payload)}}]}).encode()
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = body
+    mock_resp.__enter__.return_value = mock_resp
+    mock_resp.__exit__.return_value = False
+    return mock_resp
+
+
 class PlannerVariedPhrasingTests(unittest.TestCase):
-    def setUp(self) -> None:
-        self.planner = Planner()
+    def test_ollama_install_is_parsed(self):
+        planner = Planner(config={"url": "http://localhost:11434/v1/chat/completions", "model": "llama3.1", "timeout": 5})
+        mock_resp = _mock_ollama_response([{"action": "install_app", "target": "vlc", "options": {}}])
+        with patch("auto_system_agent.planner.request.urlopen", return_value=mock_resp):
+            task = planner.plan("install vlc")
+            self.assertEqual(task.action, "install_app")
+            self.assertEqual(task.target, "vlc")
 
-    def test_install_phrasings(self) -> None:
-        cases = [
-            ("install vlc", "vlc"),
-            ("please install app firefox", "firefox"),
-            ("can you install google chrome", "google chrome"),
-        ]
-        for text, expected_target in cases:
-            with self.subTest(text=text):
-                task = self.planner.plan(text)
-                self.assertEqual(task.action, "install_app")
-                self.assertEqual(task.target, expected_target)
+    def test_ollama_multi_step_is_parsed(self):
+        planner = Planner(config={"url": "http://localhost:11434/v1/chat/completions", "model": "llama3.1", "timeout": 5})
+        mock_resp = _mock_ollama_response([
+            {"action": "create_folder", "target": "demo", "options": {}},
+            {"action": "list_files", "target": "demo", "options": {}},
+        ])
+        with patch("auto_system_agent.planner.request.urlopen", return_value=mock_resp):
+            tasks = planner.plan_tasks("create folder demo then list files in demo")
+            self.assertEqual(len(tasks), 2)
+            self.assertEqual(tasks[0].action, "create_folder")
+            self.assertEqual(tasks[1].action, "list_files")
 
-    def test_create_folder_phrasings(self) -> None:
-        cases = [
-            "create folder demo",
-            "create directory demo",
-            "make folder demo",
-            "please make directory demo",
-        ]
-        for text in cases:
-            with self.subTest(text=text):
-                task = self.planner.plan(text)
-                self.assertEqual(task.action, "create_folder")
-                self.assertEqual(task.target, "demo")
+    def test_ollama_unavailable_returns_unknown(self):
+        planner = Planner(config={"url": "http://localhost:11434/v1/chat/completions", "model": "llama3.1", "timeout": 1})
+        with patch("auto_system_agent.planner.request.urlopen", side_effect=Exception("no ollama")):
+            task = planner.plan("install vlc")
+            self.assertEqual(task.action, "unknown")
 
-    def test_compress_phrasings(self) -> None:
-        cases = ["compress project", "zip project", "archive project"]
-        for text in cases:
-            with self.subTest(text=text):
-                task = self.planner.plan(text)
-                self.assertEqual(task.action, "compress")
-                self.assertEqual(task.target, "project")
+    def test_help_via_ollama(self):
+        planner = Planner(config={"url": "http://localhost:11434/v1/chat/completions", "model": "llama3.1", "timeout": 5})
+        mock_resp = _mock_ollama_response([{"action": "help", "target": "", "options": {}}])
+        with patch("auto_system_agent.planner.request.urlopen", return_value=mock_resp):
+            task = planner.plan("help")
+            self.assertEqual(task.action, "help")
 
-    def test_list_files_phrasings(self) -> None:
-        task = self.planner.plan("show files in downloads")
-        self.assertEqual(task.action, "list_files")
-        self.assertEqual(task.target, "downloads")
-
-        task = self.planner.plan("list directory")
-        self.assertEqual(task.action, "list_files")
-        self.assertEqual(task.target, ".")
-
-    def test_move_and_rename_phrasings(self) -> None:
-        task = self.planner.plan("move a.txt to b.txt")
-        self.assertEqual(task.action, "move_path")
-        self.assertEqual(task.target, "a.txt")
-        self.assertEqual(task.options["destination"], "b.txt")
-
-        task = self.planner.plan("rename old.txt to new.txt")
-        self.assertEqual(task.action, "move_path")
-        self.assertEqual(task.target, "old.txt")
-        self.assertEqual(task.options["destination"], "new.txt")
-
-    def test_delete_and_remove_phrasings(self) -> None:
-        cases = ["delete temp", "delete folder temp", "remove file temp"]
-        for text in cases:
-            with self.subTest(text=text):
-                task = self.planner.plan(text)
-                self.assertEqual(task.action, "delete_path")
-                self.assertEqual(task.target, "temp")
-
-    def test_execute_phrasing_maps_to_run_command(self) -> None:
-        task = self.planner.plan("execute pwd")
-        self.assertEqual(task.action, "run_command")
-        self.assertEqual(task.target, "pwd")
-
-    def test_cd_prefix_maps_to_run_command(self) -> None:
-        task = self.planner.plan("cd ..")
-        self.assertEqual(task.action, "run_command")
-        self.assertEqual(task.target, "cd ..")
-
-    def test_file_management_prefixes_map_to_run_command(self) -> None:
-        for text in ["mkdir demo", "touch a.txt", "cp a b", "mv a b", "rm a", "rm -r demo"]:
-            with self.subTest(text=text):
-                task = self.planner.plan(text)
-                self.assertEqual(task.action, "run_command")
-                self.assertEqual(task.target, text)
-
-    def test_file_viewing_prefixes_map_to_run_command(self) -> None:
-        for text in ["cat file.txt", "less file.txt", "head file.txt", "tail file.txt"]:
-            with self.subTest(text=text):
-                task = self.planner.plan(text)
-                self.assertEqual(task.action, "run_command")
-                self.assertEqual(task.target, text)
-
-    def test_search_and_system_prefixes_map_to_run_command(self) -> None:
-        for text in ["grep text file.txt", "find . -name file.txt", "clear", "history", "top", "exit"]:
-            with self.subTest(text=text):
-                task = self.planner.plan(text)
-                self.assertEqual(task.action, "run_command")
-                self.assertEqual(task.target, text)
-
-    def test_permissions_and_network_prefixes_map_to_run_command(self) -> None:
-        for text in ["chmod +x file.sh", "sudo ls", "ping google.com", "curl https://example.com"]:
-            with self.subTest(text=text):
-                task = self.planner.plan(text)
-                self.assertEqual(task.action, "run_command")
-                self.assertEqual(task.target, text)
-
-    def test_git_prefixes_map_to_run_command(self) -> None:
-        for text in [
-            "git clone https://example.com/repo.git",
-            "git status",
-            "git add .",
-            'git commit -m "message"',
-            "git push",
-        ]:
-            with self.subTest(text=text):
-                task = self.planner.plan(text)
-                self.assertEqual(task.action, "run_command")
-                self.assertEqual(task.target, text)
-
-    def test_help_keyword_maps_to_help_action(self) -> None:
-        task = self.planner.plan("help")
-        self.assertEqual(task.action, "help")
-
-    def test_plan_tasks_splits_multi_step_instruction(self) -> None:
-        tasks = self.planner.plan_tasks("create folder demo then list files in demo")
-
-        self.assertEqual(len(tasks), 2)
-        self.assertEqual(tasks[0].action, "create_folder")
-        self.assertEqual(tasks[0].target, "demo")
-        self.assertEqual(tasks[1].action, "list_files")
-        self.assertEqual(tasks[1].target, "demo")
-
-    def test_invalid_move_fragment_falls_back_to_unknown(self) -> None:
-        task = self.planner.plan("move")
-        self.assertEqual(task.action, "unknown")
-
-    def test_install_aliases_are_normalized(self) -> None:
-        task = self.planner.plan("install chrome")
-        self.assertEqual(task.action, "install_app")
-        self.assertEqual(task.target, "google chrome")
-
-    def test_paths_and_quotes_are_normalized(self) -> None:
-        task = self.planner.plan("create folder '~/demo folder'")
-        self.assertEqual(task.action, "create_folder")
-        self.assertEqual(task.target, str(Path("~/demo folder").expanduser()))
-
-    def test_multi_step_includes_dependencies_and_rollback_hints(self) -> None:
-        tasks = self.planner.plan_tasks("create folder demo then move demo to archive/demo")
-        self.assertEqual(tasks[0].options.get("depends_on_steps"), [])
-        self.assertIn("delete_path", str(tasks[0].options.get("rollback_hint", "")))
-        self.assertEqual(tasks[1].options.get("depends_on_steps"), [1])
-        self.assertIn("move_path", str(tasks[1].options.get("rollback_hint", "")))
+    def test_ollama_unknown_for_chat(self):
+        planner = Planner(config={"url": "http://localhost:11434/v1/chat/completions", "model": "llama3.1", "timeout": 5})
+        mock_resp = _mock_ollama_response([{"action": "unknown", "target": "", "options": {}}])
+        with patch("auto_system_agent.planner.request.urlopen", return_value=mock_resp):
+            task = planner.plan("what is the weather?")
+            self.assertEqual(task.action, "unknown")
 
 
 if __name__ == "__main__":

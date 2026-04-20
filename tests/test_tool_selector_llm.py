@@ -52,19 +52,20 @@ class ToolSelectorLLMTests(unittest.TestCase):
         task = PlannedTask(action="unknown", raw_input="wipe this machine")
         self.assertEqual(selector.select(task), "unknown")
 
-    def test_guarded_fallback_maps_run_prefix(self):
+    def test_no_guarded_fallback_when_llm_unavailable(self):
+        # Hard-coded guarded fallback was removed; OLLAMA only
         mapper = FakeMapper(None)
         selector = ToolSelector(llm_mapper=mapper)
 
         task = PlannedTask(action="unknown", raw_input="run uname -a")
-        self.assertEqual(selector.select(task), "run_command")
+        self.assertEqual(selector.select(task), "unknown")
 
-    def test_guarded_fallback_maps_list_files_phrase(self):
+    def test_no_guarded_list_files_fallback(self):
         mapper = FakeMapper(None)
         selector = ToolSelector(llm_mapper=mapper)
 
         task = PlannedTask(action="unknown", raw_input="show files in downloads")
-        self.assertEqual(selector.select(task), "list_files")
+        self.assertEqual(selector.select(task), "unknown")
 
 
 if __name__ == "__main__":
