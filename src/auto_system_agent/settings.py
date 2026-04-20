@@ -4,16 +4,21 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+OLLAMA_DEFAULT_URL = "http://localhost:11434/v1/chat/completions"
+OLLAMA_DEFAULT_MODEL = "llama3.1"
+
+
 @dataclass
 class LLMSettings:
     provider_mode: str = "bundled"
     url: str = ""
     api_key: str = ""
-    model: str = "gpt-4o-mini"
-    timeout: float = 8.0
+    model: str = OLLAMA_DEFAULT_MODEL
+    timeout: float = 30.0
     gui_timeout_seconds: float = 45.0
     install_retries: int = 2
     confirm_high_risk: bool = True
+    window_geometry: str = "920x560"
 
 
 class SettingsStore:
@@ -32,11 +37,11 @@ class SettingsStore:
         except (json.JSONDecodeError, OSError):
             return LLMSettings()
 
-        timeout_value = payload.get("timeout", 8.0)
+        timeout_value = payload.get("timeout", 30.0)
         try:
             timeout = float(timeout_value)
         except (TypeError, ValueError):
-            timeout = 8.0
+            timeout = 30.0
 
         gui_timeout_value = payload.get("gui_timeout_seconds", 45.0)
         try:
@@ -52,15 +57,18 @@ class SettingsStore:
 
         confirm_high_risk = bool(payload.get("confirm_high_risk", True))
 
+        window_geometry = self._normalize_window_geometry(payload.get("window_geometry", "920x560"))
+
         return LLMSettings(
             provider_mode=self._normalize_provider_mode(payload.get("provider_mode", "bundled")),
             url=str(payload.get("url", "")).strip(),
             api_key=str(payload.get("api_key", "")).strip(),
-            model=str(payload.get("model", "gpt-4o-mini")).strip() or "gpt-4o-mini",
+            model=str(payload.get("model", OLLAMA_DEFAULT_MODEL)).strip() or OLLAMA_DEFAULT_MODEL,
             timeout=timeout,
             gui_timeout_seconds=gui_timeout_seconds,
             install_retries=max(0, install_retries),
             confirm_high_risk=confirm_high_risk,
+            window_geometry=window_geometry,
         )
 
     def save(self, settings: LLMSettings) -> None:
@@ -69,23 +77,34 @@ class SettingsStore:
             "provider_mode": self._normalize_provider_mode(settings.provider_mode),
             "url": settings.url.strip(),
             "api_key": settings.api_key.strip(),
-            "model": settings.model.strip() or "gpt-4o-mini",
+            "model": settings.model.strip() or OLLAMA_DEFAULT_MODEL,
             "timeout": float(settings.timeout),
             "gui_timeout_seconds": float(settings.gui_timeout_seconds),
             "install_retries": int(settings.install_retries),
             "confirm_high_risk": bool(settings.confirm_high_risk),
+            "window_geometry": self._normalize_window_geometry(settings.window_geometry),
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     def resolve_llm_config(self, settings: LLMSettings) -> dict:
-        """Build runtime config for LLM clients from bundled/custom sources."""
+        """Build runtime config for OLLAMA (OpenAI-compatible) from bundled/custom sources."""
         provider_mode = self._normalize_provider_mode(settings.provider_mode)
 
         if provider_mode == "custom":
-            url = settings.url.strip() or os.getenv("AUTO_AGENT_LLM_URL", "").strip()
-            api_key = settings.api_key.strip() or os.getenv("AUTO_AGENT_LLM_API_KEY", "").strip()
-            model = settings.model.strip() or os.getenv("AUTO_AGENT_LLM_MODEL", "gpt-4o-mini").strip() or "gpt-4o-mini"
-            timeout = self._coerce_timeout(settings.timeout, fallback=8.0)
+            url = (
+                settings.url.strip()
+                or os.getenv("AUTO_AGENT_OLLAMA_URL", "").strip()
+                or os.getenv("AUTO_AGENT_LLM_URL", "").strip()
+                or OLLAMA_DEFAULT_URL
+            )
+            api_key = settings.api_key.strip() or os.getenv("AUTO_AGENT_OLLAMA_API_KEY", "").strip() or os.getenv("AUTO_AGENT_LLM_API_KEY", "").strip()
+            model = (
+                settings.model.strip()
+                or os.getenv("AUTO_AGENT_OLLAMA_MODEL", "").strip()
+                or os.getenv("AUTO_AGENT_LLM_MODEL", "").strip()
+                or OLLAMA_DEFAULT_MODEL
+            )
+            timeout = self._coerce_timeout(settings.timeout, fallback=30.0)
             return {
                 "url": url,
                 "api_key": api_key,
@@ -93,16 +112,30 @@ class SettingsStore:
                 "timeout": timeout,
             }
 
-        # Bundled mode lets app distributors define a ready-to-use provider.
-        url = os.getenv("AUTO_AGENT_DEFAULT_LLM_URL", "").strip() or os.getenv("AUTO_AGENT_LLM_URL", "").strip()
-        api_key = os.getenv("AUTO_AGENT_DEFAULT_LLM_API_KEY", "").strip() or os.getenv("AUTO_AGENT_LLM_API_KEY", "").strip()
-        model = (
-            os.getenv("AUTO_AGENT_DEFAULT_LLM_MODEL", "").strip()
-            or os.getenv("AUTO_AGENT_LLM_MODEL", "").strip()
-            or "gpt-4o-mini"
+        # Bundled mode defaults to OLLAMA local instance; env can override.
+        url = (
+            os.getenv("AUTO_AGENT_OLLAMA_URL", "").strip()
+            or os.getenv("AUTO_AGENT_DEFAULT_LLM_URL", "").strip()
+            or os.getenv("AUTO_AGENT_LLM_URL", "").strip()
+            or OLLAMA_DEFAULT_URL
         )
-        timeout_env = os.getenv("AUTO_AGENT_DEFAULT_LLM_TIMEOUT", "").strip() or os.getenv("AUTO_AGENT_LLM_TIMEOUT", "").strip()
-        timeout = self._coerce_timeout(timeout_env, fallback=8.0)
+        api_key = (
+            os.getenv("AUTO_AGENT_OLLAMA_API_KEY", "").strip()
+            or os.getenv("AUTO_AGENT_DEFAULT_LLM_API_KEY", "").strip()
+            or os.getenv("AUTO_AGENT_LLM_API_KEY", "").strip()
+        )
+        model = (
+            os.getenv("AUTO_AGENT_OLLAMA_MODEL", "").strip()
+            or os.getenv("AUTO_AGENT_DEFAULT_LLM_MODEL", "").strip()
+            or os.getenv("AUTO_AGENT_LLM_MODEL", "").strip()
+            or OLLAMA_DEFAULT_MODEL
+        )
+        timeout_env = (
+            os.getenv("AUTO_AGENT_OLLAMA_TIMEOUT", "").strip()
+            or os.getenv("AUTO_AGENT_DEFAULT_LLM_TIMEOUT", "").strip()
+            or os.getenv("AUTO_AGENT_LLM_TIMEOUT", "").strip()
+        )
+        timeout = self._coerce_timeout(timeout_env, fallback=30.0) if timeout_env else 30.0
 
         return {
             "url": url,
@@ -122,3 +155,18 @@ class SettingsStore:
             return float(value)
         except (TypeError, ValueError):
             return float(fallback)
+
+    def _normalize_window_geometry(self, value: object) -> str:
+        import re
+
+        text = str(value or "").strip() or "920x560"
+        if re.match(r"^\d+x\d+(?:[+-]\d+[+-]\d+)?$", text):
+            try:
+                wh_part = text.split("+")[0].split("-")[0]
+                w_str, h_str = wh_part.lower().split("x")
+                w, h = int(w_str), int(h_str)
+                if 400 <= w <= 3840 and 300 <= h <= 2160:
+                    return text
+            except Exception:
+                pass
+        return "920x560"
