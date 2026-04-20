@@ -43,7 +43,13 @@ class AgentChatGUI:
         self.root.minsize(720, 400)
         self.root.resizable(True, True)
         self._apply_saved_window_geometry()
+        self._maximize_window()
         self._setup_window_geometry_persistence()
+        # Some WMs apply geometry after mapping; re-assert maximized state
+        try:
+            self.root.after(100, self._maximize_window)
+        except Exception:
+            pass
 
         menu_bar = tk.Menu(self.root)
         tools_menu = tk.Menu(menu_bar, tearoff=0)
@@ -562,6 +568,22 @@ class AgentChatGUI:
             self.entry.insert(0, command_text)
             self.entry.focus_set()
 
+    def _maximize_window(self) -> None:
+        """Maximize window while keeping title bar controls (minimize/maximize/close)."""
+        # 'zoomed' keeps window decorations; never use overrideredirect or -fullscreen.
+        try:
+            self.root.state("zoomed")
+            return
+        except Exception:
+            pass
+        try:
+            # Fallback for some Linux window managers
+            self.root.attributes("-zoomed", True)
+            return
+        except Exception:
+            pass
+        # No hard fallback to geometry/fullscreen to preserve window controls
+
     def _apply_saved_window_geometry(self) -> None:
         geometry = getattr(self._settings, "window_geometry", "920x560")
         if not isinstance(geometry, str) or not geometry.strip():
@@ -858,6 +880,12 @@ class AgentChatGUI:
 
     def run(self) -> None:
         self._apply_runtime_options()
+        # Ensure maximized state at startup (keep decorations); schedule again after mapping
+        self._maximize_window()
+        try:
+            self.root.after(100, self._maximize_window)
+        except Exception:
+            pass
         self.root.mainloop()
 
 
