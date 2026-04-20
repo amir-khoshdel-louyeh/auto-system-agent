@@ -4,17 +4,42 @@ import re
 from typing import Optional, Set
 from urllib import error, request
 
+OLLAMA_DEFAULT_URL = "http://localhost:11434/v1/chat/completions"
+OLLAMA_DEFAULT_MODEL = "llama3.1"
+
 
 class LLMToolMapper:
-    """Optional LLM-backed mapper that resolves user text to a whitelisted tool."""
+    """OLLAMA-backed mapper that resolves user text to a whitelisted tool."""
 
     def __init__(self, config: dict | None = None) -> None:
         config = config or {}
-        self._url = str(config.get("url") or os.getenv("AUTO_AGENT_LLM_URL", "")).strip()
-        self._api_key = str(config.get("api_key") or os.getenv("AUTO_AGENT_LLM_API_KEY", "")).strip()
-        self._model = str(config.get("model") or os.getenv("AUTO_AGENT_LLM_MODEL", "gpt-4o-mini")).strip()
-        timeout_value = str(config.get("timeout") or os.getenv("AUTO_AGENT_LLM_TIMEOUT", "8")).strip()
-        self._timeout = float(timeout_value) if timeout_value else 8.0
+        self._url = (
+            str(config.get("url") or os.getenv("AUTO_AGENT_OLLAMA_URL", "")).strip()
+            or str(config.get("url") or os.getenv("AUTO_AGENT_LLM_URL", "")).strip()
+            or os.getenv("AUTO_AGENT_DEFAULT_LLM_URL", "").strip()
+            or OLLAMA_DEFAULT_URL
+        )
+        self._api_key = (
+            str(config.get("api_key") or os.getenv("AUTO_AGENT_OLLAMA_API_KEY", "")).strip()
+            or str(config.get("api_key") or os.getenv("AUTO_AGENT_LLM_API_KEY", "")).strip()
+        )
+        self._model = (
+            str(config.get("model") or os.getenv("AUTO_AGENT_OLLAMA_MODEL", "")).strip()
+            or str(config.get("model") or os.getenv("AUTO_AGENT_LLM_MODEL", "")).strip()
+            or os.getenv("AUTO_AGENT_DEFAULT_LLM_MODEL", "").strip()
+            or OLLAMA_DEFAULT_MODEL
+        )
+        timeout_value = str(
+            config.get("timeout")
+            or os.getenv("AUTO_AGENT_OLLAMA_TIMEOUT", "")
+            or os.getenv("AUTO_AGENT_LLM_TIMEOUT", "")
+            or os.getenv("AUTO_AGENT_DEFAULT_LLM_TIMEOUT", "")
+            or "30"
+        ).strip()
+        try:
+            self._timeout = float(timeout_value) if timeout_value else 30.0
+        except ValueError:
+            self._timeout = 30.0
 
     def is_available(self) -> bool:
         return bool(self._url)
@@ -25,7 +50,7 @@ class LLMToolMapper:
 
         prompt = (
             "Classify whether the user message requests a concrete automation task. "
-            "Respond as strict JSON only: {\"action\": \"<allowed_action_or_none>\"}. "
+            'Respond as strict JSON only: {"action": "<allowed_action_or_none>"}. '
             "If the message is general conversation, advice, or Q&A, return action=none. "
             f"Allowed actions: {sorted(allowed_actions)} and none. "
             f"User instruction: {user_text}"
@@ -36,11 +61,12 @@ class LLMToolMapper:
             "messages": [
                 {
                     "role": "system",
-                    "content": "You are a strict classifier that returns only JSON.",
+                    "content": "You are a strict classifier that returns only JSON. All answers must come from the OLLAMA model.",
                 },
                 {"role": "user", "content": prompt},
             ],
             "temperature": 0,
+            "stream": False,
         }
 
         raw_response = self._post_json(payload)
@@ -67,7 +93,10 @@ class LLMToolMapper:
             .get("content", "")
         )
         if not isinstance(content, str) or not content.strip():
-            return False
+            # Also handle native Ollama shape
+            content = response_json.get("message", {}).get("content", "")
+            if not isinstance(content, str) or not content.strip():
+                return False
 
         text = content.strip()
         if text.startswith("{"):
@@ -89,7 +118,26 @@ class LLMToolMapper:
         try:
             with request.urlopen(req, timeout=self._timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
-        except (error.URLError, error.HTTPError, json.JSONDecodeError, TimeoutError):
+        except (error.URLError, error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
+            # Fallback to native Ollama /api/chat
+            if self._url.endswith("/v1/chat/completions"):
+                native_url = self._url.replace("/v1/chat/completions", "/api/chat")
+                native_payload = {
+                    "model": self._model,
+                    "messages": payload["messages"],
+                    "stream": False,
+                }
+                native_body = json.dumps(native_payload).encode("utf-8")
+                native_req = request.Request(native_url, data=native_body, headers=headers, method="POST")
+                try:
+                    with request.urlopen(native_req, timeout=self._timeout) as resp:
+                        native_raw = json.loads(resp.read().decode("utf-8"))
+                        content = native_raw.get("message", {}).get("content", "")
+                        if content:
+                            return {"choices": [{"message": {"content": content}}]}
+                        return native_raw
+                except Exception:
+                    return None
             return None
 
     def _extract_action(self, response_json: dict) -> Optional[str]:
@@ -102,7 +150,9 @@ class LLMToolMapper:
             .get("content", "")
         )
         if not isinstance(content, str) or not content.strip():
-            return None
+            content = response_json.get("message", {}).get("content", "")
+            if not isinstance(content, str) or not content.strip():
+                return None
 
         content = content.strip()
         if content.startswith("{"):
