@@ -2,7 +2,7 @@ from auto_system_agent.models import ExecutionResult
 
 
 class ResultFormatter:
-    """Formats executor results for chat/CLI output."""
+    """Formats executor results for chat output."""
 
     def format(self, result: ExecutionResult) -> str:
         status = "SUCCESS" if result.success else "ERROR"

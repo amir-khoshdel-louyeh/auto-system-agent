@@ -10,5 +10,5 @@
 # Python >= 3.10 is recommended (uses X | Y union syntax, e.g. src/auto_system_agent/agent.py:32)
 # Python 3.14 tested.
 
-# To run:  python main.py [--gui]
+# To run:  python main.py
 # To test: python -m unittest discover -s tests -v
