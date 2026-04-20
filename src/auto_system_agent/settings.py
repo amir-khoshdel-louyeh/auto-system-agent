@@ -10,7 +10,7 @@ OLLAMA_DEFAULT_MODEL = "llama3.1"
 
 @dataclass
 class LLMSettings:
-    provider_mode: str = "bundled"
+    provider_mode: str = "local"
     url: str = ""
     api_key: str = ""
     model: str = OLLAMA_DEFAULT_MODEL
@@ -60,7 +60,7 @@ class SettingsStore:
         window_geometry = self._normalize_window_geometry(payload.get("window_geometry", "920x560"))
 
         return LLMSettings(
-            provider_mode=self._normalize_provider_mode(payload.get("provider_mode", "bundled")),
+            provider_mode=self._normalize_provider_mode(payload.get("provider_mode", "local")),
             url=str(payload.get("url", "")).strip(),
             api_key=str(payload.get("api_key", "")).strip(),
             model=str(payload.get("model", OLLAMA_DEFAULT_MODEL)).strip() or OLLAMA_DEFAULT_MODEL,
@@ -87,10 +87,10 @@ class SettingsStore:
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     def resolve_llm_config(self, settings: LLMSettings) -> dict:
-        """Build runtime config for OLLAMA (OpenAI-compatible) from bundled/custom sources."""
+        """Build runtime config from local/API sources. Mandatory startup choice decides mode."""
         provider_mode = self._normalize_provider_mode(settings.provider_mode)
 
-        if provider_mode == "custom":
+        if provider_mode == "api":
             url = (
                 settings.url.strip()
                 or os.getenv("AUTO_AGENT_OLLAMA_URL", "").strip()
@@ -112,31 +112,30 @@ class SettingsStore:
                 "timeout": timeout,
             }
 
-        # Bundled mode defaults to OLLAMA local instance; env can override.
+        # Local mode (ollama) - uses local instance; settings url/model if provided else defaults
         url = (
-            os.getenv("AUTO_AGENT_OLLAMA_URL", "").strip()
+            settings.url.strip()
+            or os.getenv("AUTO_AGENT_OLLAMA_URL", "").strip()
             or os.getenv("AUTO_AGENT_DEFAULT_LLM_URL", "").strip()
             or os.getenv("AUTO_AGENT_LLM_URL", "").strip()
             or OLLAMA_DEFAULT_URL
         )
         api_key = (
-            os.getenv("AUTO_AGENT_OLLAMA_API_KEY", "").strip()
+            settings.api_key.strip()
+            or os.getenv("AUTO_AGENT_OLLAMA_API_KEY", "").strip()
             or os.getenv("AUTO_AGENT_DEFAULT_LLM_API_KEY", "").strip()
             or os.getenv("AUTO_AGENT_LLM_API_KEY", "").strip()
         )
         model = (
-            os.getenv("AUTO_AGENT_OLLAMA_MODEL", "").strip()
+            settings.model.strip()
+            or os.getenv("AUTO_AGENT_OLLAMA_MODEL", "").strip()
             or os.getenv("AUTO_AGENT_DEFAULT_LLM_MODEL", "").strip()
             or os.getenv("AUTO_AGENT_LLM_MODEL", "").strip()
             or OLLAMA_DEFAULT_MODEL
         )
-        timeout_env = (
-            os.getenv("AUTO_AGENT_OLLAMA_TIMEOUT", "").strip()
-            or os.getenv("AUTO_AGENT_DEFAULT_LLM_TIMEOUT", "").strip()
-            or os.getenv("AUTO_AGENT_LLM_TIMEOUT", "").strip()
-        )
-        timeout = self._coerce_timeout(timeout_env, fallback=30.0) if timeout_env else 30.0
-
+        timeout = self._coerce_timeout(settings.timeout, fallback=30.0)
+        # For local mode ignore env timeout; use settings timeout directly (fallback already handled)
+        # Keep backward compat: if env timeout was set but settings timeout is default, prefer env? No, prefer settings.
         return {
             "url": url,
             "api_key": api_key,
@@ -146,9 +145,19 @@ class SettingsStore:
 
     def _normalize_provider_mode(self, value: object) -> str:
         normalized = str(value or "").strip().lower()
-        if normalized in {"bundled", "custom"}:
+        if normalized in {"local", "api"}:
             return normalized
-        return "bundled"
+        # Backward compatibility: bundled -> local, custom -> api
+        if normalized == "bundled":
+            return "local"
+        if normalized == "custom":
+            return "api"
+        # Also accept ollama/remote aliases
+        if normalized in {"ollama", "local_ollama"}:
+            return "local"
+        if normalized in {"remote", "openai", "external"}:
+            return "api"
+        return "local"
 
     def _coerce_timeout(self, value: object, fallback: float) -> float:
         try:
