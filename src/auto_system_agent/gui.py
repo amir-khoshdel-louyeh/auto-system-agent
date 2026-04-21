@@ -8,7 +8,7 @@ from typing import Callable
 
 from auto_system_agent.agent import AutoSystemAgent
 from auto_system_agent.models import StepStatus
-from auto_system_agent.settings import LLMSettings, SettingsStore
+from auto_system_agent.settings import LLMSettings, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL, SettingsStore
 
 
 BG_APP = "#f2f5f9"
@@ -27,7 +27,6 @@ class AgentChatGUI:
     def __init__(self) -> None:
         self._settings_store = SettingsStore()
         self._settings = self._settings_store.load()
-        self.agent = self._build_agent()
         self._is_busy = False
         self._ui_queue: queue.Queue[tuple[str, object]] = queue.Queue()
         self._request_counter = 0
@@ -46,6 +45,17 @@ class AgentChatGUI:
         self._maximize_window()
         self._setup_window_geometry_persistence()
         # Some WMs apply geometry after mapping; re-assert maximized state
+        try:
+            self.root.after(100, self._maximize_window)
+        except Exception:
+            pass
+
+        # Mandatory choice on every startup: API vs Local model
+        self._show_startup_provider_dialog()
+
+        self.agent = self._build_agent()
+        # Ensure window stays maximized after startup dialog
+        self._maximize_window()
         try:
             self.root.after(100, self._maximize_window)
         except Exception:
@@ -568,6 +578,233 @@ class AgentChatGUI:
             self.entry.insert(0, command_text)
             self.entry.focus_set()
 
+    def _show_startup_provider_dialog(self) -> None:
+        """Mandatory modal on every startup: user must choose API or Local model."""
+        # Use current settings as initial values but force explicit choice
+        current_mode = self._settings_store._normalize_provider_mode(getattr(self._settings, "provider_mode", "local"))
+        initial_mode = current_mode if current_mode in ("local", "api") else "local"
+
+        # Prepare initial field values
+        if initial_mode == "local":
+            init_local_url = self._settings.url.strip() or OLLAMA_DEFAULT_URL
+            init_local_model = self._settings.model.strip() or OLLAMA_DEFAULT_MODEL
+            init_local_timeout = str(self._settings.timeout)
+            init_api_url = ""
+            init_api_key = ""
+            init_api_model = "gpt-4o-mini"
+            init_api_timeout = "30"
+        else:
+            init_local_url = OLLAMA_DEFAULT_URL
+            init_local_model = OLLAMA_DEFAULT_MODEL
+            init_local_timeout = "30"
+            init_api_url = self._settings.url.strip()
+            init_api_key = self._settings.api_key.strip()
+            init_api_model = self._settings.model.strip() or "gpt-4o-mini"
+            init_api_timeout = str(self._settings.timeout)
+
+        choice_made = {"done": False, "mode": None}
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Choose LLM Provider - Required")
+        dialog.geometry("680x560")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(False, False)
+        dialog.focus_set()
+        # Keep dialog centered over root
+        try:
+            dialog.update_idletasks()
+            x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - 340
+            y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - 280
+            dialog.geometry(f"680x560+{max(0, x)}+{max(0, y)}")
+        except Exception:
+            pass
+
+        def exit_app():
+            try:
+                dialog.destroy()
+            except Exception:
+                pass
+            try:
+                self.root.destroy()
+            except Exception:
+                pass
+            import sys as _sys
+            _sys.exit(0)
+
+        def on_dialog_close():
+            if not choice_made["done"]:
+                exit_app()
+
+        dialog.protocol("WM_DELETE_WINDOW", on_dialog_close)
+
+        header = tk.Frame(dialog, bg=BG_PANEL, padx=16, pady=12)
+        header.pack(fill=tk.X)
+        tk.Label(header, text="Choose how the app will run", font=("TkDefaultFont", 12, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
+        tk.Label(
+            header,
+            text="You must select exactly one provider before the app can start.\nThe app will act according to your choice (Local Ollama or Remote API).",
+            font=("TkDefaultFont", 9),
+            fg=FG_MUTED,
+            bg=BG_PANEL,
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=(4, 0))
+
+        mode_var = tk.StringVar(value=initial_mode)
+
+        radio_frame = tk.Frame(dialog, padx=16, pady=8)
+        radio_frame.pack(fill=tk.X)
+        tk.Radiobutton(radio_frame, text="Local Model (Ollama)  — runs on http://localhost:11434, no API key", variable=mode_var, value="local").pack(anchor="w", pady=2)
+        tk.Radiobutton(radio_frame, text="Remote API  — OpenAI-compatible endpoint with API key", variable=mode_var, value="api").pack(anchor="w", pady=2)
+
+        content = tk.Frame(dialog, padx=16, pady=8)
+        content.pack(fill=tk.BOTH, expand=True)
+
+        # Local frame
+        local_frame = tk.LabelFrame(content, text="Local Model Settings", padx=10, pady=8)
+        local_frame.pack(fill=tk.X, pady=(0, 8))
+        tk.Label(local_frame, text="Ollama URL").grid(row=0, column=0, sticky="w", pady=4)
+        local_url_entry = tk.Entry(local_frame, width=52)
+        local_url_entry.grid(row=0, column=1, sticky="we", padx=8, pady=4)
+        local_url_entry.insert(0, init_local_url)
+        tk.Label(local_frame, text="Model").grid(row=1, column=0, sticky="w", pady=4)
+        local_model_entry = tk.Entry(local_frame, width=52)
+        local_model_entry.grid(row=1, column=1, sticky="we", padx=8, pady=4)
+        local_model_entry.insert(0, init_local_model)
+        tk.Label(local_frame, text="Timeout (s)").grid(row=2, column=0, sticky="w", pady=4)
+        local_timeout_entry = tk.Entry(local_frame, width=20)
+        local_timeout_entry.grid(row=2, column=1, sticky="w", padx=8, pady=4)
+        local_timeout_entry.insert(0, init_local_timeout)
+        local_frame.columnconfigure(1, weight=1)
+
+        # API frame
+        api_frame = tk.LabelFrame(content, text="Remote API Settings", padx=10, pady=8)
+        api_frame.pack(fill=tk.X)
+        tk.Label(api_frame, text="API URL *").grid(row=0, column=0, sticky="w", pady=4)
+        api_url_entry = tk.Entry(api_frame, width=52)
+        api_url_entry.grid(row=0, column=1, sticky="we", padx=8, pady=4)
+        api_url_entry.insert(0, init_api_url)
+        tk.Label(api_frame, text="API Key *").grid(row=1, column=0, sticky="w", pady=4)
+        api_key_entry = tk.Entry(api_frame, width=52, show="*")
+        api_key_entry.grid(row=1, column=1, sticky="we", padx=8, pady=4)
+        api_key_entry.insert(0, init_api_key)
+        tk.Label(api_frame, text="Model *").grid(row=2, column=0, sticky="w", pady=4)
+        api_model_entry = tk.Entry(api_frame, width=52)
+        api_model_entry.grid(row=2, column=1, sticky="we", padx=8, pady=4)
+        api_model_entry.insert(0, init_api_model)
+        tk.Label(api_frame, text="Timeout (s)").grid(row=3, column=0, sticky="w", pady=4)
+        api_timeout_entry = tk.Entry(api_frame, width=20)
+        api_timeout_entry.grid(row=3, column=1, sticky="w", padx=8, pady=4)
+        api_timeout_entry.insert(0, init_api_timeout)
+        api_frame.columnconfigure(1, weight=1)
+
+        hint = tk.Label(dialog, text="* Required for Remote API. Local needs only URL/model.", fg=FG_MUTED, font=("TkDefaultFont", 8), anchor="w", padx=16)
+        hint.pack(fill=tk.X, pady=(0, 8))
+
+        def sync_state(*_args):
+            mode = mode_var.get()
+            is_local = mode == "local"
+            state_local = tk.NORMAL if is_local else tk.DISABLED
+            state_api = tk.NORMAL if not is_local else tk.DISABLED
+            for w in (local_url_entry, local_model_entry, local_timeout_entry):
+                try:
+                    w.configure(state=state_local)
+                except Exception:
+                    pass
+            for w in (api_url_entry, api_key_entry, api_model_entry, api_timeout_entry):
+                try:
+                    w.configure(state=state_api)
+                except Exception:
+                    pass
+            # Visual cue
+            try:
+                local_frame.configure(fg=FG_PRIMARY if is_local else FG_MUTED)
+                api_frame.configure(fg=FG_PRIMARY if not is_local else FG_MUTED)
+            except Exception:
+                pass
+
+        mode_var.trace_add("write", sync_state)
+        sync_state()
+
+        def on_continue():
+            mode = mode_var.get().strip() or "local"
+            if mode not in ("local", "api"):
+                messagebox.showerror("Invalid choice", "Please select Local or Remote API.", parent=dialog)
+                return
+            if mode == "local":
+                url = local_url_entry.get().strip() or OLLAMA_DEFAULT_URL
+                model = local_model_entry.get().strip() or OLLAMA_DEFAULT_MODEL
+                timeout_raw = local_timeout_entry.get().strip() or "30"
+                api_key = ""
+                if not url:
+                    messagebox.showerror("Invalid value", "Local Ollama URL is required.", parent=dialog)
+                    return
+                if not model:
+                    messagebox.showerror("Invalid value", "Local model name is required.", parent=dialog)
+                    return
+            else:
+                url = api_url_entry.get().strip()
+                api_key = api_key_entry.get().strip()
+                model = api_model_entry.get().strip()
+                timeout_raw = api_timeout_entry.get().strip() or "30"
+                if not url:
+                    messagebox.showerror("Invalid value", "API URL is required for Remote API.", parent=dialog)
+                    return
+                if not api_key:
+                    messagebox.showerror("Invalid value", "API Key is required for Remote API.", parent=dialog)
+                    return
+                if not model:
+                    messagebox.showerror("Invalid value", "Model is required for Remote API.", parent=dialog)
+                    return
+
+            try:
+                timeout_val = float(timeout_raw)
+                if timeout_val <= 0:
+                    raise ValueError
+            except ValueError:
+                messagebox.showerror("Invalid value", "Timeout must be a positive number.", parent=dialog)
+                return
+
+            # Preserve other settings
+            prev = self._settings
+            self._settings = LLMSettings(
+                provider_mode=mode,
+                url=url,
+                api_key=api_key,
+                model=model,
+                timeout=timeout_val,
+                gui_timeout_seconds=getattr(prev, "gui_timeout_seconds", 45.0),
+                install_retries=getattr(prev, "install_retries", 2),
+                confirm_high_risk=getattr(prev, "confirm_high_risk", True),
+                window_geometry=getattr(prev, "window_geometry", "920x560"),
+            )
+            try:
+                self._settings_store.save(self._settings)
+            except Exception as exc:
+                messagebox.showerror("Save failed", f"Could not save settings: {exc}", parent=dialog)
+                return
+            choice_made["done"] = True
+            choice_made["mode"] = mode
+            try:
+                dialog.grab_release()
+            except Exception:
+                pass
+            dialog.destroy()
+
+        btn_frame = tk.Frame(dialog, padx=16, pady=12)
+        btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        tk.Button(btn_frame, text="Exit", command=exit_app, bg="#6b7280", fg="#ffffff", relief=tk.FLAT, padx=12).pack(side=tk.RIGHT, padx=(8, 0))
+        tk.Button(btn_frame, text="Continue", command=on_continue, bg=ACCENT, fg="#ffffff", relief=tk.FLAT, padx=12).pack(side=tk.RIGHT)
+        # Bind Enter to continue
+        dialog.bind("<Return>", lambda _e: on_continue())
+
+        # Modal block
+        dialog.wait_window()
+
+        if not choice_made["done"]:
+            # User closed without choosing -> exit already handled, but ensure
+            exit_app()
+
     def _maximize_window(self) -> None:
         """Maximize window while keeping title bar controls (minimize/maximize/close)."""
         # 'zoomed' keeps window decorations; never use overrideredirect or -fullscreen.
@@ -799,7 +1036,9 @@ class AgentChatGUI:
 
         dialog.columnconfigure(1, weight=1)
 
-        mode_var = tk.StringVar(value=self._settings.provider_mode)
+        # Normalize for display (bundled->local, custom->api)
+        normalized_mode = self._settings_store._normalize_provider_mode(self._settings.provider_mode)
+        mode_var = tk.StringVar(value=normalized_mode)
         mode_label = tk.Label(dialog, text="Provider Mode")
         mode_label.grid(row=0, column=0, sticky="nw", padx=12, pady=8)
 
@@ -807,47 +1046,61 @@ class AgentChatGUI:
         mode_frame.grid(row=0, column=1, sticky="w", padx=12, pady=8)
         tk.Radiobutton(
             mode_frame,
-            text="Bundled (use app preconfigured provider)",
+            text="Local Model (Ollama) — local inference",
             variable=mode_var,
-            value="bundled",
+            value="local",
         ).pack(anchor="w")
         tk.Radiobutton(
             mode_frame,
-            text="Custom (use my own token and endpoint)",
+            text="Remote API — OpenAI-compatible endpoint",
             variable=mode_var,
-            value="custom",
+            value="api",
         ).pack(anchor="w")
 
-        url_entry = add_row("Custom LLM URL", 1, self._settings.url)
-        key_entry = add_row("Custom API Key", 2, self._settings.api_key, show="*")
-        model_entry = add_row("Custom Model", 3, self._settings.model)
-        timeout_entry = add_row("Custom Timeout (seconds)", 4, str(self._settings.timeout))
+        url_entry = add_row("LLM URL", 1, self._settings.url)
+        key_entry = add_row("API Key", 2, self._settings.api_key, show="*")
+        model_entry = add_row("Model", 3, self._settings.model)
+        timeout_entry = add_row("Timeout (seconds)", 4, str(self._settings.timeout))
 
         helper_label = tk.Label(
             dialog,
-            text="Bundled mode reads AUTO_AGENT_DEFAULT_LLM_* env vars.\n"
-            "Custom mode uses values below and stores them in your local settings.",
+            text="Local: uses Ollama at http://localhost:11434 (or URL above).\n"
+            "Remote API: uses URL + API key + model above. Choice is required at each startup.",
             justify=tk.LEFT,
             anchor="w",
             fg=FG_MUTED,
         )
         helper_label.grid(row=5, column=0, columnspan=2, sticky="w", padx=12, pady=(2, 6))
 
-        custom_controls = [url_entry, key_entry, model_entry, timeout_entry]
-
+        # For local, API key is optional; keep all fields enabled but hint
         def sync_mode_state(*_args) -> None:
-            state = tk.NORMAL if mode_var.get() == "custom" else tk.DISABLED
-            for control in custom_controls:
-                control.configure(state=state)
+            # Keep all enabled; visual hint via helper, but ensure key is disabled for local to signal optional
+            mode = mode_var.get()
+            if mode == "local":
+                key_entry.configure(state=tk.DISABLED)
+            else:
+                key_entry.configure(state=tk.NORMAL)
 
         mode_var.trace_add("write", sync_mode_state)
         sync_mode_state()
 
         def save_and_close() -> None:
             try:
-                timeout_value = float(timeout_entry.get().strip() or "8")
+                timeout_value = float(timeout_entry.get().strip() or "30")
             except ValueError:
                 messagebox.showerror("Invalid value", "Timeout must be a number.", parent=dialog)
+                return
+            mode = mode_var.get().strip() or "local"
+            if mode not in ("local", "api"):
+                mode = "local"
+            if mode == "api" and not url_entry.get().strip():
+                messagebox.showerror("Invalid value", "API URL is required for Remote API.", parent=dialog)
+                return
+            if mode == "api" and not key_entry.get().strip():
+                messagebox.showerror("Invalid value", "API Key is required for Remote API.", parent=dialog)
+                return
+            if not model_entry.get().strip():
+                messagebox.showerror("Invalid value", "Model is required.", parent=dialog)
                 return
 
             previous_geometry = getattr(self._settings, "window_geometry", "920x560")
@@ -855,10 +1108,10 @@ class AgentChatGUI:
             previous_retries = getattr(self._settings, "install_retries", 2)
             previous_confirm = getattr(self._settings, "confirm_high_risk", True)
             self._settings = LLMSettings(
-                provider_mode=mode_var.get().strip() or "bundled",
+                provider_mode=mode,
                 url=url_entry.get().strip(),
                 api_key=key_entry.get().strip(),
-                model=model_entry.get().strip() or "gpt-4o-mini",
+                model=model_entry.get().strip() or OLLAMA_DEFAULT_MODEL,
                 timeout=timeout_value,
                 gui_timeout_seconds=previous_gui_timeout,
                 install_retries=previous_retries,
@@ -867,10 +1120,10 @@ class AgentChatGUI:
             )
             self._settings_store.save(self._settings)
             self.agent = self._build_agent()
-            if self._settings.provider_mode == "custom":
-                self._append_message("Agent", "LLM settings saved in custom mode and applied.")
+            if self._settings.provider_mode == "api":
+                self._append_message("Agent", "LLM settings saved in Remote API mode and applied.")
             else:
-                self._append_message("Agent", "LLM settings saved in bundled mode and applied.")
+                self._append_message("Agent", "LLM settings saved in Local Model mode and applied.")
             dialog.destroy()
 
         button_frame = tk.Frame(dialog)
