@@ -606,19 +606,10 @@ class AgentChatGUI:
 
         dialog = tk.Toplevel(self.root)
         dialog.title("Choose LLM Provider - Required")
-        dialog.geometry("680x560")
         dialog.transient(self.root)
         dialog.grab_set()
-        dialog.resizable(False, False)
+        dialog.resizable(True, True)
         dialog.focus_set()
-        # Keep dialog centered over root
-        try:
-            dialog.update_idletasks()
-            x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - 340
-            y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - 280
-            dialog.geometry(f"680x560+{max(0, x)}+{max(0, y)}")
-        except Exception:
-            pass
 
         def exit_app():
             try:
@@ -798,12 +789,45 @@ class AgentChatGUI:
         # Bind Enter to continue
         dialog.bind("<Return>", lambda _e: on_continue())
 
+        # Ensure window is at least as large as its content (no clipping)
+        self._fit_dialog_to_content(dialog, default_width=680, default_height=560)
+
         # Modal block
         dialog.wait_window()
 
         if not choice_made["done"]:
             # User closed without choosing -> exit already handled, but ensure
             exit_app()
+
+    def _fit_dialog_to_content(self, dialog: tk.Toplevel, default_width: int = 620, default_height: int = 380) -> None:
+        """Ensure dialog window is at least as large as its content to avoid clipping."""
+        try:
+            dialog.update_idletasks()
+            req_w = dialog.winfo_reqwidth()
+            req_h = dialog.winfo_reqheight()
+            # Add small padding for window decorations
+            req_w += 20
+            req_h += 20
+            w = max(req_w, default_width)
+            h = max(req_h, default_height)
+            # Clamp to screen size
+            try:
+                sw = dialog.winfo_screenwidth()
+                sh = dialog.winfo_screenheight()
+                w = min(w, max(400, sw - 40))
+                h = min(h, max(300, sh - 40))
+            except Exception:
+                pass
+            # Center over root
+            try:
+                x = self.root.winfo_rootx() + (self.root.winfo_width() // 2) - (w // 2)
+                y = self.root.winfo_rooty() + (self.root.winfo_height() // 2) - (h // 2)
+                dialog.geometry(f"{w}x{h}+{max(0, x)}+{max(0, y)}")
+            except Exception:
+                dialog.geometry(f"{w}x{h}")
+            dialog.minsize(req_w, req_h)
+        except Exception:
+            pass
 
     def _maximize_window(self) -> None:
         """Maximize window while keeping title bar controls (minimize/maximize/close)."""
@@ -915,9 +939,9 @@ class AgentChatGUI:
     def _open_options_dialog(self) -> None:
         dialog = tk.Toplevel(self.root)
         dialog.title("App Options")
-        dialog.geometry("520x240")
         dialog.transient(self.root)
         dialog.grab_set()
+        dialog.resizable(True, True)
 
         tk.Label(dialog, text="GUI Request Timeout (seconds)").grid(row=0, column=0, sticky="w", padx=12, pady=10)
         timeout_entry = tk.Entry(dialog, width=20)
@@ -973,6 +997,8 @@ class AgentChatGUI:
         tk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=(8, 0))
         tk.Button(button_frame, text="Save", command=save_and_close).pack(side=tk.RIGHT)
 
+        self._fit_dialog_to_content(dialog, default_width=520, default_height=260)
+
     def _set_step_status(self, step: int, total: int, state: str, tool: str) -> None:
         text = f"{step}/{total} | {state:<7} | {tool}"
         if step in self._step_progress_rows:
@@ -1022,9 +1048,9 @@ class AgentChatGUI:
     def _open_settings_dialog(self) -> None:
         dialog = tk.Toplevel(self.root)
         dialog.title("LLM Settings")
-        dialog.geometry("620x380")
         dialog.transient(self.root)
         dialog.grab_set()
+        dialog.resizable(True, True)
 
         def add_row(label_text: str, row: int, initial: str, show: str | None = None) -> tk.Entry:
             label = tk.Label(dialog, text=label_text)
@@ -1130,6 +1156,8 @@ class AgentChatGUI:
         button_frame.grid(row=6, column=0, columnspan=2, sticky="e", padx=12, pady=12)
         tk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=(8, 0))
         tk.Button(button_frame, text="Save", command=save_and_close).pack(side=tk.RIGHT)
+
+        self._fit_dialog_to_content(dialog, default_width=620, default_height=380)
 
     def run(self) -> None:
         self._apply_runtime_options()
