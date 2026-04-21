@@ -68,10 +68,10 @@ class AgentChatGUI:
         tools_menu = tk.Menu(menu_bar, tearoff=0)
         tools_menu.add_command(label="Tools Overview", command=self._open_tools_window)
         tools_menu.add_separator()
-        tools_menu.add_command(label="Insert Example: create folder", command=lambda: self._insert_tool_command("create folder demo"))
-        tools_menu.add_command(label="Insert Example: list files", command=lambda: self._insert_tool_command("list files in ."))
+        tools_menu.add_command(label="Insert Example: make file in Downloads", command=lambda: self._insert_tool_command("make a file known as test.py in the Downloads directory"))
+        tools_menu.add_command(label="Insert Example: list Downloads", command=lambda: self._insert_tool_command("list files in ~/Downloads"))
         tools_menu.add_command(label="Insert Example: install vlc", command=lambda: self._insert_tool_command("install vlc"))
-        tools_menu.add_command(label="Insert Example: run command", command=lambda: self._insert_tool_command("run command ls -la"))
+        tools_menu.add_command(label="Insert Example: run ls -la", command=lambda: self._insert_tool_command("run ls -la ~/Downloads"))
         menu_bar.add_cascade(label="Tools", menu=tools_menu)
 
         settings_menu = tk.Menu(menu_bar, tearoff=0)
@@ -978,10 +978,10 @@ class AgentChatGUI:
 
         header = tk.Frame(window, bg=BG_PANEL, padx=16, pady=12)
         header.pack(fill=tk.X)
-        tk.Label(header, text="System Tools", font=("TkDefaultFont", 12, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
+        tk.Label(header, text="Terminal Tools", font=("TkDefaultFont", 12, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
         tk.Label(
             header,
-            text="Browse available automation tools. Click an example to insert it into the chat input.",
+            text="All requests run directly as bash commands via a persistent terminal session (bash -lc). No per-request Python tool.",
             font=("TkDefaultFont", 9),
             fg=FG_MUTED,
             bg=BG_PANEL,
@@ -1007,28 +1007,28 @@ class AgentChatGUI:
         btn_row = tk.Frame(right_frame, bg=BG_PANEL)
         btn_row.pack(fill=tk.X, padx=10, pady=(0, 10))
 
-        # Tool catalog
+        # Terminal-centric catalog - no fake per-request tools
         catalog = [
             {
-                "name": "File Operations",
-                "actions": ["create_folder", "create_empty_file", "list_files", "move_path", "copy_path", "delete_path", "compress", "view_file", "grep_in_file", "find_files_by_name", "make_executable"],
-                "description": "Manage files and folders with safety checks, sandboxing, and protected-path blocking.",
-                "examples": ["create folder demo", "list files in .", "move file a.txt to b.txt", "compress demo", "delete path demo/tmp", "view file README.md"],
-                "safety": "Deletes blocked for /bin, /etc, /usr, /home etc. Sandbox via AUTO_AGENT_PATH_ALLOW_ROOTS.",
-            },
-            {
-                "name": "Application Installer",
-                "actions": ["install_app"],
-                "description": "Install apps via OS package manager (apt/dnf/pacman on Linux, brew on macOS, winget on Windows).",
-                "examples": ["install vlc", "install firefox", "install google chrome"],
-                "safety": "Uses sudo where needed; verifies package manager exists. Supported apps: vlc, firefox, google chrome.",
-            },
-            {
-                "name": "Command Runner",
+                "name": "Persistent Terminal (bash -lc)",
                 "actions": ["run_command"],
-                "description": "Run shell commands with policy blocking risky operations.",
-                "examples": ["run command ls -la", "run command pwd", "run command cat README.md"],
-                "safety": "Blocks chaining (&&, ||, ;, |), interpreters (bash, python, sh, etc.), and dangerous args (-rf, --no-preserve-root). Risk scored low/medium/high.",
+                "description": "Single persistent bash session. Every user request is translated to an exact shell command and executed via TerminalSession (bash -lc) with cwd tracking (pwd/cd/history). No fake Python simulation.",
+                "examples": ["touch ~/Downloads/test.py", "mkdir -p ~/Downloads/demo && touch ~/Downloads/demo/file.txt", "ls -la ~/Downloads", "cat ~/Downloads/test.py", "cp ~/Downloads/a.txt ~/Downloads/b.txt"],
+                "safety": "Direct shell: any bash command is allowed. Destructive commands (rm, sudo) require confirmation. History and cwd are tracked.",
+            },
+            {
+                "name": "File & Folder (via shell)",
+                "actions": ["run_command"],
+                "description": "File operations are plain shell commands, not Python wrappers.",
+                "examples": ["mkdir -p ~/Downloads/demo", "touch ~/Downloads/test.py", "rm ~/Downloads/test.py", "mv ~/Downloads/a.txt ~/Downloads/b.txt", "zip -r ~/Downloads/archive.zip ~/Downloads/demo"],
+                "safety": "Uses real mkdir/touch/rm/mv/zip. Paths like ~/Downloads/<name> are used directly.",
+            },
+            {
+                "name": "System & Install (via shell)",
+                "actions": ["run_command"],
+                "description": "System tasks are shell commands via terminal, no separate installer tool.",
+                "examples": ["sudo apt install -y vlc", "ps -eo pid,comm,%cpu | head", "ping -c 4 google.com", "git clone https://github.com/user/repo.git"],
+                "safety": "Installer is just shell: sudo apt/dnf/pacman/brew/winget. Confirmation required for sudo/rm.",
             },
         ]
 

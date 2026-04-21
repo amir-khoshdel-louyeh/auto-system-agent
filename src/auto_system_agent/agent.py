@@ -11,16 +11,13 @@ from auto_system_agent.planner import Planner
 from auto_system_agent.result_formatter import ResultFormatter
 from auto_system_agent.safe_executor import SafeExecutor
 from auto_system_agent.tool_selector import ToolSelector
-from auto_system_agent.tools.install_tool import build_install_command, extract_known_apps
-
-
 CONFIRMATION_YES_WORDS = {"yes", "y", "confirm", "ok", "proceed"}
 CONFIRMATION_NO_WORDS = {"no", "n", "cancel", "stop"}
-HIGH_RISK_ACTIONS = {"install_app", "delete_path", "run_command"}
+HIGH_RISK_ACTIONS = {"run_command"}
 ACTION_RISK_LEVELS = {
-    "install_app": "medium",
-    "delete_path": "high",
     "run_command": "high",
+    "help": "low",
+    "unknown": "low",
 }
 
 
@@ -262,26 +259,28 @@ class AutoSystemAgent:
         return self._formatter.format_many(results), step_payloads
 
     def _update_context_from_chat(self, reply: str) -> None:
-        apps = extract_known_apps(reply)
-        if apps:
-            self._context["last_app"] = apps[0]
+        # Terminal mode: no app extraction needed
+        return
 
     def _update_context_from_task(self, task: PlannedTask, result: ExecutionResult) -> None:
         if not result.success:
             return
+        # For run_command, try to capture last path from command target
+        if task.action == "run_command" and task.target:
+            # Simple heuristic: last token that looks like a path
+            import shlex
 
-        if task.action == "install_app" and task.target:
-            self._context["last_app"] = task.target
-            return
-
-        if task.action in {"create_folder", "compress", "list_files", "delete_path"} and task.target:
-            self._context["last_path"] = task.target
-            return
-
-        if task.action == "move_path":
-            destination = str(task.options.get("destination", "")).strip()
-            if destination:
-                self._context["last_path"] = destination
+            try:
+                parts = shlex.split(task.target)
+                for token in reversed(parts):
+                    if "/" in token or token.startswith("~") or token.endswith(".py") or token.endswith(".txt"):
+                        self._context["last_path"] = token
+                        break
+                else:
+                    if task.target.strip():
+                        self._context["last_path"] = task.target.strip()
+            except ValueError:
+                self._context["last_path"] = task.target.strip()
 
     def _remember(self, user_text: str, assistant_text: str) -> None:
         self._history.append({"role": "user", "content": user_text})
@@ -379,25 +378,28 @@ class AutoSystemAgent:
         )
 
     def _preview_for_task(self, task: PlannedTask) -> str:
-        if task.action == "install_app":
-            install_result = build_install_command(task.target or "")
-            if install_result.success:
-                command = install_result.data.get("command", [])
-                return " ".join(str(item) for item in command)
-            return install_result.message
-
+        # Terminal mode: preview is the shell command itself
         if task.action == "run_command":
-            return task.target or ""
-
-        if task.action == "delete_path":
-            return f"delete_path {task.target or ''}".strip()
-
+            return task.target or task.raw_input
         return f"{task.action} {task.target or ''}".strip()
 
     def _requires_confirmation_for_tasks(self, tasks: list[PlannedTask]) -> bool:
         if not self._confirm_high_risk:
             return False
-        return any(task.action in HIGH_RISK_ACTIONS for task in tasks)
+        # In terminal mode, only destructive commands need confirmation
+        for task in tasks:
+            if task.action not in HIGH_RISK_ACTIONS:
+                continue
+            if task.action == "run_command" and task.target:
+                low = task.target.lower()
+                # Only require confirmation for destructive patterns
+                dangerous = ["rm ", "rm -", "sudo ", "mkfs", " dd ", "shutdown", "reboot", ":(){", "chmod 777", "> /dev/"]
+                if any(pat in low for pat in dangerous):
+                    return True
+                # Safe commands like touch, mkdir, ls, cat, echo, pwd, cd do not need confirmation
+                return False
+            return True
+        return False
 
     def _step_payload(self, tool_key: str, task: PlannedTask, result: ExecutionResult) -> dict:
         decision = str(result.data.get("policy_decision", "")).strip() or "approved"
