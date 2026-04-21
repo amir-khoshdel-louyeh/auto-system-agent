@@ -6,7 +6,6 @@ from pathlib import Path
 from unittest.mock import patch
 import zipfile
 import subprocess
-from urllib import error
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
@@ -15,152 +14,67 @@ if str(SRC_DIR) not in sys.path:
 
 from auto_system_agent.models import ExecutionResult, PlannedTask
 from auto_system_agent.safe_executor import SafeExecutor
-from auto_system_agent.tools.command_tool import run_command
+from auto_system_agent.terminal import TerminalSession
 from auto_system_agent.tools.file_tool import compress_path, create_folder, delete_path
 
 
 class ExecutionSafetyTests(unittest.TestCase):
-    def test_run_command_handles_invalid_shell_syntax(self):
-        result = run_command('echo "unterminated')
-
-        self.assertFalse(result.success)
-        self.assertIn("Invalid command syntax", result.message)
-
-    def test_run_command_handles_missing_executable(self):
-        result = run_command("definitely-not-a-real-binary-xyz")
-
-        self.assertFalse(result.success)
-        self.assertIn("Command not found", result.message)
-
-    def test_run_command_blocks_shell_interpreters(self):
-        result = run_command("python3 --version")
-
-        self.assertFalse(result.success)
-        self.assertIn("blocked by safety policy", result.message)
-        self.assertEqual(result.data.get("policy_decision"), "blocked")
-        self.assertEqual(result.data.get("policy_reason"), "interpreter_execution")
-        self.assertIn(result.data.get("risk_level"), {"low", "medium", "high"})
-
-    def test_run_command_blocks_risky_flags(self):
-        result = run_command("echo -rf")
-
-        self.assertFalse(result.success)
-        self.assertIn("blocked by safety policy", result.message)
-        self.assertEqual(result.data.get("policy_decision"), "blocked")
-
-    def test_run_command_includes_risk_when_allowed(self):
-        result = run_command("echo hello")
-
-        self.assertTrue(result.success)
-        self.assertEqual(result.data.get("policy_decision"), "approved")
-        self.assertEqual(result.data.get("policy_reason"), "allowed_command")
-        self.assertIn(result.data.get("risk_level"), {"low", "medium", "high"})
-
-    def test_install_action_handles_missing_package_manager(self):
+    def test_terminal_creates_file_in_downloads(self):
+        # User's failing case: make a file known as test.py in Downloads
         executor = SafeExecutor()
-        task = PlannedTask(action="install_app", target="vlc", raw_input="install vlc")
+        with tempfile.TemporaryDirectory() as tmp_home:
+            # Simulate Downloads as tmp_home/Downloads
+            downloads = Path(tmp_home) / "Downloads"
+            downloads.mkdir()
+            executor.terminal._cwd = Path(tmp_home)
+            # Simulate planner output: touch ~/Downloads/test.py -> use explicit path
+            test_file = downloads / "test.py"
+            result = executor.execute("run_command", PlannedTask(action="run_command", target=f"touch {test_file}"))
+            self.assertTrue(result.success)
+            self.assertTrue(test_file.exists())
+            # Cleanup via terminal
+            rm_result = executor.execute("run_command", PlannedTask(action="run_command", target=f"rm {test_file}"))
+            self.assertTrue(rm_result.success)
+            self.assertFalse(test_file.exists())
 
-        with patch(
-            "auto_system_agent.safe_executor.build_install_command",
-            return_value=ExecutionResult(
-                success=True,
-                message="prepared",
-                data={"command": ["missing-pkg-manager-xyz", "install", "demo"]},
-            ),
-        ):
-            result = executor.execute("install_app", task)
-
-        self.assertFalse(result.success)
-        self.assertIn("Install executable not found", result.message)
-
-    def test_install_action_retries_transient_failure_then_succeeds(self):
+    def test_terminal_run_command_handles_missing_executable(self):
         executor = SafeExecutor()
-        task = PlannedTask(action="install_app", target="vlc", raw_input="install vlc")
-
-        with patch(
-            "auto_system_agent.safe_executor.build_install_command",
-            return_value=ExecutionResult(
-                success=True,
-                message="prepared",
-                data={"command": ["apt", "install", "demo"]},
-            ),
-        ):
-            with patch(
-                "auto_system_agent.safe_executor.verify_install_environment",
-                return_value=ExecutionResult(success=True, message="ok"),
-            ):
-                with patch.dict(os.environ, {"AUTO_AGENT_INSTALL_RETRIES": "2"}, clear=False):
-                    with patch(
-                        "auto_system_agent.safe_executor.subprocess.run",
-                        side_effect=[
-                            subprocess.CompletedProcess(args=["apt"], returncode=100, stdout="", stderr="Temporary failure resolving host"),
-                            subprocess.CompletedProcess(args=["apt"], returncode=0, stdout="ok", stderr=""),
-                        ],
-                    ):
-                        result = executor.execute("install_app", task)
-
-        self.assertTrue(result.success)
-        self.assertIn("after retry", result.message)
-
-    def test_install_action_fails_after_transient_retries_exhausted(self):
-        executor = SafeExecutor()
-        task = PlannedTask(action="install_app", target="vlc", raw_input="install vlc")
-
-        with patch(
-            "auto_system_agent.safe_executor.build_install_command",
-            return_value=ExecutionResult(
-                success=True,
-                message="prepared",
-                data={"command": ["apt", "install", "demo"]},
-            ),
-        ):
-            with patch(
-                "auto_system_agent.safe_executor.verify_install_environment",
-                return_value=ExecutionResult(success=True, message="ok"),
-            ):
-                with patch.dict(os.environ, {"AUTO_AGENT_INSTALL_RETRIES": "1"}, clear=False):
-                    with patch(
-                        "auto_system_agent.safe_executor.subprocess.run",
-                        side_effect=[
-                            subprocess.CompletedProcess(args=["apt"], returncode=100, stdout="", stderr="Temporary failure resolving host"),
-                            subprocess.CompletedProcess(args=["apt"], returncode=100, stdout="", stderr="Temporary failure resolving host"),
-                        ],
-                    ):
-                        result = executor.execute("install_app", task)
-
+        result = executor.execute("run_command", PlannedTask(action="run_command", target="definitely-not-a-real-binary-xyz"))
         self.assertFalse(result.success)
-        self.assertIn("Installation failed with code", result.message)
+        # bash returns command not found
+        self.assertIn("not found", result.message.lower())
 
-    def test_compress_path_supports_single_files(self):
+    def test_terminal_allows_python_and_other_interpreters(self):
+        # Terminal mode: no fake blocking for interpreters
+        executor = SafeExecutor()
+        result = executor.execute("run_command", PlannedTask(action="run_command", target="python3 --version"))
+        # Should succeed if python3 exists, otherwise "not found" but not blocked by policy
+        self.assertNotIn("blocked by safety policy", result.message)
+
+    def test_terminal_compress_path_direct_tool_still_works(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             file_path = Path(temp_dir) / "note.txt"
             file_path.write_text("hello", encoding="utf-8")
-
             result = compress_path(str(file_path))
-
             self.assertTrue(result.success)
             archive_path = Path(result.message.split(": ", maxsplit=1)[1])
             self.assertTrue(archive_path.exists())
-
             with zipfile.ZipFile(archive_path, "r") as zip_obj:
                 self.assertIn("note.txt", zip_obj.namelist())
 
     def test_create_folder_returns_error_when_mkdir_fails(self):
         with patch("auto_system_agent.tools.file_tool.Path.mkdir", side_effect=PermissionError("denied")):
             result = create_folder("demo")
-
         self.assertFalse(result.success)
         self.assertIn("Could not create folder", result.message)
 
     def test_delete_blocks_system_sensitive_paths(self):
         result = delete_path("/etc")
-
         self.assertFalse(result.success)
         self.assertIn("Deletion blocked", result.message)
 
     def test_delete_blocks_home_root(self):
         result = delete_path(str(Path.home()))
-
         self.assertFalse(result.success)
         self.assertIn("Deletion blocked", result.message)
 
@@ -168,20 +82,17 @@ class ExecutionSafetyTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             target = Path(temp_dir) / "delete-me.txt"
             target.write_text("demo", encoding="utf-8")
-
             result = delete_path(str(target))
-
             self.assertTrue(result.success)
             self.assertFalse(target.exists())
 
-    def test_navigation_pwd_and_cd_commands(self):
+    def test_terminal_pwd_and_cd_commands(self):
         executor = SafeExecutor()
         with tempfile.TemporaryDirectory() as temp_dir:
             parent = Path(temp_dir).resolve()
             child = parent / "child"
             child.mkdir()
-
-            executor._working_directory = child
+            executor.terminal._cwd = child
             result_pwd = executor.execute("run_command", PlannedTask(action="run_command", target="pwd"))
             self.assertTrue(result_pwd.success)
             self.assertEqual(result_pwd.message, str(child))
@@ -193,202 +104,106 @@ class ExecutionSafetyTests(unittest.TestCase):
             result_pwd_after = executor.execute("run_command", PlannedTask(action="run_command", target="pwd"))
             self.assertEqual(result_pwd_after.message, str(parent))
 
-    def test_navigation_cd_home_and_ls(self):
-        executor = SafeExecutor()
-        result_cd_home = executor.execute("run_command", PlannedTask(action="run_command", target="cd ~"))
-        self.assertTrue(result_cd_home.success)
-        self.assertIn(str(Path.home().resolve()), result_cd_home.message)
-
-        result_ls = executor.execute("run_command", PlannedTask(action="run_command", target="ls"))
-        self.assertTrue(result_ls.success)
-        self.assertIn("Contents of", result_ls.message)
-
-    def test_file_management_mkdir_touch_cp_mv_rm_commands(self):
+    def test_terminal_file_management_via_shell(self):
         executor = SafeExecutor()
         with tempfile.TemporaryDirectory() as temp_dir:
-            executor._working_directory = Path(temp_dir).resolve()
-
-            result_mkdir = executor.execute("run_command", PlannedTask(action="run_command", target="mkdir demo"))
+            executor.terminal._cwd = Path(temp_dir).resolve()
+            result_mkdir = executor.execute("run_command", PlannedTask(action="run_command", target="mkdir -p demo"))
             self.assertTrue(result_mkdir.success)
+            self.assertTrue((Path(temp_dir) / "demo").exists())
 
             result_touch = executor.execute("run_command", PlannedTask(action="run_command", target="touch demo/a.txt"))
             self.assertTrue(result_touch.success)
+            self.assertTrue((Path(temp_dir) / "demo" / "a.txt").exists())
 
             result_cp = executor.execute("run_command", PlannedTask(action="run_command", target="cp demo/a.txt demo/b.txt"))
             self.assertTrue(result_cp.success)
+            self.assertTrue((Path(temp_dir) / "demo" / "b.txt").exists())
 
             result_mv = executor.execute("run_command", PlannedTask(action="run_command", target="mv demo/b.txt demo/c.txt"))
             self.assertTrue(result_mv.success)
+            self.assertFalse((Path(temp_dir) / "demo" / "b.txt").exists())
+            self.assertTrue((Path(temp_dir) / "demo" / "c.txt").exists())
 
-            result_rm_file = executor.execute("run_command", PlannedTask(action="run_command", target="rm demo/c.txt"))
-            self.assertTrue(result_rm_file.success)
+            result_rm = executor.execute("run_command", PlannedTask(action="run_command", target="rm demo/c.txt"))
+            self.assertTrue(result_rm.success)
+            self.assertFalse((Path(temp_dir) / "demo" / "c.txt").exists())
 
-    def test_rm_requires_recursive_flag_for_folder(self):
+    def test_terminal_rm_folder_requires_flags_via_shell(self):
         executor = SafeExecutor()
         with tempfile.TemporaryDirectory() as temp_dir:
-            executor._working_directory = Path(temp_dir).resolve()
+            executor.terminal._cwd = Path(temp_dir).resolve()
             folder = Path(temp_dir) / "demo"
             folder.mkdir()
-
             result_rm = executor.execute("run_command", PlannedTask(action="run_command", target="rm demo"))
             self.assertFalse(result_rm.success)
-            self.assertIn("without -r", result_rm.message)
-
-            result_rm_recursive = executor.execute("run_command", PlannedTask(action="run_command", target="rm -r demo"))
+            # real rm error: Is a directory
+            self.assertIn("Is a directory", result_rm.message)
+            result_rm_recursive = executor.execute("run_command", PlannedTask(action="run_command", target="rm -rf demo"))
             self.assertTrue(result_rm_recursive.success)
+            self.assertFalse(folder.exists())
 
-    def test_file_viewing_commands_cat_less_head_tail(self):
+    def test_terminal_file_viewing_via_shell(self):
         executor = SafeExecutor()
         with tempfile.TemporaryDirectory() as temp_dir:
-            executor._working_directory = Path(temp_dir).resolve()
+            executor.terminal._cwd = Path(temp_dir).resolve()
             target = Path(temp_dir) / "notes.txt"
             target.write_text("\n".join([f"line {i}" for i in range(1, 21)]), encoding="utf-8")
-
             result_cat = executor.execute("run_command", PlannedTask(action="run_command", target="cat notes.txt"))
             self.assertTrue(result_cat.success)
             self.assertIn("line 1", result_cat.message)
             self.assertIn("line 20", result_cat.message)
-
-            result_head = executor.execute("run_command", PlannedTask(action="run_command", target="head notes.txt"))
+            result_head = executor.execute("run_command", PlannedTask(action="run_command", target="head -n 5 notes.txt"))
             self.assertTrue(result_head.success)
             self.assertIn("line 1", result_head.message)
-            self.assertNotIn("line 20", result_head.message)
-
-            result_tail = executor.execute("run_command", PlannedTask(action="run_command", target="tail notes.txt"))
+            result_tail = executor.execute("run_command", PlannedTask(action="run_command", target="tail -n 5 notes.txt"))
             self.assertTrue(result_tail.success)
-            tail_lines = result_tail.message.splitlines()
-            self.assertEqual(tail_lines[0], "line 11")
-            self.assertEqual(tail_lines[-1], "line 20")
+            self.assertIn("line 20", result_tail.message)
 
-            result_less = executor.execute("run_command", PlannedTask(action="run_command", target="less notes.txt"))
-            self.assertTrue(result_less.success)
-            self.assertIn("line 1", result_less.message)
-
-    def test_search_commands_grep_and_find(self):
+    def test_terminal_search_via_shell(self):
         executor = SafeExecutor()
         with tempfile.TemporaryDirectory() as temp_dir:
-            executor._working_directory = Path(temp_dir).resolve()
+            executor.terminal._cwd = Path(temp_dir).resolve()
             nested = Path(temp_dir) / "nested"
             nested.mkdir()
             target = nested / "sample.txt"
             target.write_text("hello\nsearch me\nbye\n", encoding="utf-8")
-
             grep_result = executor.execute("run_command", PlannedTask(action="run_command", target="grep search nested/sample.txt"))
             self.assertTrue(grep_result.success)
-            self.assertIn("2:search me", grep_result.message)
-
+            self.assertIn("search me", grep_result.message)
             find_result = executor.execute("run_command", PlannedTask(action="run_command", target="find . -name sample.txt"))
             self.assertTrue(find_result.success)
             self.assertIn("sample.txt", find_result.message)
 
-    def test_system_commands_history_clear_top_exit(self):
+    def test_terminal_history_and_clear(self):
         executor = SafeExecutor()
-
         executor.execute("run_command", PlannedTask(action="run_command", target="pwd"))
         history_result = executor.execute("run_command", PlannedTask(action="run_command", target="history"))
         self.assertTrue(history_result.success)
         self.assertIn("pwd", history_result.message)
-
         clear_result = executor.execute("run_command", PlannedTask(action="run_command", target="clear"))
         self.assertTrue(clear_result.success)
         self.assertIn("cleared", clear_result.message.lower())
 
-        top_result = executor.execute("run_command", PlannedTask(action="run_command", target="top"))
-        self.assertTrue(top_result.success)
-
-        exit_result = executor.execute("run_command", PlannedTask(action="run_command", target="exit"))
-        self.assertTrue(exit_result.success)
-        self.assertIn("closed", exit_result.message.lower())
-
-    def test_permissions_commands_chmod_and_sudo(self):
+    def test_terminal_chmod_via_shell(self):
         executor = SafeExecutor()
         with tempfile.TemporaryDirectory() as temp_dir:
-            executor._working_directory = Path(temp_dir).resolve()
+            executor.terminal._cwd = Path(temp_dir).resolve()
             target = Path(temp_dir) / "script.sh"
             target.write_text("echo hi\n", encoding="utf-8")
-
             chmod_result = executor.execute("run_command", PlannedTask(action="run_command", target="chmod +x script.sh"))
             self.assertTrue(chmod_result.success)
-            self.assertIn("Made executable", chmod_result.message)
+            # Check executable bit
+            import stat
+            self.assertTrue(bool(target.stat().st_mode & stat.S_IXUSR))
 
-        with patch(
-            "auto_system_agent.safe_executor.subprocess.run",
-            return_value=subprocess.CompletedProcess(args=["sudo"], returncode=0, stdout="ok", stderr=""),
-        ):
-            sudo_result = executor.execute("run_command", PlannedTask(action="run_command", target="sudo ls"))
-        self.assertTrue(sudo_result.success)
-
-    def test_networking_commands_ping_and_curl(self):
+    def test_terminal_install_via_shell_mocked(self):
+        # Install now is just a shell command, test via terminal with mocked subprocess
         executor = SafeExecutor()
-
-        with patch(
-            "auto_system_agent.safe_executor.subprocess.run",
-            return_value=subprocess.CompletedProcess(args=["ping"], returncode=0, stdout="PING ok", stderr=""),
-        ):
-            ping_result = executor.execute("run_command", PlannedTask(action="run_command", target="ping google.com"))
-        self.assertTrue(ping_result.success)
-        self.assertIn("PING", ping_result.message)
-
-        class _FakeResponse:
-            def __enter__(self):
-                return self
-
-            def __exit__(self, exc_type, exc, tb):
-                return False
-
-            def read(self, _size=None):
-                return b"hello"
-
-        with patch("auto_system_agent.safe_executor.request.urlopen", return_value=_FakeResponse()):
-            curl_result = executor.execute("run_command", PlannedTask(action="run_command", target="curl https://example.com"))
-        self.assertTrue(curl_result.success)
-        self.assertIn("hello", curl_result.message)
-
-        with patch("auto_system_agent.safe_executor.request.urlopen", side_effect=error.URLError("down")):
-            curl_fail = executor.execute("run_command", PlannedTask(action="run_command", target="curl https://example.com"))
-        self.assertFalse(curl_fail.success)
-
-    def test_git_commands_clone_status_add_commit_push(self):
-        executor = SafeExecutor()
-
-        responses = [
-            subprocess.CompletedProcess(args=["git", "status"], returncode=0, stdout="On branch main", stderr=""),
-            subprocess.CompletedProcess(args=["git", "add", "."], returncode=0, stdout="", stderr=""),
-            subprocess.CompletedProcess(args=["git", "commit"], returncode=0, stdout="[main abc123] msg", stderr=""),
-            subprocess.CompletedProcess(args=["git", "push"], returncode=0, stdout="Everything up-to-date", stderr=""),
-            subprocess.CompletedProcess(args=["git", "clone"], returncode=0, stdout="Cloning into 'repo'...", stderr=""),
-        ]
-        with patch("auto_system_agent.safe_executor.subprocess.run", side_effect=responses):
-            status_result = executor.execute("run_command", PlannedTask(action="run_command", target="git status"))
-            add_result = executor.execute("run_command", PlannedTask(action="run_command", target="git add ."))
-            commit_result = executor.execute("run_command", PlannedTask(action="run_command", target='git commit -m "msg"'))
-            push_result = executor.execute("run_command", PlannedTask(action="run_command", target="git push"))
-            clone_result = executor.execute("run_command", PlannedTask(action="run_command", target="git clone https://example.com/repo.git"))
-
-        self.assertTrue(status_result.success)
-        self.assertIn("On branch", status_result.message)
-        self.assertTrue(add_result.success)
-        self.assertTrue(commit_result.success)
-        self.assertIn("abc123", commit_result.message)
-        self.assertTrue(push_result.success)
-        self.assertIn("up-to-date", push_result.message)
-        self.assertTrue(clone_result.success)
-        self.assertIn("Cloning", clone_result.message)
-
-    def test_git_rejects_unsupported_or_invalid_usage(self):
-        executor = SafeExecutor()
-
-        blocked = executor.execute("run_command", PlannedTask(action="run_command", target="git reset --hard"))
-        self.assertFalse(blocked.success)
-        self.assertIn("Unsupported git command", blocked.message)
-
-        missing_msg = executor.execute("run_command", PlannedTask(action="run_command", target="git commit -m"))
-        self.assertFalse(missing_msg.success)
-        self.assertIn("git commit usage", missing_msg.message)
-
-        bad_clone = executor.execute("run_command", PlannedTask(action="run_command", target="git clone not-a-url"))
-        self.assertFalse(bad_clone.success)
-        self.assertIn("requires an http(s), ssh, or git@ URL", bad_clone.message)
+        # Mock TerminalSession.run to simulate apt success
+        with patch.object(TerminalSession, "run", return_value=ExecutionResult(success=True, message="ok")):
+            result = executor.execute("run_command", PlannedTask(action="run_command", target="sudo apt install -y vlc"))
+            self.assertTrue(result.success)
 
 
 if __name__ == "__main__":

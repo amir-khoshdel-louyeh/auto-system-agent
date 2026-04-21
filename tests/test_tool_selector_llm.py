@@ -23,19 +23,19 @@ class FakeMapper:
 
 class ToolSelectorLLMTests(unittest.TestCase):
     def test_deterministic_path_wins_for_known_action(self):
-        mapper = FakeMapper("delete_path")
+        mapper = FakeMapper("help")
         selector = ToolSelector(llm_mapper=mapper)
 
-        task = PlannedTask(action="create_folder", target="demo", raw_input="create folder demo")
-        self.assertEqual(selector.select(task), "create_folder")
+        task = PlannedTask(action="run_command", target="touch ~/Downloads/test.py", raw_input="make a file")
+        self.assertEqual(selector.select(task), "run_command")
         self.assertEqual(mapper.calls, 0)
 
     def test_llm_is_used_for_unknown_action(self):
-        mapper = FakeMapper("list_files")
+        mapper = FakeMapper("run_command")
         selector = ToolSelector(llm_mapper=mapper)
 
         task = PlannedTask(action="unknown", raw_input="show me files")
-        self.assertEqual(selector.select(task), "list_files")
+        self.assertEqual(selector.select(task), "run_command")
         self.assertEqual(mapper.calls, 1)
 
     def test_falls_back_to_unknown_when_llm_unavailable(self):

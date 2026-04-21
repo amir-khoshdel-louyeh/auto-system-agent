@@ -315,7 +315,7 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
 
         class InstallPlanner:
             def plan_tasks(self, user_input):
-                return [PlannedTask(action="install_app", target="vlc", raw_input=user_input)]
+                return [PlannedTask(action="run_command", target="sudo apt install -y vlc", raw_input=user_input)]
 
         agent = AutoSystemAgent(
             planner=InstallPlanner(),
@@ -330,8 +330,8 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(gui.confirm_button["state"], tk.NORMAL)
         self.assertEqual(gui.cancel_button["state"], tk.NORMAL)
         self.assertIn("Pending confirmation", gui.confirmation_status_label.text)
-        self.assertIn("install_app vlc", gui.confirmation_details_label.text)
-        self.assertIn("[MEDIUM] install_app", gui.risk_badges_label.text)
+        self.assertIn("run_command sudo apt install -y vlc", gui.confirmation_details_label.text)
+        self.assertIn("[HIGH] run_command", gui.risk_badges_label.text)
         self.assertNotEqual(gui.command_preview_var.get().strip(), "")
         self.assertEqual(gui.copy_preview_button["state"], tk.NORMAL)
 

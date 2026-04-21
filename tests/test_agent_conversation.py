@@ -35,7 +35,7 @@ class FakeAssistant:
 
 
 class FakeSelector:
-    SUPPORTED_ACTIONS = {"create_folder", "list_files"}
+    SUPPORTED_ACTIONS = {"run_command", "help"}
 
     def select(self, task):
         return task.action
@@ -61,12 +61,6 @@ class CapturingExecutor:
 
 class PassThroughSelector:
     SUPPORTED_ACTIONS = {
-        "install_app",
-        "create_folder",
-        "compress",
-        "move_path",
-        "delete_path",
-        "list_files",
         "run_command",
         "help",
     }
@@ -125,8 +119,8 @@ class AgentConversationTests(unittest.TestCase):
         class MultiPlanner:
             def plan_tasks(self, user_input):
                 return [
-                    PlannedTask(action="create_folder", target="demo", raw_input=user_input),
-                    PlannedTask(action="list_files", target=".", raw_input=user_input),
+                    PlannedTask(action="run_command", target="mkdir -p demo", raw_input=user_input),
+                    PlannedTask(action="run_command", target="ls -la .", raw_input=user_input),
                 ]
 
         agent = AutoSystemAgent(
@@ -137,15 +131,15 @@ class AgentConversationTests(unittest.TestCase):
         )
 
         response = agent.process("create folder demo then list files in .")
-        self.assertIn("Step 1: [SUCCESS] create_folder:demo", response)
-        self.assertIn("Step 2: [SUCCESS] list_files:.", response)
+        self.assertIn("Step 1: [SUCCESS] run_command:mkdir -p demo", response)
+        self.assertIn("Step 2: [SUCCESS] run_command:ls -la .", response)
 
     def test_reports_multi_step_progress_updates(self):
         class MultiPlanner:
             def plan_tasks(self, user_input):
                 return [
-                    PlannedTask(action="create_folder", target="demo", raw_input=user_input),
-                    PlannedTask(action="list_files", target=".", raw_input=user_input),
+                    PlannedTask(action="run_command", target="mkdir -p demo", raw_input=user_input),
+                    PlannedTask(action="run_command", target="ls -la .", raw_input=user_input),
                 ]
 
         updates = []
@@ -158,7 +152,7 @@ class AgentConversationTests(unittest.TestCase):
 
         agent.process("create folder demo then list files in .", progress_callback=updates.append)
         self.assertTrue(any(isinstance(item, StepStatus) and item.step == 1 and item.state == "running" for item in updates))
-        self.assertTrue(any(isinstance(item, StepStatus) and item.step == 2 and item.tool == "list_files" for item in updates))
+        self.assertTrue(any(isinstance(item, StepStatus) and item.step == 2 and item.tool == "run_command" for item in updates))
 
     def test_resolves_install_it_from_previous_chat_suggestion(self):
         class SequenceAssistant:
@@ -169,9 +163,9 @@ class AgentConversationTests(unittest.TestCase):
                 self.calls += 1
                 if self.calls == 1:
                     return {"type": "chat", "response": "VLC is a strong video player choice."}
-                # Second call: OLLAMA resolves "install it" to install_app vlc via history
+                # Second call: OLLAMA resolves "install it" to run_command via history
                 if "install it" in user_text.lower():
-                    return {"type": "tool", "action": "install_app", "target": "vlc", "destination": ""}
+                    return {"type": "tool", "action": "run_command", "target": "sudo apt install -y vlc", "destination": ""}
                 return None
 
         class SuggestThenInstallPlanner:
@@ -195,13 +189,13 @@ class AgentConversationTests(unittest.TestCase):
         self.assertIn("Confirmation required", second_response)
 
         third_response = agent.process("yes")
-        self.assertIn("[SUCCESS] install_app:vlc", third_response)
-        self.assertEqual(executor.calls[-1][1], "vlc")
+        self.assertIn("[SUCCESS] run_command:sudo apt install -y vlc", third_response)
+        self.assertEqual(executor.calls[-1][1], "sudo apt install -y vlc")
 
     def test_confirmation_cancel_skips_execution(self):
         class InstallPlanner:
             def plan_tasks(self, user_input):
-                return [PlannedTask(action="install_app", target="vlc", raw_input=user_input)]
+                return [PlannedTask(action="run_command", target="sudo apt install -y vlc", raw_input=user_input)]
 
         executor = CapturingExecutor()
         agent = AutoSystemAgent(
@@ -221,7 +215,7 @@ class AgentConversationTests(unittest.TestCase):
     def test_confirmation_helper_methods(self):
         class InstallPlanner:
             def plan_tasks(self, user_input):
-                return [PlannedTask(action="install_app", target="vlc", raw_input=user_input)]
+                return [PlannedTask(action="run_command", target="sudo apt install -y vlc", raw_input=user_input)]
 
         executor = CapturingExecutor()
         agent = AutoSystemAgent(
@@ -243,7 +237,7 @@ class AgentConversationTests(unittest.TestCase):
     def test_can_disable_high_risk_confirmation(self):
         class InstallPlanner:
             def plan_tasks(self, user_input):
-                return [PlannedTask(action="install_app", target="vlc", raw_input=user_input)]
+                return [PlannedTask(action="run_command", target="sudo apt install -y vlc", raw_input=user_input)]
 
         executor = CapturingExecutor()
         agent = AutoSystemAgent(
@@ -257,12 +251,12 @@ class AgentConversationTests(unittest.TestCase):
         response = agent.process("install vlc")
         self.assertIn("[SUCCESS]", response)
         self.assertFalse(agent.has_pending_confirmation())
-        self.assertEqual(executor.calls[-1][0], "install_app")
+        self.assertEqual(executor.calls[-1][0], "run_command")
 
     def test_pending_confirmation_summary_reflects_waiting_action(self):
         class InstallPlanner:
             def plan_tasks(self, user_input):
-                return [PlannedTask(action="install_app", target="vlc", raw_input=user_input)]
+                return [PlannedTask(action="run_command", target="sudo apt install -y vlc", raw_input=user_input)]
 
         executor = CapturingExecutor()
         agent = AutoSystemAgent(
@@ -274,7 +268,7 @@ class AgentConversationTests(unittest.TestCase):
 
         prompt = agent.process("install vlc")
         self.assertIn("Confirmation required", prompt)
-        self.assertEqual(agent.get_pending_confirmation_summary(), "install_app vlc")
+        self.assertEqual(agent.get_pending_confirmation_summary(), "run_command sudo apt install -y vlc")
 
         agent.process("no")
         self.assertEqual(agent.get_pending_confirmation_summary(), "")
@@ -283,8 +277,8 @@ class AgentConversationTests(unittest.TestCase):
         class CompressItPlanner:
             def plan_tasks(self, user_input):
                 return [
-                    PlannedTask(action="create_folder", target="demo", raw_input=user_input),
-                    PlannedTask(action="compress", target="demo", raw_input=user_input),
+                    PlannedTask(action="run_command", target="mkdir -p demo", raw_input=user_input),
+                    PlannedTask(action="run_command", target="zip -r demo.zip demo", raw_input=user_input),
                 ]
 
         executor = CapturingExecutor()
@@ -296,16 +290,16 @@ class AgentConversationTests(unittest.TestCase):
         )
 
         response = agent.process("create folder demo then compress it")
-        self.assertIn("Step 1: [SUCCESS] create_folder:demo", response)
-        self.assertIn("Step 2: [SUCCESS] compress:demo", response)
-        self.assertEqual(executor.calls[1][1], "demo")
+        self.assertIn("Step 1: [SUCCESS] run_command:mkdir -p demo", response)
+        self.assertIn("Step 2: [SUCCESS] run_command:zip -r demo.zip demo", response)
+        self.assertEqual(executor.calls[1][1], "zip -r demo.zip demo")
 
     def test_multi_step_stops_when_blocked_command_fails(self):
         class MultiRunPlanner:
             def plan_tasks(self, user_input):
                 return [
                     PlannedTask(action="run_command", target="echo hello", raw_input=user_input),
-                    PlannedTask(action="run_command", target="python3 --version", raw_input=user_input),
+                    PlannedTask(action="run_command", target="ls /nonexistent_path_12345", raw_input=user_input),
                 ]
 
         agent = AutoSystemAgent(
@@ -315,14 +309,12 @@ class AgentConversationTests(unittest.TestCase):
             assistant=FakeAssistant(None),
         )
 
-        prompt = agent.process("run echo hello then run python3 --version")
-        self.assertIn("Confirmation required", prompt)
-
-        response = agent.process("yes")
+        # echo hello is safe (no confirmation), ls /nonexistent will be executed and fail
+        response = agent.process("run echo hello then run ls nonexistent")
+        # No confirmation needed for safe commands, goes directly to execution
         self.assertIn("Step 1: [SUCCESS]", response)
         self.assertIn("Step 2: [ERROR]", response)
-        self.assertIn("blocked by safety policy", response)
-        self.assertIn("Reason: interpreter execution", response)
+        self.assertIn("No such file", response)
 
 
 if __name__ == "__main__":

@@ -25,23 +25,23 @@ def _mock_ollama_response(tasks):
 class PlannerVariedPhrasingTests(unittest.TestCase):
     def test_ollama_install_is_parsed(self):
         planner = Planner(config={"url": "http://localhost:11434/v1/chat/completions", "model": "llama3.1", "timeout": 5})
-        mock_resp = _mock_ollama_response([{"action": "install_app", "target": "vlc", "options": {}}])
+        mock_resp = _mock_ollama_response([{"action": "run_command", "target": "sudo apt install -y vlc", "options": {}}])
         with patch("auto_system_agent.planner.request.urlopen", return_value=mock_resp):
             task = planner.plan("install vlc")
-            self.assertEqual(task.action, "install_app")
-            self.assertEqual(task.target, "vlc")
+            self.assertEqual(task.action, "run_command")
+            self.assertEqual(task.target, "sudo apt install -y vlc")
 
     def test_ollama_multi_step_is_parsed(self):
         planner = Planner(config={"url": "http://localhost:11434/v1/chat/completions", "model": "llama3.1", "timeout": 5})
         mock_resp = _mock_ollama_response([
-            {"action": "create_folder", "target": "demo", "options": {}},
-            {"action": "list_files", "target": "demo", "options": {}},
+            {"action": "run_command", "target": "mkdir -p ~/Downloads/demo", "options": {}},
+            {"action": "run_command", "target": "ls -la ~/Downloads/demo", "options": {}},
         ])
         with patch("auto_system_agent.planner.request.urlopen", return_value=mock_resp):
             tasks = planner.plan_tasks("create folder demo then list files in demo")
             self.assertEqual(len(tasks), 2)
-            self.assertEqual(tasks[0].action, "create_folder")
-            self.assertEqual(tasks[1].action, "list_files")
+            self.assertEqual(tasks[0].action, "run_command")
+            self.assertEqual(tasks[1].action, "run_command")
 
     def test_ollama_unavailable_returns_unknown(self):
         planner = Planner(config={"url": "http://localhost:11434/v1/chat/completions", "model": "llama3.1", "timeout": 1})
