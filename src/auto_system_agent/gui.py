@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import messagebox, scrolledtext
+from tkinter import messagebox, scrolledtext, ttk
 import queue
 import os
 import threading
@@ -36,6 +36,9 @@ class AgentChatGUI:
         self._task_timeout_seconds = float(os.getenv("AUTO_AGENT_GUI_TASK_TIMEOUT", "45") or "45")
         self._geometry_save_after_id: str | None = None
         self._pending_geometry: str | None = None
+        self._tools_window: tk.Toplevel | None = None
+        self._settings_window: tk.Toplevel | None = None
+        self._settings_notebook: ttk.Notebook | None = None
         self.root = tk.Tk()
         self.root.title("Auto System Agent")
         self.root.configure(bg=BG_APP)
@@ -63,11 +66,19 @@ class AgentChatGUI:
 
         menu_bar = tk.Menu(self.root)
         tools_menu = tk.Menu(menu_bar, tearoff=0)
+        tools_menu.add_command(label="Tools Overview", command=self._open_tools_window)
+        tools_menu.add_separator()
+        tools_menu.add_command(label="Insert Example: create folder", command=lambda: self._insert_tool_command("create folder demo"))
+        tools_menu.add_command(label="Insert Example: list files", command=lambda: self._insert_tool_command("list files in ."))
+        tools_menu.add_command(label="Insert Example: install vlc", command=lambda: self._insert_tool_command("install vlc"))
+        tools_menu.add_command(label="Insert Example: run command", command=lambda: self._insert_tool_command("run command ls -la"))
         menu_bar.add_cascade(label="Tools", menu=tools_menu)
 
         settings_menu = tk.Menu(menu_bar, tearoff=0)
-        settings_menu.add_command(label="LLM Settings", command=self._open_settings_dialog)
-        settings_menu.add_command(label="App Options", command=self._open_options_dialog)
+        settings_menu.add_command(label="Settings", command=self._open_settings_window)
+        settings_menu.add_separator()
+        settings_menu.add_command(label="LLM Settings", command=lambda: self._open_settings_window(selected_tab="llm"))
+        settings_menu.add_command(label="App Options", command=lambda: self._open_settings_window(selected_tab="app"))
         menu_bar.add_cascade(label="Settings", menu=settings_menu)
         self.root.config(menu=menu_bar)
 
@@ -935,6 +946,317 @@ class AgentChatGUI:
         self._task_timeout_seconds = float(self._settings.gui_timeout_seconds)
         os.environ["AUTO_AGENT_GUI_TASK_TIMEOUT"] = str(self._settings.gui_timeout_seconds)
         os.environ["AUTO_AGENT_INSTALL_RETRIES"] = str(self._settings.install_retries)
+
+    def _open_tools_window(self) -> None:
+        """Dedicated Tools window (new window) showing available system tools."""
+        # Avoid duplicate windows
+        if hasattr(self, "_tools_window") and getattr(self, "_tools_window", None) is not None:
+            try:
+                win = self._tools_window
+                if win.winfo_exists():
+                    win.lift()
+                    win.focus_set()
+                    return
+            except Exception:
+                pass
+
+        window = tk.Toplevel(self.root)
+        window.title("Tools")
+        window.transient(self.root)
+        window.resizable(True, True)
+        window.configure(bg=BG_APP)
+        self._tools_window = window
+
+        def on_close():
+            try:
+                window.destroy()
+            except Exception:
+                pass
+            self._tools_window = None
+
+        window.protocol("WM_DELETE_WINDOW", on_close)
+
+        header = tk.Frame(window, bg=BG_PANEL, padx=16, pady=12)
+        header.pack(fill=tk.X)
+        tk.Label(header, text="System Tools", font=("TkDefaultFont", 12, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
+        tk.Label(
+            header,
+            text="Browse available automation tools. Click an example to insert it into the chat input.",
+            font=("TkDefaultFont", 9),
+            fg=FG_MUTED,
+            bg=BG_PANEL,
+            justify=tk.LEFT,
+        ).pack(anchor="w", pady=(4, 0))
+
+        paned = tk.PanedWindow(window, orient=tk.HORIZONTAL, bg=BG_APP, sashwidth=4)
+        paned.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+
+        left_frame = tk.Frame(paned, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
+        paned.add(left_frame, minsize=220, width=260)
+        tk.Label(left_frame, text="Tool Categories", font=("TkDefaultFont", 10, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w", padx=10, pady=(10, 6))
+        tools_list = tk.Listbox(left_frame, bg="#f8fafc", fg=FG_PRIMARY, borderwidth=0, highlightthickness=0, selectbackground="#dbeafe", font=("TkDefaultFont", 9))
+        tools_list.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+
+        right_frame = tk.Frame(paned, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
+        paned.add(right_frame, minsize=380)
+        tk.Label(right_frame, text="Details", font=("TkDefaultFont", 10, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w", padx=10, pady=(10, 6))
+        details_text = scrolledtext.ScrolledText(right_frame, wrap=tk.WORD, font=("TkDefaultFont", 9), bg="#f8fafc", fg=FG_PRIMARY, borderwidth=0, relief=tk.FLAT, padx=10, pady=8, height=16)
+        details_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 8))
+        details_text.configure(state=tk.DISABLED)
+
+        btn_row = tk.Frame(right_frame, bg=BG_PANEL)
+        btn_row.pack(fill=tk.X, padx=10, pady=(0, 10))
+
+        # Tool catalog
+        catalog = [
+            {
+                "name": "File Operations",
+                "actions": ["create_folder", "create_empty_file", "list_files", "move_path", "copy_path", "delete_path", "compress", "view_file", "grep_in_file", "find_files_by_name", "make_executable"],
+                "description": "Manage files and folders with safety checks, sandboxing, and protected-path blocking.",
+                "examples": ["create folder demo", "list files in .", "move file a.txt to b.txt", "compress demo", "delete path demo/tmp", "view file README.md"],
+                "safety": "Deletes blocked for /bin, /etc, /usr, /home etc. Sandbox via AUTO_AGENT_PATH_ALLOW_ROOTS.",
+            },
+            {
+                "name": "Application Installer",
+                "actions": ["install_app"],
+                "description": "Install apps via OS package manager (apt/dnf/pacman on Linux, brew on macOS, winget on Windows).",
+                "examples": ["install vlc", "install firefox", "install google chrome"],
+                "safety": "Uses sudo where needed; verifies package manager exists. Supported apps: vlc, firefox, google chrome.",
+            },
+            {
+                "name": "Command Runner",
+                "actions": ["run_command"],
+                "description": "Run shell commands with policy blocking risky operations.",
+                "examples": ["run command ls -la", "run command pwd", "run command cat README.md"],
+                "safety": "Blocks chaining (&&, ||, ;, |), interpreters (bash, python, sh, etc.), and dangerous args (-rf, --no-preserve-root). Risk scored low/medium/high.",
+            },
+        ]
+
+        def show_details(index: int) -> None:
+            if index < 0 or index >= len(catalog):
+                return
+            item = catalog[index]
+            details_text.configure(state=tk.NORMAL)
+            details_text.delete("1.0", tk.END)
+            details_text.insert(tk.END, f"{item['name']}\n", "title")
+            details_text.insert(tk.END, f"\n{item['description']}\n\n")
+            details_text.insert(tk.END, "Actions:\n")
+            details_text.insert(tk.END, f"  {', '.join(item['actions'])}\n\n")
+            details_text.insert(tk.END, "Examples:\n")
+            for ex in item["examples"]:
+                details_text.insert(tk.END, f"  • {ex}\n")
+            details_text.insert(tk.END, f"\nSafety:\n  {item['safety']}\n")
+            details_text.configure(state=tk.DISABLED)
+            # Update button to insert first example
+            for w in btn_row.winfo_children():
+                w.destroy()
+            tk.Button(
+                btn_row,
+                text=f"Insert example: {item['examples'][0]}",
+                command=lambda ex=item['examples'][0]: self._insert_tool_command(ex),
+                bg=ACCENT,
+                fg="#ffffff",
+                relief=tk.FLAT,
+                padx=10,
+            ).pack(side=tk.LEFT)
+            tk.Button(btn_row, text="Close", command=on_close, bg="#6b7280", fg="#ffffff", relief=tk.FLAT, padx=10).pack(side=tk.RIGHT)
+
+        for idx, entry in enumerate(catalog):
+            tools_list.insert(tk.END, entry["name"])
+
+        def on_select(_event=None):
+            sel = tools_list.curselection()
+            if sel:
+                show_details(sel[0])
+
+        tools_list.bind("<<ListboxSelect>>", on_select)
+        tools_list.selection_set(0)
+        show_details(0)
+
+        details_text.tag_configure("title", font=("TkDefaultFont", 10, "bold"), foreground=ACCENT)
+
+        self._fit_dialog_to_content(window, default_width=820, default_height=480)
+
+    def _open_settings_window(self, selected_tab: str | None = None) -> None:
+        """Dedicated Settings window (new window) with tabs for LLM and App options."""
+        if hasattr(self, "_settings_window") and getattr(self, "_settings_window", None) is not None:
+            try:
+                win = self._settings_window
+                if win.winfo_exists():
+                    win.lift()
+                    win.focus_set()
+                    # Switch tab if requested
+                    if selected_tab and hasattr(self, "_settings_notebook"):
+                        try:
+                            idx = 0 if selected_tab == "llm" else 1
+                            self._settings_notebook.select(idx)
+                        except Exception:
+                            pass
+                    return
+            except Exception:
+                pass
+
+        window = tk.Toplevel(self.root)
+        window.title("Settings")
+        window.transient(self.root)
+        window.resizable(True, True)
+        window.configure(bg=BG_APP)
+        self._settings_window = window
+
+        def on_close():
+            try:
+                window.destroy()
+            except Exception:
+                pass
+            self._settings_window = None
+            self._settings_notebook = None
+
+        window.protocol("WM_DELETE_WINDOW", on_close)
+
+        header = tk.Frame(window, bg=BG_PANEL, padx=16, pady=10)
+        header.pack(fill=tk.X)
+        tk.Label(header, text="Settings", font=("TkDefaultFont", 12, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
+        tk.Label(header, text="Configure LLM provider and application behavior. Changes are saved to ~/.auto_system_agent/settings.json", font=("TkDefaultFont", 9), fg=FG_MUTED, bg=BG_PANEL).pack(anchor="w", pady=(2, 0))
+
+        notebook = ttk.Notebook(window)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        self._settings_notebook = notebook
+
+        # LLM Tab
+        llm_frame = tk.Frame(notebook, padx=16, pady=12, bg=BG_PANEL)
+        notebook.add(llm_frame, text="LLM Provider")
+
+        normalized_mode = self._settings_store._normalize_provider_mode(self._settings.provider_mode)
+        llm_mode_var = tk.StringVar(value=normalized_mode)
+
+        tk.Label(llm_frame, text="Provider Mode", bg=BG_PANEL, fg=FG_PRIMARY, font=("TkDefaultFont", 9, "bold")).grid(row=0, column=0, sticky="nw", pady=6, padx=6)
+        mode_box = tk.Frame(llm_frame, bg=BG_PANEL)
+        mode_box.grid(row=0, column=1, sticky="w", pady=6, padx=6)
+        tk.Radiobutton(mode_box, text="Local Model (Ollama) — local inference", variable=llm_mode_var, value="local", bg=BG_PANEL).pack(anchor="w")
+        tk.Radiobutton(mode_box, text="Remote API — OpenAI-compatible endpoint", variable=llm_mode_var, value="api", bg=BG_PANEL).pack(anchor="w")
+
+        tk.Label(llm_frame, text="LLM URL", bg=BG_PANEL).grid(row=1, column=0, sticky="w", padx=6, pady=6)
+        llm_url_entry = tk.Entry(llm_frame, width=48)
+        llm_url_entry.grid(row=1, column=1, sticky="we", padx=6, pady=6)
+        llm_url_entry.insert(0, self._settings.url)
+
+        tk.Label(llm_frame, text="API Key", bg=BG_PANEL).grid(row=2, column=0, sticky="w", padx=6, pady=6)
+        llm_key_entry = tk.Entry(llm_frame, width=48, show="*")
+        llm_key_entry.grid(row=2, column=1, sticky="we", padx=6, pady=6)
+        llm_key_entry.insert(0, self._settings.api_key)
+
+        tk.Label(llm_frame, text="Model", bg=BG_PANEL).grid(row=3, column=0, sticky="w", padx=6, pady=6)
+        llm_model_entry = tk.Entry(llm_frame, width=48)
+        llm_model_entry.grid(row=3, column=1, sticky="we", padx=6, pady=6)
+        llm_model_entry.insert(0, self._settings.model)
+
+        tk.Label(llm_frame, text="Timeout (s)", bg=BG_PANEL).grid(row=4, column=0, sticky="w", padx=6, pady=6)
+        llm_timeout_entry = tk.Entry(llm_frame, width=20)
+        llm_timeout_entry.grid(row=4, column=1, sticky="w", padx=6, pady=6)
+        llm_timeout_entry.insert(0, str(self._settings.timeout))
+
+        helper_llm = tk.Label(llm_frame, text="Local uses Ollama at http://localhost:11434 (or URL above). Remote API uses URL + API key + model.", fg=FG_MUTED, bg=BG_PANEL, justify=tk.LEFT, wraplength=500)
+        helper_llm.grid(row=5, column=0, columnspan=2, sticky="w", padx=6, pady=8)
+        llm_frame.columnconfigure(1, weight=1)
+
+        def sync_llm_state(*_args):
+            mode = llm_mode_var.get()
+            if mode == "local":
+                llm_key_entry.configure(state=tk.DISABLED)
+            else:
+                llm_key_entry.configure(state=tk.NORMAL)
+
+        llm_mode_var.trace_add("write", sync_llm_state)
+        sync_llm_state()
+
+        # App Options Tab
+        app_frame = tk.Frame(notebook, padx=16, pady=12, bg=BG_PANEL)
+        notebook.add(app_frame, text="App Options")
+
+        tk.Label(app_frame, text="GUI Request Timeout (seconds)", bg=BG_PANEL).grid(row=0, column=0, sticky="w", padx=6, pady=8)
+        app_timeout_entry = tk.Entry(app_frame, width=20)
+        app_timeout_entry.grid(row=0, column=1, sticky="w", padx=6, pady=8)
+        app_timeout_entry.insert(0, str(self._settings.gui_timeout_seconds))
+
+        tk.Label(app_frame, text="Install Retries", bg=BG_PANEL).grid(row=1, column=0, sticky="w", padx=6, pady=8)
+        app_retries_entry = tk.Entry(app_frame, width=20)
+        app_retries_entry.grid(row=1, column=1, sticky="w", padx=6, pady=8)
+        app_retries_entry.insert(0, str(self._settings.install_retries))
+
+        app_confirm_var = tk.BooleanVar(value=self._settings.confirm_high_risk)
+        tk.Checkbutton(app_frame, text="Require confirmation for high-risk actions", variable=app_confirm_var, bg=BG_PANEL).grid(row=2, column=0, columnspan=2, sticky="w", padx=6, pady=6)
+        tk.Label(app_frame, text="These options apply immediately and are saved in local settings.", fg=FG_MUTED, bg=BG_PANEL, justify=tk.LEFT).grid(row=3, column=0, columnspan=2, sticky="w", padx=6, pady=8)
+        app_frame.columnconfigure(1, weight=1)
+
+        # Select requested tab
+        if selected_tab == "app":
+            try:
+                notebook.select(1)
+            except Exception:
+                pass
+
+        btn_frame = tk.Frame(window, bg=BG_APP)
+        btn_frame.pack(fill=tk.X, padx=12, pady=(0, 12))
+
+        def save_all():
+            # Validate LLM
+            try:
+                llm_timeout_val = float(llm_timeout_entry.get().strip() or "30")
+            except ValueError:
+                messagebox.showerror("Invalid value", "LLM Timeout must be a number.", parent=window)
+                return
+            llm_mode = llm_mode_var.get().strip() or "local"
+            if llm_mode not in ("local", "api"):
+                llm_mode = "local"
+            if llm_mode == "api" and not llm_url_entry.get().strip():
+                messagebox.showerror("Invalid value", "API URL is required for Remote API.", parent=window)
+                return
+            if llm_mode == "api" and not llm_key_entry.get().strip():
+                messagebox.showerror("Invalid value", "API Key is required for Remote API.", parent=window)
+                return
+            if not llm_model_entry.get().strip():
+                messagebox.showerror("Invalid value", "Model is required.", parent=window)
+                return
+            # Validate App
+            try:
+                gui_timeout = float(app_timeout_entry.get().strip() or "45")
+                install_retries = int(app_retries_entry.get().strip() or "2")
+            except ValueError:
+                messagebox.showerror("Invalid value", "Timeout must be numeric and retries must be integer.", parent=window)
+                return
+            if gui_timeout <= 0:
+                messagebox.showerror("Invalid value", "GUI timeout must be > 0.", parent=window)
+                return
+            if install_retries < 0:
+                messagebox.showerror("Invalid value", "Install retries cannot be negative.", parent=window)
+                return
+
+            prev_geo = getattr(self._settings, "window_geometry", "920x560")
+            self._settings = LLMSettings(
+                provider_mode=llm_mode,
+                url=llm_url_entry.get().strip(),
+                api_key=llm_key_entry.get().strip(),
+                model=llm_model_entry.get().strip() or OLLAMA_DEFAULT_MODEL,
+                timeout=llm_timeout_val,
+                gui_timeout_seconds=gui_timeout,
+                install_retries=install_retries,
+                confirm_high_risk=bool(app_confirm_var.get()),
+                window_geometry=prev_geo,
+            )
+            try:
+                self._settings_store.save(self._settings)
+            except Exception as exc:
+                messagebox.showerror("Save failed", f"Could not save settings: {exc}", parent=window)
+                return
+            self.agent = self._build_agent()
+            self._apply_runtime_options()
+            self._append_message("System", "Settings saved and applied.")
+            on_close()
+
+        tk.Button(btn_frame, text="Cancel", command=on_close, bg="#6b7280", fg="#ffffff", relief=tk.FLAT, padx=12).pack(side=tk.RIGHT, padx=(8, 0))
+        tk.Button(btn_frame, text="Save", command=save_all, bg=ACCENT, fg="#ffffff", relief=tk.FLAT, padx=12).pack(side=tk.RIGHT)
+
+        self._fit_dialog_to_content(window, default_width=760, default_height=520)
 
     def _open_options_dialog(self) -> None:
         dialog = tk.Toplevel(self.root)
