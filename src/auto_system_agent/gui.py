@@ -82,11 +82,26 @@ class AgentChatGUI:
         menu_bar.add_cascade(label="Settings", menu=settings_menu)
         self.root.config(menu=menu_bar)
 
-        content_frame = tk.Frame(self.root, bg=BG_APP)
-        content_frame.pack(fill=tk.BOTH, expand=True, padx=12, pady=(12, 8))
+        # Main container: 1/4 left = chat, 3/4 right = progress/details (grid weights 1:3)
+        main_container = tk.Frame(self.root, bg=BG_APP)
+        main_container.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
+        main_container.grid_columnconfigure(0, weight=1, uniform="panel")
+        main_container.grid_columnconfigure(1, weight=3, uniform="panel")
+        main_container.grid_rowconfigure(0, weight=1)
+
+        # Left panel (1/4): chat + input stacked vertically
+        left_panel = tk.Frame(main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
+        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        left_panel.grid_rowconfigure(0, weight=1)
+        left_panel.grid_columnconfigure(0, weight=1)
+
+        chat_container = tk.Frame(left_panel, bg=BG_PANEL)
+        chat_container.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
+        chat_container.grid_rowconfigure(0, weight=1)
+        chat_container.grid_columnconfigure(0, weight=1)
 
         self.chat_log = scrolledtext.ScrolledText(
-            content_frame,
+            chat_container,
             wrap=tk.WORD,
             state=tk.DISABLED,
             font=("TkDefaultFont", 10),
@@ -99,11 +114,87 @@ class AgentChatGUI:
             insertbackground=FG_PRIMARY,
         )
         self._configure_chat_styles()
-        self.chat_log.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.chat_log.grid(row=0, column=0, sticky="nsew")
 
-        progress_frame = tk.Frame(content_frame, width=260, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
-        progress_frame.pack(side=tk.RIGHT, fill=tk.Y, padx=(12, 0))
-        progress_frame.pack_propagate(False)
+        input_frame = tk.Frame(left_panel, bg=BG_PANEL)
+        input_frame.grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 6))
+        input_frame.grid_columnconfigure(0, weight=1)
+
+        # Entry row
+        entry_row = tk.Frame(input_frame, bg=BG_PANEL)
+        entry_row.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        entry_row.grid_columnconfigure(0, weight=1)
+
+        self.entry = tk.Entry(
+            entry_row,
+            font=("TkDefaultFont", 11),
+            bg="#f8fafc",
+            fg=FG_PRIMARY,
+            relief=tk.FLAT,
+            borderwidth=0,
+            highlightbackground="#c7d2e0",
+            highlightthickness=1,
+            insertbackground=FG_PRIMARY,
+        )
+        self.entry.grid(row=0, column=0, sticky="ew")
+        self.entry.bind("<Return>", self._on_send)
+
+        self.send_button = tk.Button(
+            entry_row,
+            text="Send",
+            command=self._on_send,
+            bg=ACCENT,
+            fg="#ffffff",
+            activebackground="#0c3a62",
+            activeforeground="#ffffff",
+            relief=tk.FLAT,
+            padx=10,
+        )
+        self.send_button.grid(row=0, column=1, padx=(6, 0))
+
+        # Action row: Confirm / Cancel inside left panel
+        action_row = tk.Frame(input_frame, bg=BG_PANEL)
+        action_row.grid(row=1, column=0, sticky="ew")
+
+        self.confirm_button = tk.Button(
+            action_row,
+            text="Confirm",
+            command=self._on_confirm,
+            state=tk.DISABLED,
+            bg="#1d7a45",
+            fg="#ffffff",
+            activebackground="#17623a",
+            activeforeground="#ffffff",
+            relief=tk.FLAT,
+            padx=10,
+        )
+        self.confirm_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
+
+        self.cancel_button = tk.Button(
+            action_row,
+            text="Cancel",
+            command=self._on_cancel,
+            state=tk.DISABLED,
+            bg="#b91c1c",
+            fg="#ffffff",
+            activebackground="#991b1b",
+            activeforeground="#ffffff",
+            relief=tk.FLAT,
+            padx=10,
+        )
+        self.cancel_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
+
+        # Right panel (3/4): execution progress / timeline / confirmation
+        right_panel = tk.Frame(main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
+        right_panel.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        right_panel.grid_rowconfigure(1, weight=1)
+        right_panel.grid_columnconfigure(0, weight=1)
+
+        # Allow right_panel inner content to scroll if needed: use a Frame with pack
+        progress_frame = tk.Frame(right_panel, bg=BG_PANEL)
+        progress_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+        progress_frame.grid_rowconfigure(1, weight=1)
+        progress_frame.grid_columnconfigure(0, weight=1)
 
         tk.Label(
             progress_frame,
@@ -111,9 +202,7 @@ class AgentChatGUI:
             font=("TkDefaultFont", 10, "bold"),
             fg=ACCENT,
             bg=BG_PANEL,
-        ).pack(
-            anchor="w", pady=(0, 6)
-        )
+        ).grid(row=0, column=0, sticky="w", pady=(0, 6))
         self.progress_list = tk.Listbox(
             progress_frame,
             height=16,
@@ -124,7 +213,7 @@ class AgentChatGUI:
             selectbackground="#dbeafe",
             selectforeground=FG_PRIMARY,
         )
-        self.progress_list.pack(fill=tk.BOTH, expand=True)
+        self.progress_list.grid(row=1, column=0, sticky="nsew")
         self._step_progress_rows: dict[int, int] = {}
 
         tk.Label(
@@ -133,7 +222,7 @@ class AgentChatGUI:
             font=("TkDefaultFont", 10, "bold"),
             fg=ACCENT,
             bg=BG_PANEL,
-        ).pack(anchor="w", pady=(8, 4))
+        ).grid(row=2, column=0, sticky="w", pady=(8, 4))
         self.timeline_list = tk.Listbox(
             progress_frame,
             height=6,
@@ -145,17 +234,18 @@ class AgentChatGUI:
             selectforeground=FG_PRIMARY,
             font=("TkDefaultFont", 9),
         )
-        self.timeline_list.pack(fill=tk.X)
+        self.timeline_list.grid(row=3, column=0, sticky="ew")
 
         confirmation_frame = tk.Frame(
-            progress_frame,
+            right_panel,
             bg=BG_PANEL,
             highlightbackground="#d0d7e2",
             highlightthickness=1,
             padx=8,
             pady=8,
         )
-        confirmation_frame.pack(fill=tk.X, pady=(8, 0))
+        confirmation_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        confirmation_frame.grid_columnconfigure(0, weight=1)
 
         tk.Label(
             confirmation_frame,
@@ -235,64 +325,6 @@ class AgentChatGUI:
             padx=8,
         )
         self.copy_preview_button.pack(side=tk.LEFT, padx=(6, 0))
-
-        bottom_frame = tk.Frame(self.root, bg=BG_APP)
-        bottom_frame.pack(fill=tk.X, padx=12, pady=(0, 12))
-
-        self.entry = tk.Entry(
-            bottom_frame,
-            font=("TkDefaultFont", 11),
-            bg=BG_PANEL,
-            fg=FG_PRIMARY,
-            relief=tk.FLAT,
-            borderwidth=0,
-            highlightbackground="#c7d2e0",
-            highlightthickness=1,
-            insertbackground=FG_PRIMARY,
-        )
-        self.entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.entry.bind("<Return>", self._on_send)
-
-        self.send_button = tk.Button(
-            bottom_frame,
-            text="Send",
-            command=self._on_send,
-            bg=ACCENT,
-            fg="#ffffff",
-            activebackground="#0c3a62",
-            activeforeground="#ffffff",
-            relief=tk.FLAT,
-            padx=10,
-        )
-        self.send_button.pack(side=tk.LEFT, padx=(8, 0))
-
-        self.confirm_button = tk.Button(
-            bottom_frame,
-            text="Confirm",
-            command=self._on_confirm,
-            state=tk.DISABLED,
-            bg="#1d7a45",
-            fg="#ffffff",
-            activebackground="#17623a",
-            activeforeground="#ffffff",
-            relief=tk.FLAT,
-            padx=10,
-        )
-        self.confirm_button.pack(side=tk.LEFT, padx=(8, 0))
-
-        self.cancel_button = tk.Button(
-            bottom_frame,
-            text="Cancel",
-            command=self._on_cancel,
-            state=tk.DISABLED,
-            bg="#b91c1c",
-            fg="#ffffff",
-            activebackground="#991b1b",
-            activeforeground="#ffffff",
-            relief=tk.FLAT,
-            padx=10,
-        )
-        self.cancel_button.pack(side=tk.LEFT, padx=(8, 0))
 
         self._append_message("Agent", "Welcome. Type help to see example commands.")
         self._sync_confirmation_controls()
