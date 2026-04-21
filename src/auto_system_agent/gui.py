@@ -152,45 +152,12 @@ class AgentChatGUI:
         )
         self.send_button.grid(row=0, column=1, padx=(6, 0))
 
-        # Action row: Confirm / Cancel inside left panel
-        action_row = tk.Frame(input_frame, bg=BG_PANEL)
-        action_row.grid(row=1, column=0, sticky="ew")
-
-        self.confirm_button = tk.Button(
-            action_row,
-            text="Confirm",
-            command=self._on_confirm,
-            state=tk.DISABLED,
-            bg="#1d7a45",
-            fg="#ffffff",
-            activebackground="#17623a",
-            activeforeground="#ffffff",
-            relief=tk.FLAT,
-            padx=10,
-        )
-        self.confirm_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 4))
-
-        self.cancel_button = tk.Button(
-            action_row,
-            text="Cancel",
-            command=self._on_cancel,
-            state=tk.DISABLED,
-            bg="#b91c1c",
-            fg="#ffffff",
-            activebackground="#991b1b",
-            activeforeground="#ffffff",
-            relief=tk.FLAT,
-            padx=10,
-        )
-        self.cancel_button.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(4, 0))
-
-        # Right panel (3/4): execution progress / timeline / confirmation
+        # Right panel (3/4): execution progress / timeline
         right_panel = tk.Frame(main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
         right_panel.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
-        right_panel.grid_rowconfigure(1, weight=1)
+        right_panel.grid_rowconfigure(0, weight=1)
         right_panel.grid_columnconfigure(0, weight=1)
 
-        # Allow right_panel inner content to scroll if needed: use a Frame with pack
         progress_frame = tk.Frame(right_panel, bg=BG_PANEL)
         progress_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
         progress_frame.grid_rowconfigure(1, weight=1)
@@ -236,98 +203,7 @@ class AgentChatGUI:
         )
         self.timeline_list.grid(row=3, column=0, sticky="ew")
 
-        confirmation_frame = tk.Frame(
-            right_panel,
-            bg=BG_PANEL,
-            highlightbackground="#d0d7e2",
-            highlightthickness=1,
-            padx=8,
-            pady=8,
-        )
-        confirmation_frame.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        confirmation_frame.grid_columnconfigure(0, weight=1)
-
-        tk.Label(
-            confirmation_frame,
-            text="Confirmation",
-            font=("TkDefaultFont", 10, "bold"),
-            fg=ACCENT,
-            bg=BG_PANEL,
-        ).pack(anchor="w")
-
-        self.confirmation_status_label = tk.Label(
-            confirmation_frame,
-            text="No pending confirmation.",
-            font=("TkDefaultFont", 9, "bold"),
-            fg="#4b5563",
-            bg=BG_PANEL,
-            wraplength=230,
-            justify=tk.LEFT,
-        )
-        self.confirmation_status_label.pack(anchor="w", pady=(4, 4))
-
-        self.confirmation_details_label = tk.Label(
-            confirmation_frame,
-            text="",
-            font=("TkDefaultFont", 9),
-            fg=FG_MUTED,
-            bg=BG_PANEL,
-            wraplength=230,
-            justify=tk.LEFT,
-        )
-        self.confirmation_details_label.pack(anchor="w")
-
-        self.risk_badges_label = tk.Label(
-            confirmation_frame,
-            text="",
-            font=("TkDefaultFont", 9, "bold"),
-            fg="#1f2937",
-            bg=BG_PANEL,
-            wraplength=230,
-            justify=tk.LEFT,
-        )
-        self.risk_badges_label.pack(anchor="w", pady=(4, 4))
-
-        tk.Label(
-            confirmation_frame,
-            text="Command Preview",
-            font=("TkDefaultFont", 9, "bold"),
-            fg=FG_MUTED,
-            bg=BG_PANEL,
-        ).pack(anchor="w")
-
-        preview_row = tk.Frame(confirmation_frame, bg=BG_PANEL)
-        preview_row.pack(fill=tk.X, pady=(2, 0))
-        self.command_preview_var = tk.StringVar(value="")
-        self.command_preview_entry = tk.Entry(
-            preview_row,
-            textvariable=self.command_preview_var,
-            state=tk.DISABLED,
-            disabledforeground=FG_PRIMARY,
-            bg="#f8fafc",
-            relief=tk.FLAT,
-            borderwidth=0,
-            highlightbackground="#c7d2e0",
-            highlightthickness=1,
-            font=("TkDefaultFont", 9),
-        )
-        self.command_preview_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.copy_preview_button = tk.Button(
-            preview_row,
-            text="Copy",
-            state=tk.DISABLED,
-            command=self._copy_preview_text,
-            bg="#2563eb",
-            fg="#ffffff",
-            activebackground="#1d4ed8",
-            activeforeground="#ffffff",
-            relief=tk.FLAT,
-            padx=8,
-        )
-        self.copy_preview_button.pack(side=tk.LEFT, padx=(6, 0))
-
         self._append_message("Agent", "Welcome. Type help to see example commands.")
-        self._sync_confirmation_controls()
         self.root.after(50, self._drain_ui_queue)
 
     def _configure_chat_styles(self) -> None:
@@ -431,18 +307,11 @@ class AgentChatGUI:
         )
 
     def _on_confirm(self) -> None:
-        if self._is_busy:
-            return
-
-        if not self.agent.has_pending_confirmation():
-            self._sync_confirmation_controls()
-            return
-
-        self._append_message("You", "yes")
-        self._reset_progress_panel()
-        self._start_background_task(self.agent.confirm_pending)
+        # Confirmation UI removed – no-op kept for compatibility
+        return
 
     def _on_cancel(self) -> None:
+        # Only handles cancelling a running request; confirmation removed
         if self._is_busy:
             if self._active_request_id is not None:
                 self._cancelled_request_ids.add(self._active_request_id)
@@ -450,94 +319,24 @@ class AgentChatGUI:
             self._active_request_id = None
             self._request_started_at = None
             self._set_busy(False)
-            return
-
-        if not self.agent.has_pending_confirmation():
-            self._sync_confirmation_controls()
-            return
-
-        self._append_message("You", "no")
-        response = self.agent.cancel_pending()
-        if response:
-            self._append_message("Agent", response)
-        self._sync_confirmation_controls()
 
     def _sync_confirmation_controls(self) -> None:
-        has_pending = self.agent.has_pending_confirmation()
-        if self._is_busy:
-            self.confirm_button.configure(state=tk.DISABLED)
-            self.cancel_button.configure(state=tk.NORMAL)
-            self._set_confirmation_status(
-                "Request in progress...",
-                "You can press Cancel to stop waiting for this request.",
-                "#92400e",
-            )
-            return
-
-        self.confirm_button.configure(state=tk.NORMAL if has_pending else tk.DISABLED)
-        self.cancel_button.configure(state=tk.NORMAL if has_pending else tk.DISABLED)
-        if has_pending:
-            self._render_pending_confirmation_card()
-            return
-
-        self._set_confirmation_status("No pending confirmation.", "", "#4b5563")
-        if hasattr(self, "risk_badges_label"):
-            self.risk_badges_label.configure(text="")
-        if hasattr(self, "command_preview_var"):
-            self.command_preview_var.set("")
-        if hasattr(self, "copy_preview_button"):
-            self.copy_preview_button.configure(state=tk.DISABLED)
+        # Removed confirmation UI – no controls to sync
+        return
 
     def _render_pending_confirmation_card(self) -> None:
-        details_fn = getattr(self.agent, "get_pending_confirmation_details", None)
-        if callable(details_fn):
-            details = details_fn()
-        else:
-            details = []
-
-        if not details:
-            summary = self.agent.get_pending_confirmation_summary()
-            self._set_confirmation_status(
-                "Pending confirmation",
-                summary if summary else "High-risk action is pending confirmation.",
-                "#b45309",
-            )
-            return
-
-        summary = "; ".join(f"{item['action']} {item['target']}".strip() for item in details)
-        self._set_confirmation_status("Pending confirmation", summary, "#b45309")
-
-        badge_parts = [f"[{item['risk_level'].upper()}] {item['action']}" for item in details]
-        if hasattr(self, "risk_badges_label"):
-            self.risk_badges_label.configure(text=" ".join(badge_parts))
-
-        preview_text = " | ".join(item["preview"] for item in details if item.get("preview"))
-        if hasattr(self, "command_preview_var"):
-            self.command_preview_var.set(preview_text)
-        if hasattr(self, "copy_preview_button"):
-            self.copy_preview_button.configure(state=tk.NORMAL if preview_text else tk.DISABLED)
+        return
 
     def _copy_preview_text(self) -> None:
-        if not hasattr(self, "command_preview_var"):
-            return
-        preview_text = self.command_preview_var.get().strip()
-        if not preview_text:
-            return
-        self.root.clipboard_clear()
-        self.root.clipboard_append(preview_text)
-        self._append_message("System", "Copied command preview to clipboard.")
+        return
 
     def _set_confirmation_status(self, status: str, details: str, color: str) -> None:
-        if hasattr(self, "confirmation_status_label"):
-            self.confirmation_status_label.configure(text=status, fg=color)
-        if hasattr(self, "confirmation_details_label"):
-            self.confirmation_details_label.configure(text=details)
+        return
 
     def _set_busy(self, busy: bool) -> None:
         self._is_busy = busy
         self.send_button.configure(state=tk.DISABLED if busy else tk.NORMAL)
         self.entry.configure(state=tk.DISABLED if busy else tk.NORMAL)
-        self._sync_confirmation_controls()
 
     def _start_background_task(self, task_fn: Callable[[Callable[[StepStatus], None]], str | None]) -> None:
         self._request_counter += 1
@@ -809,7 +608,7 @@ class AgentChatGUI:
                 timeout=timeout_val,
                 gui_timeout_seconds=getattr(prev, "gui_timeout_seconds", 45.0),
                 install_retries=getattr(prev, "install_retries", 2),
-                confirm_high_risk=getattr(prev, "confirm_high_risk", True),
+                confirm_high_risk=False,
                 window_geometry=getattr(prev, "window_geometry", "920x560"),
             )
             try:
@@ -1215,9 +1014,7 @@ class AgentChatGUI:
         app_retries_entry.grid(row=1, column=1, sticky="w", padx=6, pady=8)
         app_retries_entry.insert(0, str(self._settings.install_retries))
 
-        app_confirm_var = tk.BooleanVar(value=self._settings.confirm_high_risk)
-        tk.Checkbutton(app_frame, text="Require confirmation for high-risk actions", variable=app_confirm_var, bg=BG_PANEL).grid(row=2, column=0, columnspan=2, sticky="w", padx=6, pady=6)
-        tk.Label(app_frame, text="These options apply immediately and are saved in local settings.", fg=FG_MUTED, bg=BG_PANEL, justify=tk.LEFT).grid(row=3, column=0, columnspan=2, sticky="w", padx=6, pady=8)
+        tk.Label(app_frame, text="These options apply immediately and are saved in local settings.", fg=FG_MUTED, bg=BG_PANEL, justify=tk.LEFT).grid(row=2, column=0, columnspan=2, sticky="w", padx=6, pady=8)
         app_frame.columnconfigure(1, weight=1)
 
         # Select requested tab
@@ -1272,7 +1069,7 @@ class AgentChatGUI:
                 timeout=llm_timeout_val,
                 gui_timeout_seconds=gui_timeout,
                 install_retries=install_retries,
-                confirm_high_risk=bool(app_confirm_var.get()),
+                confirm_high_risk=False,
                 window_geometry=prev_geo,
             )
             try:
@@ -1307,21 +1104,13 @@ class AgentChatGUI:
         retries_entry.grid(row=1, column=1, sticky="w", padx=12, pady=10)
         retries_entry.insert(0, str(self._settings.install_retries))
 
-        confirm_var = tk.BooleanVar(value=self._settings.confirm_high_risk)
-        confirm_check = tk.Checkbutton(
-            dialog,
-            text="Require confirmation for high-risk actions",
-            variable=confirm_var,
-        )
-        confirm_check.grid(row=2, column=0, columnspan=2, sticky="w", padx=12, pady=6)
-
         helper = tk.Label(
             dialog,
             text="These options apply immediately and are saved in local settings.",
             fg=FG_MUTED,
             justify=tk.LEFT,
         )
-        helper.grid(row=3, column=0, columnspan=2, sticky="w", padx=12, pady=8)
+        helper.grid(row=2, column=0, columnspan=2, sticky="w", padx=12, pady=8)
 
         def save_and_close() -> None:
             try:
@@ -1340,14 +1129,14 @@ class AgentChatGUI:
 
             self._settings.gui_timeout_seconds = gui_timeout
             self._settings.install_retries = install_retries
-            self._settings.confirm_high_risk = bool(confirm_var.get())
+            self._settings.confirm_high_risk = False
             self._settings_store.save(self._settings)
             self._apply_runtime_options()
             self._append_message("System", "App options saved and applied.")
             dialog.destroy()
 
         button_frame = tk.Frame(dialog)
-        button_frame.grid(row=4, column=0, columnspan=2, sticky="e", padx=12, pady=12)
+        button_frame.grid(row=3, column=0, columnspan=2, sticky="e", padx=12, pady=12)
         tk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=(8, 0))
         tk.Button(button_frame, text="Save", command=save_and_close).pack(side=tk.RIGHT)
 
@@ -1397,7 +1186,8 @@ class AgentChatGUI:
 
     def _build_agent(self) -> AutoSystemAgent:
         config = self._settings_store.resolve_llm_config(self._settings)
-        return AutoSystemAgent(llm_config=config, confirm_high_risk=self._settings.confirm_high_risk)
+        # Confirmation removed – always execute without pending confirmation
+        return AutoSystemAgent(llm_config=config, confirm_high_risk=False)
 
     def _open_settings_dialog(self) -> None:
         dialog = tk.Toplevel(self.root)
@@ -1486,7 +1276,6 @@ class AgentChatGUI:
             previous_geometry = getattr(self._settings, "window_geometry", "920x560")
             previous_gui_timeout = getattr(self._settings, "gui_timeout_seconds", 45.0)
             previous_retries = getattr(self._settings, "install_retries", 2)
-            previous_confirm = getattr(self._settings, "confirm_high_risk", True)
             self._settings = LLMSettings(
                 provider_mode=mode,
                 url=url_entry.get().strip(),
@@ -1495,7 +1284,7 @@ class AgentChatGUI:
                 timeout=timeout_value,
                 gui_timeout_seconds=previous_gui_timeout,
                 install_retries=previous_retries,
-                confirm_high_risk=previous_confirm,
+                confirm_high_risk=False,
                 window_geometry=previous_geometry,
             )
             self._settings_store.save(self._settings)

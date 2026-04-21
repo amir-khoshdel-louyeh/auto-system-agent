@@ -311,6 +311,8 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertGreater(gui.timeline_list.size(), 0)
 
     def test_confirmation_state_is_visible_and_buttons_are_controllable(self):
+        # Confirmation UI removed – verify no pending is created when
+        # confirm_high_risk is disabled (direct execution via spy executor).
         from auto_system_agent.models import PlannedTask
 
         class InstallPlanner:
@@ -319,30 +321,27 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
 
         agent = AutoSystemAgent(
             planner=InstallPlanner(),
+            selector=SpySelector(),
+            executor=SpyExecutor(),
+            formatter=SpyFormatter(),
             assistant=FakeAssistant(),
             event_logger=InMemoryLogger(),
+            confirm_high_risk=False,
         )
         gui, messages, _progress = build_gui_harness(agent, "install vlc")
 
         gui._on_send()
         self.assertTrue(drain_until_idle(gui), "GUI worker did not finish in time")
 
-        self.assertEqual(gui.confirm_button["state"], tk.NORMAL)
-        self.assertEqual(gui.cancel_button["state"], tk.NORMAL)
-        self.assertIn("Pending confirmation", gui.confirmation_status_label.text)
-        self.assertIn("run_command sudo apt install -y vlc", gui.confirmation_details_label.text)
-        self.assertIn("[HIGH] run_command", gui.risk_badges_label.text)
-        self.assertNotEqual(gui.command_preview_var.get().strip(), "")
-        self.assertEqual(gui.copy_preview_button["state"], tk.NORMAL)
-
-        gui._copy_preview_text()
-        self.assertEqual(gui.root.clipboard_text, gui.command_preview_var.get())
-
-        gui._on_cancel()
+        # With confirmation removed, buttons remain disabled and no pending labels are set
         self.assertEqual(gui.confirm_button["state"], tk.DISABLED)
         self.assertEqual(gui.cancel_button["state"], tk.DISABLED)
-        self.assertIn("No pending confirmation", gui.confirmation_status_label.text)
-        self.assertIn(("Agent", "Cancelled pending action."), messages)
+        self.assertEqual(gui.confirmation_status_label.text, "")
+        self.assertEqual(gui.risk_badges_label.text, "")
+        self.assertEqual(gui.command_preview_var.get().strip(), "")
+        self.assertEqual(gui.copy_preview_button["state"], tk.DISABLED)
+        # Direct execution occurred without confirmation gate
+        self.assertTrue(any(speaker == "Agent" and "run_command:sudo apt install -y vlc" in text for speaker, text in messages))
 
     def test_cancel_stops_waiting_for_running_request(self):
         gui, messages, _progress = build_gui_harness(agent=DummyAgent(), user_text="")
