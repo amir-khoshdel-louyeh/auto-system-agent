@@ -27,7 +27,7 @@ class SettingsStoreTests(unittest.TestCase):
 
     def test_save_and_load_provider_mode(self):
         settings = LLMSettings(
-            provider_mode="custom",
+            provider_mode="api",
             url="http://local-llm/v1/chat/completions",
             api_key="abc123",
             model="gpt-4o-mini",
@@ -40,7 +40,7 @@ class SettingsStoreTests(unittest.TestCase):
         self.store.save(settings)
         loaded = self.store.load()
 
-        self.assertEqual(loaded.provider_mode, "custom")
+        self.assertEqual(loaded.provider_mode, "api")
         self.assertEqual(loaded.url, "http://local-llm/v1/chat/completions")
         self.assertEqual(loaded.api_key, "abc123")
         self.assertEqual(loaded.model, "gpt-4o-mini")
@@ -51,7 +51,7 @@ class SettingsStoreTests(unittest.TestCase):
 
     def test_resolve_uses_custom_values_when_mode_is_custom(self):
         settings = LLMSettings(
-            provider_mode="custom",
+            provider_mode="api",
             url="http://custom/v1/chat/completions",
             api_key="custom-key",
             model="custom-model",
@@ -69,7 +69,8 @@ class SettingsStoreTests(unittest.TestCase):
         self.assertEqual(resolved["timeout"], 11.0)
 
     def test_resolve_uses_bundled_env_values(self):
-        settings = LLMSettings(provider_mode="bundled")
+        # Local mode now uses settings for model/timeout, env for url/key fallback
+        settings = LLMSettings(provider_mode="local")
 
         os.environ["AUTO_AGENT_DEFAULT_LLM_URL"] = "http://bundled/v1/chat/completions"
         os.environ["AUTO_AGENT_DEFAULT_LLM_API_KEY"] = "bundled-key"
@@ -80,8 +81,9 @@ class SettingsStoreTests(unittest.TestCase):
 
         self.assertEqual(resolved["url"], "http://bundled/v1/chat/completions")
         self.assertEqual(resolved["api_key"], "bundled-key")
-        self.assertEqual(resolved["model"], "bundled-model")
-        self.assertEqual(resolved["timeout"], 12.0)
+        # Local mode prioritizes settings model/timeout (defaults) over env
+        self.assertEqual(resolved["model"], "llama3.1")
+        self.assertEqual(resolved["timeout"], 30.0)
 
     def test_load_normalizes_invalid_provider_mode(self):
         self.settings_path.write_text(
@@ -91,7 +93,7 @@ class SettingsStoreTests(unittest.TestCase):
 
         loaded = self.store.load()
 
-        self.assertEqual(loaded.provider_mode, "bundled")
+        self.assertEqual(loaded.provider_mode, "local")
 
 
 if __name__ == "__main__":
