@@ -8,12 +8,6 @@ from auto_system_agent.task_schema import IntermediateTask
 
 
 SUPPORTED_ACTIONS = {
-    "install_app",
-    "create_folder",
-    "compress",
-    "move_path",
-    "delete_path",
-    "list_files",
     "run_command",
     "help",
 }
@@ -81,24 +75,23 @@ class Planner:
             return None
 
         system_prompt = (
-            "You are the planner for a desktop automation agent. "
+            "You are the planner for a desktop automation agent with a real bash terminal. "
             "Given the user's instruction, decide whether it requests a system task or is general conversation.\n"
             f"Allowed tool actions are: {sorted(SUPPORTED_ACTIONS)} and unknown.\n"
             "unknown means the message is not a system task and should be answered conversationally.\n"
             "Respond ONLY as strict JSON with this shape:\n"
-            '{"tasks": [{"action": "<action>", "target": "<target>", "options": {"destination": "<dest>"}}]}\n'
+            '{"tasks": [{"action": "<action>", "target": "<target>"}]}\n'
             "Rules:\n"
-            "- For install_app, target is app name (e.g. vlc).\n"
-            "- For create_folder, target is folder path.\n"
-            "- For compress, target is path to compress.\n"
-            "- For move_path, target is source path and options.destination is destination path.\n"
-            "- For delete_path, target is path to delete.\n"
-            "- For list_files, target is directory path (use '.' for current dir).\n"
-            "- For run_command, target is the exact shell command to run.\n"
+            "- For run_command, target is the EXACT shell command to run via bash -lc (terminal instance).\n"
+            "  Examples: 'touch ~/Downloads/test.py', 'mkdir -p ~/Downloads/demo && touch ~/Downloads/demo/file.txt',\n"
+            "  'ls -la ~/Downloads', 'rm ~/Downloads/test.py', 'cp ~/Downloads/a.txt ~/Downloads/b.txt',\n"
+            "  'cat ~/Downloads/test.py', 'sudo apt install -y vlc', 'zip -r ~/Downloads/archive.zip ~/Downloads/demo',\n"
+            "  'pwd', 'cd ~/Downloads', 'echo hello'.\n"
             "- For help, target is empty.\n"
-            "- If the instruction contains multiple steps, return multiple entries in tasks in order.\n"
+            "- If the instruction contains multiple steps, return multiple entries in tasks in order (each is a run_command).\n"
             "- If it is general chat, return {\"tasks\": [{\"action\": \"unknown\", \"target\": \"\"}]}\n"
-            "- Never add fields outside the schema. Keep target strings as the user wrote them (do not invent paths)."
+            "- Always use absolute or ~/ paths. For Downloads use ~/Downloads/<name>. Do not use bare filenames.\n"
+            "- Never add fields outside the schema."
         )
 
         payload = {

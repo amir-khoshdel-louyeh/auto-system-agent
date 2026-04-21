@@ -10,12 +10,6 @@ class ToolSelector:
     """
 
     SUPPORTED_ACTIONS = {
-        "install_app",
-        "create_folder",
-        "compress",
-        "move_path",
-        "delete_path",
-        "list_files",
         "run_command",
         "help",
     }

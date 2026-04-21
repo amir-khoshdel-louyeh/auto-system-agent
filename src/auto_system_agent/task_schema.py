@@ -5,12 +5,6 @@ from auto_system_agent.models import PlannedTask
 
 
 TaskAction = Literal[
-    "install_app",
-    "create_folder",
-    "compress",
-    "move_path",
-    "delete_path",
-    "list_files",
     "run_command",
     "help",
     "unknown",
