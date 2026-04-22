@@ -308,7 +308,8 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertTrue(any(isinstance(item, StepStatus) and item.step == 1 and item.state == "running" for item in progress_updates))
         self.assertTrue(any(isinstance(item, StepStatus) and item.step == 2 and item.tool == "list_files" for item in progress_updates))
         self.assertTrue(any(speaker == "Agent" and "Step 2: [SUCCESS] list_files:demo" in text for speaker, text in messages))
-        self.assertGreater(gui.timeline_list.size(), 0)
+        # Timeline removed – no timeline entries expected (kept harness for compat)
+        self.assertEqual(gui.timeline_list.size(), 0)
 
     def test_confirmation_state_is_visible_and_buttons_are_controllable(self):
         # Confirmation UI removed – verify no pending is created when
