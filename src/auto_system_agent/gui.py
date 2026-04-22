@@ -152,36 +152,69 @@ class AgentChatGUI:
         )
         self.send_button.grid(row=0, column=1, padx=(6, 0))
 
-        # Right panel (3/4): execution progress
+        # Right panel (3/4): interactive terminal – shows progress/commands and allows direct input (e.g. passwords)
         right_panel = tk.Frame(main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
         right_panel.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
-        right_panel.grid_rowconfigure(0, weight=1)
+        right_panel.grid_rowconfigure(1, weight=1)
         right_panel.grid_columnconfigure(0, weight=1)
 
-        progress_frame = tk.Frame(right_panel, bg=BG_PANEL)
-        progress_frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
-        progress_frame.grid_rowconfigure(1, weight=1)
-        progress_frame.grid_columnconfigure(0, weight=1)
+        header_frame = tk.Frame(right_panel, bg=BG_PANEL)
+        header_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
+        header_frame.grid_columnconfigure(0, weight=1)
+        tk.Label(header_frame, text="Terminal", font=("TkDefaultFont", 10, "bold"), fg=ACCENT, bg=BG_PANEL).grid(row=0, column=0, sticky="w")
+        tk.Button(header_frame, text="Clear", command=lambda: self._clear_terminal(), bg="#6b7280", fg="#ffffff", relief=tk.FLAT, padx=8, font=("TkDefaultFont", 8)).grid(row=0, column=1, sticky="e")
+        tk.Label(header_frame, text="Shows progress & commands — type directly for passwords/interactive input", font=("TkDefaultFont", 8), fg=FG_MUTED, bg=BG_PANEL).grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
-        tk.Label(
-            progress_frame,
-            text="Execution Progress",
-            font=("TkDefaultFont", 10, "bold"),
-            fg=ACCENT,
-            bg=BG_PANEL,
-        ).grid(row=0, column=0, sticky="w", pady=(0, 6))
-        self.progress_list = tk.Listbox(
-            progress_frame,
-            height=16,
-            bg="#f8fafc",
-            fg=FG_PRIMARY,
+        self.terminal_text = scrolledtext.ScrolledText(
+            right_panel,
+            wrap=tk.WORD,
+            font=("TkFixedFont", 10),
+            bg="#0f172a",
+            fg="#e2e8f0",
+            insertbackground="#e2e8f0",
+            selectbackground="#334155",
+            selectforeground="#e2e8f0",
             borderwidth=0,
-            highlightthickness=0,
-            selectbackground="#dbeafe",
-            selectforeground=FG_PRIMARY,
+            relief=tk.FLAT,
+            padx=10,
+            pady=8,
+            state=tk.DISABLED,
+            height=18,
         )
-        self.progress_list.grid(row=1, column=0, sticky="nsew")
+        self.terminal_text.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 8))
+        self.terminal_text.tag_configure("prompt", foreground="#38bdf8")
+        self.terminal_text.tag_configure("command", foreground="#f8fafc", font=("TkFixedFont", 10, "bold"))
+        self.terminal_text.tag_configure("output", foreground="#e2e8f0")
+        self.terminal_text.tag_configure("error", foreground="#f87171")
+        self.terminal_text.tag_configure("system", foreground="#fbbf24")
+
+        terminal_input_frame = tk.Frame(right_panel, bg=BG_PANEL)
+        terminal_input_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
+        terminal_input_frame.grid_columnconfigure(1, weight=1)
+
+        self.terminal_prompt_var = tk.StringVar(value=self._get_terminal_prompt())
+        tk.Label(terminal_input_frame, textvariable=self.terminal_prompt_var, font=("TkFixedFont", 9), fg=ACCENT, bg=BG_PANEL, anchor="w", width=22).grid(row=0, column=0, sticky="w", padx=(0, 6))
+
+        self.terminal_entry = tk.Entry(
+            terminal_input_frame,
+            font=("TkFixedFont", 10),
+            bg="#1e293b",
+            fg="#f8fafc",
+            insertbackground="#f8fafc",
+            relief=tk.FLAT,
+            borderwidth=0,
+            highlightbackground="#334155",
+            highlightthickness=1,
+        )
+        self.terminal_entry.grid(row=0, column=1, sticky="ew")
+        self.terminal_entry.bind("<Return>", self._on_terminal_submit)
+
         self._step_progress_rows: dict[int, int] = {}
+        # Keep progress_list alias for backward compatibility with existing tests/harness
+        self.progress_list = self.terminal_text
+        # Initial terminal banner
+        self._append_terminal("=== Terminal ready ===\nType commands directly for interactive input (e.g. sudo passwords).\nChat commands and progress will appear here.\n", tag="system")
+        self._update_terminal_prompt()
 
         self._append_message("Agent", "Welcome. Type help to see example commands.")
         self.root.after(50, self._drain_ui_queue)
@@ -275,6 +308,7 @@ class AgentChatGUI:
 
         self.entry.delete(0, tk.END)
         self._append_message("You", user_input)
+        self._append_terminal(f"\n> chat: {user_input}\n", tag="command")
 
         if user_input.lower() in {"exit", "quit"}:
             self._append_message("Agent", "Closing chat window.")
@@ -360,16 +394,22 @@ class AgentChatGUI:
                     if isinstance(status, StepStatus):
                         self._append_message("System", self._status_to_text(status))
                         self._update_progress_panel(status)
+                        # Also ensure terminal prompt stays current
+                        self._update_terminal_prompt()
                     else:
                         self._append_message("System", str(status))
+                        self._append_terminal(str(status), tag="system")
                 elif event_type == "response" and isinstance(payload, tuple):
                     request_id, response = payload
                     if self._should_accept_event(request_id) and response is not None:
                         self._append_message("Agent", str(response))
+                        self._append_terminal(str(response), tag="output")
+                        self._update_terminal_prompt()
                 elif event_type == "error" and isinstance(payload, tuple):
                     request_id, error_text = payload
                     if self._should_accept_event(request_id) and error_text is not None:
                         self._append_message("System", str(error_text))
+                        self._append_terminal(str(error_text), tag="error")
                 elif event_type == "done" and isinstance(payload, tuple):
                     request_id, _ = payload
                     if self._active_request_id == request_id:
@@ -377,18 +417,125 @@ class AgentChatGUI:
                         self._request_started_at = None
                         self._set_busy(False)
                         self.entry.focus_set()
+                        self._update_terminal_prompt()
+                elif event_type == "terminal_output":
+                    # payload is (tag, text) or (tag, out) tuple nested
+                    try:
+                        if isinstance(payload, tuple) and len(payload) == 2:
+                            tag, out = payload
+                        else:
+                            tag, out = "output", str(payload)
+                    except Exception:
+                        tag, out = "output", str(payload)
+                    if out:
+                        self._append_terminal(out, tag=tag)
+                elif event_type == "terminal_prompt_update":
+                    self._update_terminal_prompt()
         except queue.Empty:
             pass
 
         self.root.after(50, self._drain_ui_queue)
 
     def _reset_progress_panel(self) -> None:
-        self.progress_list.delete(0, tk.END)
+        # Terminal replaces progress list – add separator and reset step tracking
         self._step_progress_rows.clear()
+        self._append_terminal("\n" + "─" * 40 + "\n", tag="system")
 
     def _clear_timeline(self) -> None:
         # Timeline removed – no-op kept for compatibility
         return
+
+    def _get_terminal_prompt(self) -> str:
+        try:
+            from pathlib import Path
+            cwd_path = None
+            if hasattr(self, "agent") and hasattr(self.agent, "_executor") and hasattr(self.agent._executor, "terminal"):
+                cwd_path = str(self.agent._executor.terminal.cwd)
+            elif hasattr(self, "agent") and hasattr(self.agent, "_executor"):
+                # legacy
+                cwd_path = str(getattr(self.agent._executor, "_working_directory", ""))
+            if cwd_path:
+                home = str(Path.home())
+                if cwd_path.startswith(home):
+                    cwd_path = "~" + cwd_path[len(home):]
+                return f"{cwd_path} $"
+        except Exception:
+            pass
+        return "$"
+
+    def _update_terminal_prompt(self) -> None:
+        if hasattr(self, "terminal_prompt_var"):
+            try:
+                self.terminal_prompt_var.set(self._get_terminal_prompt())
+            except Exception:
+                pass
+
+    def _append_terminal(self, text: str, tag: str = "output") -> None:
+        if not hasattr(self, "terminal_text"):
+            return
+        try:
+            self.terminal_text.configure(state=tk.NORMAL)
+            self.terminal_text.insert(tk.END, text, tag)
+            # Ensure trailing newline handling
+            if not text.endswith("\n"):
+                self.terminal_text.insert(tk.END, "\n", tag)
+            self.terminal_text.configure(state=tk.DISABLED)
+            self.terminal_text.see(tk.END)
+        except Exception:
+            pass
+
+    def _clear_terminal(self) -> None:
+        if not hasattr(self, "terminal_text"):
+            return
+        try:
+            self.terminal_text.configure(state=tk.NORMAL)
+            self.terminal_text.delete("1.0", tk.END)
+            self.terminal_text.configure(state=tk.DISABLED)
+            self._append_terminal(f"Terminal cleared. CWD: {self._get_terminal_prompt().replace(' $','')}\n", tag="system")
+            self._update_terminal_prompt()
+        except Exception:
+            pass
+
+    def _on_terminal_submit(self, event=None) -> None:
+        if not hasattr(self, "terminal_entry"):
+            return
+        cmd = self.terminal_entry.get().strip()
+        if not cmd:
+            return
+        self.terminal_entry.delete(0, tk.END)
+        # Echo command
+        prompt = self._get_terminal_prompt()
+        self._append_terminal(f"{prompt} {cmd}\n", tag="command")
+        # Handle clear locally
+        if cmd.strip() == "clear":
+            self._clear_terminal()
+            return
+        # Run in background to avoid blocking UI (supports password prompts via entry)
+        self._run_terminal_command_async(cmd)
+
+    def _run_terminal_command_async(self, cmd: str) -> None:
+        def worker():
+            try:
+                # Use the same TerminalSession as agent for consistency
+                terminal = None
+                if hasattr(self.agent, "_executor") and hasattr(self.agent._executor, "terminal"):
+                    terminal = self.agent._executor.terminal
+                if terminal is not None:
+                    result = terminal.run(cmd)
+                    out = result.message or ""
+                    tag = "output" if result.success else "error"
+                    self._ui_queue.put(("terminal_output", (tag, out)))
+                else:
+                    import subprocess
+                    result = subprocess.run(["bash", "-lc", cmd], capture_output=True, text=True, timeout=30)
+                    out = (result.stdout or "") + (result.stderr or "")
+                    tag = "output" if result.returncode == 0 else "error"
+                    self._ui_queue.put(("terminal_output", (tag, out.strip() or f"exit {result.returncode}")))
+            except Exception as exc:
+                self._ui_queue.put(("terminal_output", ("error", str(exc))))
+            finally:
+                self._ui_queue.put(("terminal_prompt_update", None))
+        threading.Thread(target=worker, daemon=True).start()
 
     def _insert_tool_command(self, command_text: str) -> None:
         if hasattr(self, "entry"):
@@ -1119,18 +1266,29 @@ class AgentChatGUI:
         self._fit_dialog_to_content(dialog, default_width=520, default_height=260)
 
     def _set_step_status(self, step: int, total: int, state: str, tool: str) -> None:
-        text = f"{step}/{total} | {state:<7} | {tool}"
-        if step in self._step_progress_rows:
-            row = self._step_progress_rows[step]
-            self.progress_list.delete(row)
-            self.progress_list.insert(row, text)
-        else:
-            row = self.progress_list.size()
-            self.progress_list.insert(tk.END, text)
-            self._step_progress_rows[step] = row
-        self.progress_list.see(row)
+        # Now writes to terminal instead of Listbox – keep step tracking for compatibility
+        text = f"[{step}/{total}] {state.upper():<7} {tool}"
+        tag = "system" if state == "running" else ("output" if state == "done" else "error")
+        # For running, show command preview if available via agent details
+        self._append_terminal(text, tag=tag)
+        self._step_progress_rows[step] = text
 
     def _update_progress_panel(self, status: StepStatus) -> None:
+        # Show command preview when running
+        if status.state == "running":
+            # Try to show actual shell command if pending details available
+            preview = ""
+            try:
+                details_fn = getattr(self.agent, "get_pending_confirmation_details", None)
+                # For running tasks, tool is run_command, try to get last history command
+                if hasattr(self.agent, "_executor") and hasattr(self.agent._executor, "terminal"):
+                    hist = self.agent._executor.terminal.history
+                    if hist:
+                        preview = f" → {hist[-1]}"
+            except Exception:
+                preview = ""
+            if preview:
+                self._append_terminal(f"  {preview}\n", tag="command")
         self._set_step_status(status.step, status.total, status.state, status.tool)
 
     def _status_to_text(self, status: StepStatus) -> str:
