@@ -10,6 +10,7 @@ from auto_system_agent.agent import AutoSystemAgent
 from auto_system_agent.models import ExecutionResult, StepStatus
 from auto_system_agent.settings import LLMSettings, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL, SettingsStore
 from auto_system_agent.real_terminal import RealTerminalFrame
+from auto_system_agent.system_info import SystemConfig, detect_system_config, system_config_from_dict, system_config_to_dict
 
 
 BG_APP = "#f2f5f9"
@@ -57,6 +58,9 @@ class AgentChatGUI:
         # Mandatory choice on every startup: API vs Local model
         self._show_startup_provider_dialog()
 
+        # Required system architecture window – user must review/accept OS/arch/package-manager
+        self._show_system_config_dialog()
+
         self.agent = self._build_agent()
         # Ensure window stays maximized after startup dialog
         self._maximize_window()
@@ -80,7 +84,13 @@ class AgentChatGUI:
         settings_menu.add_separator()
         settings_menu.add_command(label="LLM Settings", command=lambda: self._open_settings_window(selected_tab="llm"))
         settings_menu.add_command(label="App Options", command=lambda: self._open_settings_window(selected_tab="app"))
+        settings_menu.add_separator()
+        settings_menu.add_command(label="System Architecture", command=lambda: self._show_system_config_dialog(required=False))
         menu_bar.add_cascade(label="Settings", menu=settings_menu)
+        # System menu for quick access
+        system_menu = tk.Menu(menu_bar, tearoff=0)
+        system_menu.add_command(label="System Architecture…", command=lambda: self._show_system_config_dialog(required=False))
+        menu_bar.add_cascade(label="System", menu=system_menu)
         self.root.config(menu=menu_bar)
 
         # Main container: 1/4 left = chat, 3/4 right = progress/details (grid weights 1:3)
@@ -778,6 +788,219 @@ class AgentChatGUI:
             # User closed without choosing -> exit already handled, but ensure
             exit_app()
 
+    def _show_system_config_dialog(self, required: bool = True) -> None:
+        """Required window after provider: show detected OS/arch/hardware and let user modify/accept.
+
+        Needed so installs use correct manager (apt/dnf/pacman/snap/flatpak) and
+        LLM generates accurate commands for the host. If required=True, closing
+        without Accept exits the app; if False (menu), just closes.
+        """
+        # Load persisted or freshly detected
+        try:
+            from auto_system_agent.system_info import detect_system_config
+
+            persisted = self._settings.system_config if isinstance(self._settings.system_config, dict) else None
+            detected = detect_system_config()
+            # If persisted exists, start from it; otherwise from detected
+            if isinstance(persisted, dict) and persisted:
+                cfg = system_config_from_dict(persisted)
+                # Fill missing hardware with detected fallback
+                if not cfg.cpu_model:
+                    cfg.cpu_model = detected.cpu_model
+                if not cfg.cpu_cores:
+                    cfg.cpu_cores = detected.cpu_cores
+                if not cfg.ram_gb:
+                    cfg.ram_gb = detected.ram_gb
+            else:
+                cfg = detected
+        except Exception:
+            cfg = detect_system_config()
+
+        accepted = {"done": False}
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("System Configuration — Required")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        dialog.resizable(True, True)
+        dialog.focus_set()
+
+        def exit_app():
+            try:
+                dialog.destroy()
+            except Exception:
+                pass
+            if not required:
+                return
+            try:
+                self.root.destroy()
+            except Exception:
+                pass
+            import sys as _sys
+            _sys.exit(0)
+
+        def on_close():
+            if not accepted["done"]:
+                if required:
+                    exit_app()
+                else:
+                    try:
+                        dialog.destroy()
+                    except Exception:
+                        pass
+
+        dialog.protocol("WM_DELETE_WINDOW", on_close)
+
+        header = tk.Frame(dialog, bg=BG_PANEL, padx=16, pady=12)
+        header.pack(fill=tk.X)
+        tk.Label(header, text="System Architecture — Please review", font=("TkDefaultFont", 12, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
+        tk.Label(
+            header,
+            text="Detected your OS, architecture and package managers. Installing apps needs the right manager (apt for Debian/Ubuntu, dnf for Fedora, pacman for Arch, snap/flatpak if available). Review, modify if needed, then Accept. This config will be used to generate correct commands.",
+            font=("TkDefaultFont", 9), fg=FG_MUTED, bg=BG_PANEL, wraplength=640, justify=tk.LEFT
+        ).pack(anchor="w", pady=(4, 0))
+
+        body = tk.Frame(dialog, padx=16, pady=8)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        # Use canvas+scrollbar for many fields
+        canvas = tk.Canvas(body, bg=BG_PANEL, highlightthickness=0)
+        vscroll = ttk.Scrollbar(body, orient=tk.VERTICAL, command=canvas.yview)
+        inner = tk.Frame(canvas, bg=BG_PANEL)
+        inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.configure(yscrollcommand=vscroll.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        vscroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Helper to add row
+        def add_combo_row(parent, label, row, values, initial, width=28):
+            tk.Label(parent, text=label, bg=BG_PANEL, anchor="w").grid(row=row, column=0, sticky="w", padx=6, pady=4)
+            var = tk.StringVar(value=initial)
+            cb = ttk.Combobox(parent, textvariable=var, values=values, width=width, state="normal")
+            cb.grid(row=row, column=1, sticky="we", padx=6, pady=4)
+            return var, cb
+
+        def add_entry_row(parent, label, row, initial, width=40):
+            tk.Label(parent, text=label, bg=BG_PANEL, anchor="w").grid(row=row, column=0, sticky="w", padx=6, pady=4)
+            ent = tk.Entry(parent, width=width)
+            ent.grid(row=row, column=1, sticky="we", padx=6, pady=4)
+            ent.insert(0, initial or "")
+            return ent
+
+        inner.grid_columnconfigure(1, weight=1)
+        r = 0
+        os_var, os_cb = add_combo_row(inner, "OS", r, ["linux", "windows", "macos"], cfg.os_name); r += 1
+        distro_vals = ["ubuntu", "debian", "fedora", "arch", "manjaro", "opensuse-leap", "opensuse-tumbleweed", "alpine", "linuxmint", "pop", "rhel", "centos", "rocky", "unknown"]
+        distro_var, distro_cb = add_combo_row(inner, "Distro ID", r, distro_vals, cfg.distro_id); r += 1
+        distro_ver_ent = add_entry_row(inner, "Version", r, cfg.distro_version); r += 1
+        pretty_ent = add_entry_row(inner, "Pretty Name", r, cfg.distro_pretty); r += 1
+        arch_var, arch_cb = add_combo_row(inner, "Architecture", r, ["x86_64", "aarch64", "armv7l", "i386", "ppc64le", "s390x"], cfg.arch); r += 1
+        kernel_ent = add_entry_row(inner, "Kernel", r, cfg.kernel); r += 1
+        cpu_model_ent = add_entry_row(inner, "CPU Model", r, cfg.cpu_model); r += 1
+        tk.Label(inner, text="CPU Cores", bg=BG_PANEL).grid(row=r, column=0, sticky="w", padx=6, pady=4)
+        cores_var = tk.StringVar(value=str(cfg.cpu_cores))
+        cores_spin = tk.Spinbox(inner, from_=1, to=256, textvariable=cores_var, width=8)
+        cores_spin.grid(row=r, column=1, sticky="w", padx=6, pady=4); r += 1
+        ram_ent = add_entry_row(inner, "RAM (GB)", r, f"{cfg.ram_gb:.1f}" if cfg.ram_gb else ""); r += 1
+        pkg_vals = ["apt", "dnf", "pacman", "zypper", "apk", "snap", "flatpak", "brew", "winget", "unknown"]
+        pkg_var, pkg_cb = add_combo_row(inner, "Primary Package Manager *", r, pkg_vals, cfg.package_manager); r += 1
+        tk.Label(inner, text="* Used for `install` commands (snap/flatpak also available as fallback)", bg=BG_PANEL, fg=FG_MUTED, font=("TkDefaultFont", 7)).grid(row=r, column=0, columnspan=2, sticky="w", padx=6, pady=(0,4)); r+=1
+
+        snap_var = tk.BooleanVar(value=bool(cfg.snap_available))
+        flatpak_var = tk.BooleanVar(value=bool(cfg.flatpak_available))
+        brew_var = tk.BooleanVar(value=bool(cfg.brew_available))
+        tk.Checkbutton(inner, text="Snap available (snap install)", variable=snap_var, bg=BG_PANEL, anchor="w").grid(row=r, column=0, columnspan=2, sticky="w", padx=6, pady=2); r+=1
+        tk.Checkbutton(inner, text="Flatpak available (flatpak install)", variable=flatpak_var, bg=BG_PANEL, anchor="w").grid(row=r, column=0, columnspan=2, sticky="w", padx=6, pady=2); r+=1
+        tk.Checkbutton(inner, text="Homebrew available (brew install)", variable=brew_var, bg=BG_PANEL, anchor="w").grid(row=r, column=0, columnspan=2, sticky="w", padx=6, pady=2); r+=1
+        hw_ent = add_entry_row(inner, "Hardware Summary", r, cfg.hardware_summary); r+=1
+
+        note = tk.Label(inner, text="You can change package manager if you prefer snap/flatpak even though your distro default is different.\nThis choice directly affects commands like `sudo apt install -y vlc` vs `sudo dnf install -y vlc` vs `snap install vlc`.", fg=FG_MUTED, bg=BG_PANEL, font=("TkDefaultFont", 8), wraplength=580, justify=tk.LEFT)
+        note.grid(row=r, column=0, columnspan=2, sticky="w", padx=6, pady=8); r+=1
+
+        def do_detect_again():
+            try:
+                fresh = detect_system_config()
+                os_var.set(fresh.os_name)
+                distro_var.set(fresh.distro_id)
+                distro_ver_ent.delete(0, tk.END); distro_ver_ent.insert(0, fresh.distro_version)
+                pretty_ent.delete(0, tk.END); pretty_ent.insert(0, fresh.distro_pretty)
+                arch_var.set(fresh.arch)
+                kernel_ent.delete(0, tk.END); kernel_ent.insert(0, fresh.kernel)
+                cpu_model_ent.delete(0, tk.END); cpu_model_ent.insert(0, fresh.cpu_model)
+                cores_var.set(str(fresh.cpu_cores))
+                ram_ent.delete(0, tk.END); ram_ent.insert(0, f"{fresh.ram_gb:.1f}" if fresh.ram_gb else "")
+                pkg_var.set(fresh.package_manager)
+                snap_var.set(bool(fresh.snap_available))
+                flatpak_var.set(bool(fresh.flatpak_available))
+                brew_var.set(bool(fresh.brew_available))
+                hw_ent.delete(0, tk.END); hw_ent.insert(0, fresh.hardware_summary)
+            except Exception as e:
+                messagebox.showerror("Detect failed", str(e), parent=dialog)
+
+        btn_frame = tk.Frame(dialog, padx=16, pady=12)
+        btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
+        tk.Button(btn_frame, text="Detect Again", command=do_detect_again, bg="#e5e7eb", fg="#1f2937", relief=tk.FLAT, padx=12).pack(side=tk.LEFT)
+        tk.Button(btn_frame, text="Exit", command=exit_app, bg="#6b7280", fg="#ffffff", relief=tk.FLAT, padx=12).pack(side=tk.RIGHT, padx=(8,0))
+        # Accept handler
+        def on_accept():
+            # Validate
+            arch_v = arch_var.get().strip() or "x86_64"
+            pkg_v = pkg_var.get().strip() or "unknown"
+            if pkg_v not in pkg_vals:
+                messagebox.showerror("Invalid", f"Package manager must be one of {', '.join(pkg_vals)}", parent=dialog)
+                return
+            try:
+                cores_i = int(float(cores_var.get().strip() or "0"))
+                ram_f = float(ram_ent.get().strip() or "0")
+            except ValueError:
+                messagebox.showerror("Invalid", "CPU cores must be integer, RAM must be numeric", parent=dialog)
+                return
+            new_cfg = SystemConfig(
+                os_name=os_var.get().strip() or "linux",
+                distro_id=distro_var.get().strip().lower() or "unknown",
+                distro_version=distro_ver_ent.get().strip(),
+                distro_pretty=pretty_ent.get().strip(),
+                arch=arch_v,
+                kernel=kernel_ent.get().strip(),
+                cpu_model=cpu_model_ent.get().strip(),
+                cpu_cores=max(0, cores_i),
+                ram_gb=max(0.0, ram_f),
+                package_manager=pkg_v,
+                snap_available=bool(snap_var.get()),
+                flatpak_available=bool(flatpak_var.get()),
+                brew_available=bool(brew_var.get()),
+                hardware_summary=hw_ent.get().strip(),
+            )
+            # Persist
+            self._settings.system_config = system_config_to_dict(new_cfg)
+            try:
+                self._settings_store.save(self._settings)
+            except Exception as exc:
+                messagebox.showerror("Save failed", str(exc), parent=dialog)
+                return
+            accepted["done"] = True
+            try:
+                dialog.grab_release()
+            except Exception:
+                pass
+            dialog.destroy()
+
+        tk.Button(btn_frame, text="Accept", command=on_accept, bg=ACCENT, fg="#ffffff", relief=tk.FLAT, padx=12).pack(side=tk.RIGHT)
+        dialog.bind("<Return>", lambda e: on_accept())
+        self._fit_dialog_to_content(dialog, default_width=720, default_height=620)
+        dialog.wait_window()
+        if not accepted["done"] and required:
+            exit_app()
+        # If required and accepted, rebuild agent with new system config
+        if accepted["done"]:
+            try:
+                self.agent = self._build_agent()
+                self._update_terminal_prompt()
+                self._append_terminal(f"System config accepted: {pkg_var.get()} on {distro_var.get()} {arch_var.get()} | snap={snap_var.get()} flatpak={flatpak_var.get()}\n", tag="system")
+            except Exception:
+                pass
+
     def _fit_dialog_to_content(self, dialog: tk.Toplevel, default_width: int = 620, default_height: int = 380) -> None:
         """Ensure dialog window is at least as large as its content to avoid clipping."""
         try:
@@ -1327,8 +1550,19 @@ class AgentChatGUI:
 
     def _build_agent(self) -> AutoSystemAgent:
         config = self._settings_store.resolve_llm_config(self._settings)
+        # System config is now required for correct package-manager commands (apt/dnf/snap/flatpak)
+        system_cfg = None
+        try:
+            if isinstance(self._settings.system_config, dict) and self._settings.system_config:
+                system_cfg = self._settings.system_config
+            else:
+                # Fallback to detection (should have been set via system window)
+                from auto_system_agent.system_info import system_config_to_dict, detect_system_config
+                system_cfg = system_config_to_dict(detect_system_config())
+        except Exception:
+            system_cfg = None
         # Confirmation removed – always execute without pending confirmation
-        return AutoSystemAgent(llm_config=config, confirm_high_risk=False)
+        return AutoSystemAgent(llm_config=config, confirm_high_risk=False, system_config=system_cfg)
 
     def _open_settings_dialog(self) -> None:
         dialog = tk.Toplevel(self.root)
