@@ -9,7 +9,6 @@ from typing import Callable
 from auto_system_agent.agent import AutoSystemAgent
 from auto_system_agent.models import ExecutionResult, StepStatus
 from auto_system_agent.settings import LLMSettings, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL, SettingsStore
-from auto_system_agent.real_terminal import RealTerminalFrame
 from auto_system_agent.system_info import SystemConfig, detect_system_config, system_config_from_dict, system_config_to_dict
 
 
@@ -93,16 +92,15 @@ class AgentChatGUI:
         menu_bar.add_cascade(label="System", menu=system_menu)
         self.root.config(menu=menu_bar)
 
-        # Main container: 1/4 left = chat, 3/4 right = progress/details (grid weights 1:3)
+        # Main container: chat fills entire width (terminal removed)
         main_container = tk.Frame(self.root, bg=BG_APP)
         main_container.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
-        main_container.grid_columnconfigure(0, weight=1, uniform="panel")
-        main_container.grid_columnconfigure(1, weight=3, uniform="panel")
+        main_container.grid_columnconfigure(0, weight=1)
         main_container.grid_rowconfigure(0, weight=1)
 
-        # Left panel (1/4): chat + input stacked vertically
+        # Chat panel: full width
         left_panel = tk.Frame(main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
-        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
+        left_panel.grid(row=0, column=0, sticky="nsew")
         left_panel.grid_rowconfigure(0, weight=1)
         left_panel.grid_columnconfigure(0, weight=1)
 
@@ -163,88 +161,7 @@ class AgentChatGUI:
         )
         self.send_button.grid(row=0, column=1, padx=(6, 0))
 
-        # Right panel (3/4): REAL terminal – pty-backed bash, same instance for AI and you
-        right_panel = tk.Frame(main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
-        right_panel.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
-        right_panel.grid_rowconfigure(1, weight=1)
-        right_panel.grid_columnconfigure(0, weight=1)
-
-        header_frame = tk.Frame(right_panel, bg=BG_PANEL)
-        header_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 4))
-        header_frame.grid_columnconfigure(0, weight=1)
-        tk.Label(header_frame, text="Terminal — real pty (same for AI & you)", font=("TkDefaultFont", 10, "bold"), fg=ACCENT, bg=BG_PANEL).grid(row=0, column=0, sticky="w")
-        tk.Button(header_frame, text="Clear", command=lambda: self.real_terminal.text.configure(state=tk.NORMAL) or self.real_terminal.text.delete("1.0", tk.END) or self.real_terminal.text.configure(state=tk.DISABLED) if hasattr(self, "real_terminal") else None, bg="#6b7280", fg="#ffffff", relief=tk.FLAT, padx=8, font=("TkDefaultFont", 8)).grid(row=0, column=1, sticky="e")
-        tk.Label(header_frame, text="AI and you share this SAME terminal. sudo/password prompts appear here — type directly here.", font=("TkDefaultFont", 8), fg="#b45309", bg=BG_PANEL, wraplength=520, justify=tk.LEFT).grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
-
-        # Real pty terminal (bash -i) – not a chat-box simulation
-        try:
-            cwd_for_pty = self.agent._executor.terminal.cwd if hasattr(self.agent, "_executor") and hasattr(self.agent._executor, "terminal") else None
-        except Exception:
-            cwd_for_pty = None
-        self.real_terminal = RealTerminalFrame(right_panel, cwd=cwd_for_pty, bg=BG_PANEL, highlightbackground="#0f172a", highlightthickness=1)
-        self.real_terminal.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
-        # Aliases for compatibility with old code/tests that expect terminal_text/progress_list
-        self.terminal_text = self.real_terminal.text
-        # Tags for _append_terminal mirroring (real pty is black bg)
-        try:
-            self.terminal_text.tag_configure("prompt", foreground="#38bdf8")
-            self.terminal_text.tag_configure("command", foreground="#f8fafc", font=("Monospace", 10, "bold"))
-            self.terminal_text.tag_configure("output", foreground="#e2e8f0")
-            self.terminal_text.tag_configure("error", foreground="#f87171")
-            self.terminal_text.tag_configure("system", foreground="#fbbf24")
-        except Exception:
-            pass
-        self.terminal_prompt_var = tk.StringVar(value=self._get_terminal_prompt())
-        self.terminal_entry = self.real_terminal.text  # shim – real input is via pty key handling
         self._step_progress_rows: dict[int, int] = {}
-        self.progress_list = self.terminal_text
-
-        # Patch agent's TerminalSession to use the SAME pty (so AI commands run in this visible terminal)
-        try:
-            _orig_terminal = self.agent._executor.terminal
-            real_term = self.real_terminal
-
-            def _pty_run(cmd, timeout=30):
-                out, code = real_term.run_command(cmd, timeout=timeout)
-                # Keep Python history/cwd in sync (do not nest pty call to avoid deadlock)
-                try:
-                    _orig_terminal._history.append(cmd)
-                    if len(_orig_terminal._history) > 500:
-                        _orig_terminal._history = _orig_terminal._history[-500:]
-                    stripped = cmd.strip()
-                    # Update cwd for cd commands via simple path logic (pty bash already changed)
-                    if stripped == "cd" or stripped.startswith("cd "):
-                        import shlex
-                        from pathlib import Path
-                        try:
-                            parts = shlex.split(stripped)
-                            target = parts[1] if len(parts) > 1 else "~"
-                            if target == "~":
-                                p = Path.home().resolve()
-                            elif target.startswith("~"):
-                                p = Path(target).expanduser().resolve()
-                            elif target.startswith("/"):
-                                p = Path(target).resolve()
-                            else:
-                                # relative to previous cwd
-                                p = (_orig_terminal._cwd / target).resolve()
-                            if p.exists() and p.is_dir():
-                                _orig_terminal._cwd = p
-                        except Exception:
-                            pass
-                except Exception:
-                    pass
-                success = code == 0
-                msg = out.strip() if out.strip() else (f"Command executed: {cmd}" if success else f"Command failed (exit {code}): {cmd}")
-                if len(msg) > 6000:
-                    msg = msg[-6000:]
-                return ExecutionResult(success=success, message=msg, data={"exit_code": code, "command": cmd})
-
-            _orig_terminal.run = _pty_run
-            self._append_terminal("=== Real terminal ready (pty) ===\nThis is a real bash pty — AI and you use the SAME shell.\nTry `sudo apt update` and type password directly in this terminal.\n", tag="system")
-        except Exception as e:
-            self._append_terminal(f"Failed to attach real terminal: {e}\n", tag="error")
-        self._update_terminal_prompt()
 
         self._append_message("Agent", "Welcome. Type help to see example commands.")
         self.root.after(50, self._drain_ui_queue)
@@ -338,7 +255,6 @@ class AgentChatGUI:
 
         self.entry.delete(0, tk.END)
         self._append_message("You", user_input)
-        self._append_terminal(f"\n> chat: {user_input}\n", tag="command")
 
         if user_input.lower() in {"exit", "quit"}:
             self._append_message("Agent", "Closing chat window.")
@@ -424,22 +340,16 @@ class AgentChatGUI:
                     if isinstance(status, StepStatus):
                         self._append_message("System", self._status_to_text(status))
                         self._update_progress_panel(status)
-                        # Also ensure terminal prompt stays current
-                        self._update_terminal_prompt()
                     else:
                         self._append_message("System", str(status))
-                        self._append_terminal(str(status), tag="system")
                 elif event_type == "response" and isinstance(payload, tuple):
                     request_id, response = payload
                     if self._should_accept_event(request_id) and response is not None:
                         self._append_message("Agent", str(response))
-                        self._append_terminal(str(response), tag="output")
-                        self._update_terminal_prompt()
                 elif event_type == "error" and isinstance(payload, tuple):
                     request_id, error_text = payload
                     if self._should_accept_event(request_id) and error_text is not None:
                         self._append_message("System", str(error_text))
-                        self._append_terminal(str(error_text), tag="error")
                 elif event_type == "done" and isinstance(payload, tuple):
                     request_id, _ = payload
                     if self._active_request_id == request_id:
@@ -447,119 +357,17 @@ class AgentChatGUI:
                         self._request_started_at = None
                         self._set_busy(False)
                         self.entry.focus_set()
-                        self._update_terminal_prompt()
-                elif event_type == "terminal_output":
-                    # payload is (tag, text) or (tag, out) tuple nested
-                    try:
-                        if isinstance(payload, tuple) and len(payload) == 2:
-                            tag, out = payload
-                        else:
-                            tag, out = "output", str(payload)
-                    except Exception:
-                        tag, out = "output", str(payload)
-                    if out:
-                        self._append_terminal(out, tag=tag)
-                elif event_type == "terminal_prompt_update":
-                    self._update_terminal_prompt()
         except queue.Empty:
             pass
 
         self.root.after(50, self._drain_ui_queue)
 
     def _reset_progress_panel(self) -> None:
-        # Terminal replaces progress list – add separator and reset step tracking
         self._step_progress_rows.clear()
-        self._append_terminal("\n" + "─" * 40 + "\n", tag="system")
 
     def _clear_timeline(self) -> None:
         # Timeline removed – no-op kept for compatibility
         return
-
-    def _get_terminal_prompt(self) -> str:
-        try:
-            from pathlib import Path
-            cwd_path = None
-            if hasattr(self, "agent") and hasattr(self.agent, "_executor") and hasattr(self.agent._executor, "terminal"):
-                cwd_path = str(self.agent._executor.terminal.cwd)
-            elif hasattr(self, "agent") and hasattr(self.agent, "_executor"):
-                # legacy
-                cwd_path = str(getattr(self.agent._executor, "_working_directory", ""))
-            if cwd_path:
-                home = str(Path.home())
-                if cwd_path.startswith(home):
-                    cwd_path = "~" + cwd_path[len(home):]
-                return f"{cwd_path} $"
-        except Exception:
-            pass
-        return "$"
-
-    def _update_terminal_prompt(self) -> None:
-        if hasattr(self, "terminal_prompt_var"):
-            try:
-                self.terminal_prompt_var.set(self._get_terminal_prompt())
-            except Exception:
-                pass
-
-    def _append_terminal(self, text: str, tag: str = "output") -> None:
-        if not hasattr(self, "terminal_text"):
-            return
-        try:
-            self.terminal_text.configure(state=tk.NORMAL)
-            self.terminal_text.insert(tk.END, text, tag)
-            # Ensure trailing newline handling
-            if not text.endswith("\n"):
-                self.terminal_text.insert(tk.END, "\n", tag)
-            self.terminal_text.configure(state=tk.DISABLED)
-            self.terminal_text.see(tk.END)
-        except Exception:
-            pass
-
-    def _clear_terminal(self) -> None:
-        if not hasattr(self, "terminal_text"):
-            return
-        try:
-            self.terminal_text.configure(state=tk.NORMAL)
-            self.terminal_text.delete("1.0", tk.END)
-            self.terminal_text.configure(state=tk.DISABLED)
-            self._append_terminal(f"Terminal cleared. CWD: {self._get_terminal_prompt().replace(' $','')}\n", tag="system")
-            self._update_terminal_prompt()
-        except Exception:
-            pass
-
-    def _on_terminal_submit(self, event=None) -> None:
-        # Embedded input disabled – AI now uses the SAME launcher terminal.
-        # Keep stub for compatibility (harness creates dummy entry)
-        self._append_terminal("Type directly in your launcher terminal (the terminal where you ran `python main.py`), not here.\nFor [sudo] password prompts, the prompt appears in that launcher terminal.\n", tag="system")
-        try:
-            if hasattr(self, "terminal_entry"):
-                self.terminal_entry.delete(0, tk.END)
-        except Exception:
-            pass
-        return
-
-    def _run_terminal_command_async(self, cmd: str) -> None:
-        def worker():
-            try:
-                # Use the same TerminalSession as agent for consistency
-                terminal = None
-                if hasattr(self.agent, "_executor") and hasattr(self.agent._executor, "terminal"):
-                    terminal = self.agent._executor.terminal
-                if terminal is not None:
-                    result = terminal.run(cmd)
-                    out = result.message or ""
-                    tag = "output" if result.success else "error"
-                    self._ui_queue.put(("terminal_output", (tag, out)))
-                else:
-                    import subprocess
-                    result = subprocess.run(["bash", "-lc", cmd], capture_output=True, text=True, timeout=30)
-                    out = (result.stdout or "") + (result.stderr or "")
-                    tag = "output" if result.returncode == 0 else "error"
-                    self._ui_queue.put(("terminal_output", (tag, out.strip() or f"exit {result.returncode}")))
-            except Exception as exc:
-                self._ui_queue.put(("terminal_output", ("error", str(exc))))
-            finally:
-                self._ui_queue.put(("terminal_prompt_update", None))
-        threading.Thread(target=worker, daemon=True).start()
 
     def _insert_tool_command(self, command_text: str) -> None:
         if hasattr(self, "entry"):
@@ -996,8 +804,7 @@ class AgentChatGUI:
         if accepted["done"]:
             try:
                 self.agent = self._build_agent()
-                self._update_terminal_prompt()
-                self._append_terminal(f"System config accepted: {pkg_var.get()} on {distro_var.get()} {arch_var.get()} | snap={snap_var.get()} flatpak={flatpak_var.get()}\n", tag="system")
+                self._append_message("System", f"System config accepted: {pkg_var.get()} on {distro_var.get()} {arch_var.get()} | snap={snap_var.get()} flatpak={flatpak_var.get()}")
             except Exception:
                 pass
 
@@ -1169,10 +976,10 @@ class AgentChatGUI:
 
         header = tk.Frame(window, bg=BG_PANEL, padx=16, pady=12)
         header.pack(fill=tk.X)
-        tk.Label(header, text="Terminal Tools", font=("TkDefaultFont", 12, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
+        tk.Label(header, text="Available Tools", font=("TkDefaultFont", 12, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
         tk.Label(
             header,
-            text="All requests run directly as bash commands via a persistent terminal session (bash -lc). No per-request Python tool.",
+            text="All requests run directly as bash commands (bash -lc). No per-request Python tool.",
             font=("TkDefaultFont", 9),
             fg=FG_MUTED,
             bg=BG_PANEL,
@@ -1198,12 +1005,12 @@ class AgentChatGUI:
         btn_row = tk.Frame(right_frame, bg=BG_PANEL)
         btn_row.pack(fill=tk.X, padx=10, pady=(0, 10))
 
-        # Terminal-centric catalog - no fake per-request tools
+        # Shell-centric catalog
         catalog = [
             {
-                "name": "Persistent Terminal (bash -lc)",
+                "name": "Shell Commands (bash -lc)",
                 "actions": ["run_command"],
-                "description": "Single persistent bash session. Every user request is translated to an exact shell command and executed via TerminalSession (bash -lc) with cwd tracking (pwd/cd/history). No fake Python simulation.",
+                "description": "Every user request is translated to an exact shell command and executed via bash -lc with cwd tracking (pwd/cd/history).",
                 "examples": ["touch ~/Downloads/test.py", "mkdir -p ~/Downloads/demo && touch ~/Downloads/demo/file.txt", "ls -la ~/Downloads", "cat ~/Downloads/test.py", "cp ~/Downloads/a.txt ~/Downloads/b.txt"],
                 "safety": "Direct shell: any bash command is allowed. Destructive commands (rm, sudo) require confirmation. History and cwd are tracked.",
             },
@@ -1217,7 +1024,7 @@ class AgentChatGUI:
             {
                 "name": "System & Install (via shell)",
                 "actions": ["run_command"],
-                "description": "System tasks are shell commands via terminal, no separate installer tool.",
+                "description": "System tasks are shell commands, no separate installer tool.",
                 "examples": ["sudo apt install -y vlc", "ps -eo pid,comm,%cpu | head", "ping -c 4 google.com", "git clone https://github.com/user/repo.git"],
                 "safety": "Installer is just shell: sudo apt/dnf/pacman/brew/winget. Confirmation required for sudo/rm.",
             },
@@ -1503,29 +1310,10 @@ class AgentChatGUI:
         self._fit_dialog_to_content(dialog, default_width=520, default_height=260)
 
     def _set_step_status(self, step: int, total: int, state: str, tool: str) -> None:
-        # Now writes to terminal instead of Listbox – keep step tracking for compatibility
         text = f"[{step}/{total}] {state.upper():<7} {tool}"
-        tag = "system" if state == "running" else ("output" if state == "done" else "error")
-        # For running, show command preview if available via agent details
-        self._append_terminal(text, tag=tag)
         self._step_progress_rows[step] = text
 
     def _update_progress_panel(self, status: StepStatus) -> None:
-        # Show command preview when running
-        if status.state == "running":
-            # Try to show actual shell command if pending details available
-            preview = ""
-            try:
-                details_fn = getattr(self.agent, "get_pending_confirmation_details", None)
-                # For running tasks, tool is run_command, try to get last history command
-                if hasattr(self.agent, "_executor") and hasattr(self.agent._executor, "terminal"):
-                    hist = self.agent._executor.terminal.history
-                    if hist:
-                        preview = f" → {hist[-1]}"
-            except Exception:
-                preview = ""
-            if preview:
-                self._append_terminal(f"  {preview}\n", tag="command")
         self._set_step_status(status.step, status.total, status.state, status.tool)
 
     def _status_to_text(self, status: StepStatus) -> str:
