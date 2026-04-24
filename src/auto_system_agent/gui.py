@@ -7,8 +7,9 @@ import time
 from typing import Callable
 
 from auto_system_agent.agent import AutoSystemAgent
-from auto_system_agent.models import StepStatus
+from auto_system_agent.models import ExecutionResult, StepStatus
 from auto_system_agent.settings import LLMSettings, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL, SettingsStore
+from auto_system_agent.real_terminal import RealTerminalFrame
 
 
 BG_APP = "#f2f5f9"
@@ -152,68 +153,87 @@ class AgentChatGUI:
         )
         self.send_button.grid(row=0, column=1, padx=(6, 0))
 
-        # Right panel (3/4): interactive terminal – shows progress/commands and allows direct input (e.g. passwords)
+        # Right panel (3/4): REAL terminal – pty-backed bash, same instance for AI and you
         right_panel = tk.Frame(main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
         right_panel.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
         right_panel.grid_rowconfigure(1, weight=1)
         right_panel.grid_columnconfigure(0, weight=1)
 
         header_frame = tk.Frame(right_panel, bg=BG_PANEL)
-        header_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(10, 6))
+        header_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 4))
         header_frame.grid_columnconfigure(0, weight=1)
-        tk.Label(header_frame, text="Terminal", font=("TkDefaultFont", 10, "bold"), fg=ACCENT, bg=BG_PANEL).grid(row=0, column=0, sticky="w")
-        tk.Button(header_frame, text="Clear", command=lambda: self._clear_terminal(), bg="#6b7280", fg="#ffffff", relief=tk.FLAT, padx=8, font=("TkDefaultFont", 8)).grid(row=0, column=1, sticky="e")
-        tk.Label(header_frame, text="Shows progress & commands — type directly for passwords/interactive input", font=("TkDefaultFont", 8), fg=FG_MUTED, bg=BG_PANEL).grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        tk.Label(header_frame, text="Terminal — real pty (same for AI & you)", font=("TkDefaultFont", 10, "bold"), fg=ACCENT, bg=BG_PANEL).grid(row=0, column=0, sticky="w")
+        tk.Button(header_frame, text="Clear", command=lambda: self.real_terminal.text.configure(state=tk.NORMAL) or self.real_terminal.text.delete("1.0", tk.END) or self.real_terminal.text.configure(state=tk.DISABLED) if hasattr(self, "real_terminal") else None, bg="#6b7280", fg="#ffffff", relief=tk.FLAT, padx=8, font=("TkDefaultFont", 8)).grid(row=0, column=1, sticky="e")
+        tk.Label(header_frame, text="AI and you share this SAME terminal. sudo/password prompts appear here — type directly here.", font=("TkDefaultFont", 8), fg="#b45309", bg=BG_PANEL, wraplength=520, justify=tk.LEFT).grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
 
-        self.terminal_text = scrolledtext.ScrolledText(
-            right_panel,
-            wrap=tk.WORD,
-            font=("TkFixedFont", 10),
-            bg="#0f172a",
-            fg="#e2e8f0",
-            insertbackground="#e2e8f0",
-            selectbackground="#334155",
-            selectforeground="#e2e8f0",
-            borderwidth=0,
-            relief=tk.FLAT,
-            padx=10,
-            pady=8,
-            state=tk.DISABLED,
-            height=18,
-        )
-        self.terminal_text.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 8))
-        self.terminal_text.tag_configure("prompt", foreground="#38bdf8")
-        self.terminal_text.tag_configure("command", foreground="#f8fafc", font=("TkFixedFont", 10, "bold"))
-        self.terminal_text.tag_configure("output", foreground="#e2e8f0")
-        self.terminal_text.tag_configure("error", foreground="#f87171")
-        self.terminal_text.tag_configure("system", foreground="#fbbf24")
-
-        terminal_input_frame = tk.Frame(right_panel, bg=BG_PANEL)
-        terminal_input_frame.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 10))
-        terminal_input_frame.grid_columnconfigure(1, weight=1)
-
+        # Real pty terminal (bash -i) – not a chat-box simulation
+        try:
+            cwd_for_pty = self.agent._executor.terminal.cwd if hasattr(self.agent, "_executor") and hasattr(self.agent._executor, "terminal") else None
+        except Exception:
+            cwd_for_pty = None
+        self.real_terminal = RealTerminalFrame(right_panel, cwd=cwd_for_pty, bg=BG_PANEL, highlightbackground="#0f172a", highlightthickness=1)
+        self.real_terminal.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        # Aliases for compatibility with old code/tests that expect terminal_text/progress_list
+        self.terminal_text = self.real_terminal.text
+        # Tags for _append_terminal mirroring (real pty is black bg)
+        try:
+            self.terminal_text.tag_configure("prompt", foreground="#38bdf8")
+            self.terminal_text.tag_configure("command", foreground="#f8fafc", font=("Monospace", 10, "bold"))
+            self.terminal_text.tag_configure("output", foreground="#e2e8f0")
+            self.terminal_text.tag_configure("error", foreground="#f87171")
+            self.terminal_text.tag_configure("system", foreground="#fbbf24")
+        except Exception:
+            pass
         self.terminal_prompt_var = tk.StringVar(value=self._get_terminal_prompt())
-        tk.Label(terminal_input_frame, textvariable=self.terminal_prompt_var, font=("TkFixedFont", 9), fg=ACCENT, bg=BG_PANEL, anchor="w", width=22).grid(row=0, column=0, sticky="w", padx=(0, 6))
-
-        self.terminal_entry = tk.Entry(
-            terminal_input_frame,
-            font=("TkFixedFont", 10),
-            bg="#1e293b",
-            fg="#f8fafc",
-            insertbackground="#f8fafc",
-            relief=tk.FLAT,
-            borderwidth=0,
-            highlightbackground="#334155",
-            highlightthickness=1,
-        )
-        self.terminal_entry.grid(row=0, column=1, sticky="ew")
-        self.terminal_entry.bind("<Return>", self._on_terminal_submit)
-
+        self.terminal_entry = self.real_terminal.text  # shim – real input is via pty key handling
         self._step_progress_rows: dict[int, int] = {}
-        # Keep progress_list alias for backward compatibility with existing tests/harness
         self.progress_list = self.terminal_text
-        # Initial terminal banner
-        self._append_terminal("=== Terminal ready ===\nType commands directly for interactive input (e.g. sudo passwords).\nChat commands and progress will appear here.\n", tag="system")
+
+        # Patch agent's TerminalSession to use the SAME pty (so AI commands run in this visible terminal)
+        try:
+            _orig_terminal = self.agent._executor.terminal
+            real_term = self.real_terminal
+
+            def _pty_run(cmd, timeout=30):
+                out, code = real_term.run_command(cmd, timeout=timeout)
+                # Keep Python history/cwd in sync (do not nest pty call to avoid deadlock)
+                try:
+                    _orig_terminal._history.append(cmd)
+                    if len(_orig_terminal._history) > 500:
+                        _orig_terminal._history = _orig_terminal._history[-500:]
+                    stripped = cmd.strip()
+                    # Update cwd for cd commands via simple path logic (pty bash already changed)
+                    if stripped == "cd" or stripped.startswith("cd "):
+                        import shlex
+                        from pathlib import Path
+                        try:
+                            parts = shlex.split(stripped)
+                            target = parts[1] if len(parts) > 1 else "~"
+                            if target == "~":
+                                p = Path.home().resolve()
+                            elif target.startswith("~"):
+                                p = Path(target).expanduser().resolve()
+                            elif target.startswith("/"):
+                                p = Path(target).resolve()
+                            else:
+                                # relative to previous cwd
+                                p = (_orig_terminal._cwd / target).resolve()
+                            if p.exists() and p.is_dir():
+                                _orig_terminal._cwd = p
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                success = code == 0
+                msg = out.strip() if out.strip() else (f"Command executed: {cmd}" if success else f"Command failed (exit {code}): {cmd}")
+                if len(msg) > 6000:
+                    msg = msg[-6000:]
+                return ExecutionResult(success=success, message=msg, data={"exit_code": code, "command": cmd})
+
+            _orig_terminal.run = _pty_run
+            self._append_terminal("=== Real terminal ready (pty) ===\nThis is a real bash pty — AI and you use the SAME shell.\nTry `sudo apt update` and type password directly in this terminal.\n", tag="system")
+        except Exception as e:
+            self._append_terminal(f"Failed to attach real terminal: {e}\n", tag="error")
         self._update_terminal_prompt()
 
         self._append_message("Agent", "Welcome. Type help to see example commands.")
@@ -497,21 +517,15 @@ class AgentChatGUI:
             pass
 
     def _on_terminal_submit(self, event=None) -> None:
-        if not hasattr(self, "terminal_entry"):
-            return
-        cmd = self.terminal_entry.get().strip()
-        if not cmd:
-            return
-        self.terminal_entry.delete(0, tk.END)
-        # Echo command
-        prompt = self._get_terminal_prompt()
-        self._append_terminal(f"{prompt} {cmd}\n", tag="command")
-        # Handle clear locally
-        if cmd.strip() == "clear":
-            self._clear_terminal()
-            return
-        # Run in background to avoid blocking UI (supports password prompts via entry)
-        self._run_terminal_command_async(cmd)
+        # Embedded input disabled – AI now uses the SAME launcher terminal.
+        # Keep stub for compatibility (harness creates dummy entry)
+        self._append_terminal("Type directly in your launcher terminal (the terminal where you ran `python main.py`), not here.\nFor [sudo] password prompts, the prompt appears in that launcher terminal.\n", tag="system")
+        try:
+            if hasattr(self, "terminal_entry"):
+                self.terminal_entry.delete(0, tk.END)
+        except Exception:
+            pass
+        return
 
     def _run_terminal_command_async(self, cmd: str) -> None:
         def worker():
