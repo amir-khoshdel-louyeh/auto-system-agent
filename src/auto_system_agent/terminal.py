@@ -1,5 +1,6 @@
 import subprocess
 import shlex
+import sys
 import os
 import threading
 from pathlib import Path
@@ -104,6 +105,54 @@ class TerminalSession:
 
             # For all other commands, run via bash -lc with current cwd
             # Use bash -lc to support pipes, redirects, etc. This is the terminal instance.
+            # Force AI to use the SAME terminal as the user launching `python main.py`
+            # so sudo/password prompts appear in that launcher terminal and user
+            # can type directly there. For commands needing a TTY (sudo, passwd,
+            # ssh) we inherit the parent's stdio; for others we capture and also
+            # echo to the launcher terminal so the user sees progress there.
+            needs_tty = any(k in cmd.lower() for k in ("sudo", "passwd", "ssh", "su "))
+            has_tty = False
+            try:
+                has_tty = sys.stdin.isatty() and sys.stdout.isatty()
+            except Exception:
+                has_tty = False
+            # Also consider the original launcher stdout (sys.__stdout__)
+            try:
+                if not has_tty and sys.__stdout__.isatty():
+                    has_tty = True
+            except Exception:
+                pass
+
+            if needs_tty and has_tty:
+                try:
+                    # Inherit launcher terminal's stdio – prompt appears there and user types there
+                    result = subprocess.run(
+                        ["bash", "-lc", cmd],
+                        cwd=str(self._cwd),
+                        stdin=sys.stdin,
+                        stdout=sys.stdout,
+                        stderr=sys.stderr,
+                        timeout=timeout,
+                    )
+                except FileNotFoundError:
+                    return ExecutionResult(success=False, message="bash not found on this system.")
+                except subprocess.TimeoutExpired:
+                    return ExecutionResult(success=False, message=f"Command timed out after {timeout}s: {cmd}")
+                except OSError as exc:
+                    return ExecutionResult(success=False, message=f"Could not execute command: {exc}")
+                # Also mirror to GUI terminal via returned message
+                if result.returncode != 0:
+                    return ExecutionResult(
+                        success=False,
+                        message=f"Command executed in launcher terminal (exit {result.returncode}): {cmd}",
+                        data={"exit_code": result.returncode, "command": cmd},
+                    )
+                return ExecutionResult(
+                    success=True,
+                    message=f"Command executed in launcher terminal: {cmd}",
+                    data={"exit_code": 0, "command": cmd},
+                )
+
             try:
                 result = subprocess.run(
                     ["bash", "-lc", cmd],
@@ -121,6 +170,21 @@ class TerminalSession:
 
             output = (result.stdout or "") + (result.stderr or "")
             output = output.strip()
+            # Echo to launcher terminal so user sees progress/commands there as well
+            try:
+                if sys.__stdout__.isatty():
+                    print(f"\n$ {cmd}", file=sys.__stdout__, flush=True)
+                    if output:
+                        print(output, file=sys.__stdout__, flush=True)
+                    else:
+                        print(f"(exit {result.returncode})", file=sys.__stdout__, flush=True)
+            except Exception:
+                pass
+            try:
+                if sys.__stderr__.isatty() and result.stderr:
+                    print(result.stderr.strip(), file=sys.__stderr__, flush=True)
+            except Exception:
+                pass
 
             # Update cwd if command changed directory via side effect? For commands like `mkdir -p foo && cd foo`
             # We don't auto-track, user should use explicit `cd`. If they do `cd` via ; chain, the shell's cd is lost.
