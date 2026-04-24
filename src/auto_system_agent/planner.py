@@ -24,7 +24,7 @@ class Planner:
     local; the model only decides *what* to do.
     """
 
-    def __init__(self, config: dict | None = None) -> None:
+    def __init__(self, config: dict | None = None, system_config: dict | None = None) -> None:
         config = config or {}
         self._url = (
             str(config.get("url") or os.getenv("AUTO_AGENT_OLLAMA_URL", "")).strip()
@@ -51,6 +51,7 @@ class Planner:
             self._timeout = 30.0
         api_key_raw = str(config.get("api_key") or os.getenv("AUTO_AGENT_OLLAMA_API_KEY", "") or os.getenv("AUTO_AGENT_LLM_API_KEY", "")).strip()
         self._api_key = api_key_raw
+        self._system_config = system_config if isinstance(system_config, dict) else None
 
     def plan(self, user_input: str) -> PlannedTask:
         return self.plan_tasks(user_input)[0]
@@ -74,6 +75,20 @@ class Planner:
         if not self._url:
             return None
 
+        # Include system context so LLM generates correct package-manager commands (apt/dnf/pacman/snap/flatpak)
+        system_fragment = ""
+        if isinstance(self._system_config, dict) and self._system_config:
+            try:
+                from auto_system_agent.system_info import system_config_from_dict
+                cfg = system_config_from_dict(self._system_config)
+                system_fragment = cfg.to_prompt_fragment()
+            except Exception:
+                system_fragment = ""
+        if system_fragment:
+            system_context = f"\nHost system: {system_fragment}\nUse the correct package manager for installs (e.g. apt for Debian/Ubuntu, dnf for Fedora, pacman for Arch, snap/flatpak if available). Match arch {self._system_config.get('arch','')}.\n"
+        else:
+            system_context = "\n"
+
         system_prompt = (
             "You are the planner for a desktop automation agent with a real bash terminal. "
             "Given the user's instruction, decide whether it requests a system task or is general conversation.\n"
@@ -85,12 +100,13 @@ class Planner:
             "- For run_command, target is the EXACT shell command to run via bash -lc (terminal instance).\n"
             "  Examples: 'touch ~/Downloads/test.py', 'mkdir -p ~/Downloads/demo && touch ~/Downloads/demo/file.txt',\n"
             "  'ls -la ~/Downloads', 'rm ~/Downloads/test.py', 'cp ~/Downloads/a.txt ~/Downloads/b.txt',\n"
-            "  'cat ~/Downloads/test.py', 'sudo apt install -y vlc', 'zip -r ~/Downloads/archive.zip ~/Downloads/demo',\n"
+            "  'cat ~/Downloads/test.py', 'sudo apt install -y vlc', 'sudo dnf install -y vlc', 'sudo pacman -S --noconfirm vlc', 'snap install vlc', 'flatpak install -y flathub org.videolan.VLC',\n"
             "  'pwd', 'cd ~/Downloads', 'echo hello'.\n"
             "- For help, target is empty.\n"
             "- If the instruction contains multiple steps, return multiple entries in tasks in order (each is a run_command).\n"
             "- If it is general chat, return {\"tasks\": [{\"action\": \"unknown\", \"target\": \"\"}]}\n"
             "- Always use absolute or ~/ paths. For Downloads use ~/Downloads/<name>. Do not use bare filenames.\n"
+            f"{system_context}"
             "- Never add fields outside the schema."
         )
 

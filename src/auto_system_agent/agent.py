@@ -34,10 +34,12 @@ class AutoSystemAgent:
         event_logger: EventLogger | None = None,
         llm_config: dict | None = None,
         confirm_high_risk: bool = True,
+        system_config: dict | None = None,
     ) -> None:
         llm_mapper = LLMToolMapper(config=llm_config)
-        # Planner is now LLM-only and needs the OLLAMA config
-        self._planner = planner or Planner(config=llm_config)
+        # Planner is now LLM-only and needs the OLLAMA config + system context
+        self._planner = planner or Planner(config=llm_config, system_config=system_config)
+        self._system_config = system_config if isinstance(system_config, dict) else None
         self._selector = selector or ToolSelector(llm_mapper=llm_mapper)
         self._executor = executor or SafeExecutor()
         self._formatter = formatter or ResultFormatter()
