@@ -80,14 +80,20 @@ def _resolve_app_name(library: dict, app_name: str) -> tuple[str | None, float]:
     return best_match, best_score
 
 
-def _build_linux_install_command(package_name: str) -> list[str] | None:
-    package_manager = detect_linux_package_manager()
+def _build_linux_install_command(package_name: str, preferred_manager: str | None = None) -> list[str] | None:
+    package_manager = (preferred_manager or "").strip().lower() or detect_linux_package_manager()
     if package_manager == "apt":
         return ["sudo", "apt", "install", "-y", package_name]
     if package_manager == "dnf":
         return ["sudo", "dnf", "install", "-y", package_name]
     if package_manager == "pacman":
         return ["sudo", "pacman", "-S", "--noconfirm", package_name]
+    if package_manager == "snap":
+        return ["sudo", "snap", "install", package_name]
+    if package_manager == "flatpak":
+        return ["flatpak", "install", "-y", "flathub", package_name]
+    if package_manager == "zypper":
+        return ["sudo", "zypper", "install", "-y", package_name]
     return None
 
 
@@ -118,14 +124,20 @@ def verify_install_environment(command: list[str]) -> ExecutionResult:
     return ExecutionResult(success=True, message="Install environment verified.")
 
 
-def build_install_command(app_name: str) -> ExecutionResult:
+def build_install_command(app_name: str, system_config: dict | None = None) -> ExecutionResult:
     """Builds a package-manager command for the requested app."""
     if not app_name:
         return ExecutionResult(success=False, message="No application name was provided.")
 
     library = _load_app_library()
     matched_app, confidence = _resolve_app_name(library, app_name)
-    os_name = detect_os()
+    # Allow system_config to override OS detection (user choice)
+    if isinstance(system_config, dict) and system_config.get("os_name"):
+        os_name = str(system_config["os_name"]).strip().lower()
+        if os_name not in {"linux", "windows", "macos"}:
+            os_name = detect_os()
+    else:
+        os_name = detect_os()
 
     if matched_app is None or confidence < 0.5:
         return ExecutionResult(
@@ -142,7 +154,15 @@ def build_install_command(app_name: str) -> ExecutionResult:
     package_name = library[matched_app][os_name]
     command: List[str]
     if os_name == "linux":
-        linux_command = _build_linux_install_command(package_name)
+        preferred = None
+        if isinstance(system_config, dict):
+            preferred = str(system_config.get("package_manager", "")).strip().lower()
+            # Allow snap/flatpak choice even if primary is apt
+            # If user explicitly chose snap/flatpak as primary, honor it
+            if preferred in {"snap", "flatpak"}:
+                # For snap/flatpak we still use that manager directly
+                pass
+        linux_command = _build_linux_install_command(package_name, preferred_manager=preferred)
         if linux_command is None:
             return ExecutionResult(
                 success=False,
