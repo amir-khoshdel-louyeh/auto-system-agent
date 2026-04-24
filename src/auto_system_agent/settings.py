@@ -19,6 +19,7 @@ class LLMSettings:
     install_retries: int = 2
     confirm_high_risk: bool = True
     window_geometry: str = "920x560"
+    system_config: dict | None = None  # persisted SystemConfig dict (see system_info.SystemConfig)
 
 
 class SettingsStore:
@@ -59,6 +60,11 @@ class SettingsStore:
 
         window_geometry = self._normalize_window_geometry(payload.get("window_geometry", "920x560"))
 
+        # System config persisted as dict; keep as-is for lazy migration
+        system_config = payload.get("system_config")
+        if not isinstance(system_config, dict):
+            system_config = None
+
         return LLMSettings(
             provider_mode=self._normalize_provider_mode(payload.get("provider_mode", "local")),
             url=str(payload.get("url", "")).strip(),
@@ -69,6 +75,7 @@ class SettingsStore:
             install_retries=max(0, install_retries),
             confirm_high_risk=confirm_high_risk,
             window_geometry=window_geometry,
+            system_config=system_config,
         )
 
     def save(self, settings: LLMSettings) -> None:
@@ -83,8 +90,18 @@ class SettingsStore:
             "install_retries": int(settings.install_retries),
             "confirm_high_risk": bool(settings.confirm_high_risk),
             "window_geometry": self._normalize_window_geometry(settings.window_geometry),
+            "system_config": settings.system_config if isinstance(settings.system_config, dict) else None,
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+    def get_system_config(self, settings: LLMSettings):
+        """Return SystemConfig from settings or freshly detected if missing."""
+        from auto_system_agent.system_info import SystemConfig, detect_system_config, system_config_from_dict
+
+        if isinstance(settings.system_config, dict) and settings.system_config:
+            return system_config_from_dict(settings.system_config)
+        # No persisted config – detect and persist lazily is handled by GUI window
+        return detect_system_config()
 
     def resolve_llm_config(self, settings: LLMSettings) -> dict:
         """Build runtime config from local/API sources. Mandatory startup choice decides mode."""
