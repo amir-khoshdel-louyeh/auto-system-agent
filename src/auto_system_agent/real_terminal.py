@@ -62,10 +62,11 @@ class RealTerminalFrame(tk.Frame):
         bg = "#0f172a"
         fg = "#f8fafc"
         # Try JetBrains Mono 10, fallback to Monospace
+        # wrap=CHAR limits text to widget width (no horizontal overflow beyond page)
         try:
             self.text = scrolledtext.ScrolledText(
                 self,
-                wrap=tk.NONE,
+                wrap=tk.CHAR,
                 font=("JetBrains Mono", 10),
                 bg=bg,
                 fg=fg,
@@ -84,7 +85,7 @@ class RealTerminalFrame(tk.Frame):
         except Exception:
             self.text = scrolledtext.ScrolledText(
                 self,
-                wrap=tk.NONE,
+                wrap=tk.CHAR,
                 font=("Monospace", 10),
                 bg=bg,
                 fg=fg,
@@ -119,6 +120,11 @@ class RealTerminalFrame(tk.Frame):
         self._cwd = (cwd or Path.home()).resolve() if (cwd or Path.home()).exists() else Path.cwd().resolve()
         if not self._cwd.exists():
             self._cwd = Path.cwd().resolve()
+        # Page limits: rows/cols updated by _set_winsize, used to trim buffer
+        self._rows: int = 24
+        self._cols: int = 80
+        # How many pages to keep as scrollback before trimming (1 = strictly page length)
+        self._page_limit_factor: int = 1  # strictly limited to visible page
 
         try:
             self.master_fd, slave_fd = pty.openpty()
@@ -183,6 +189,23 @@ class RealTerminalFrame(tk.Frame):
         except Exception:
             pass
 
+    def _enforce_page_limits(self):
+        """Trim text widget so content never exceeds visible page length."""
+        try:
+            # Strict limit: keep only last N lines where N = visible rows
+            # Use _page_limit_factor to allow 1 page exactly (user request)
+            max_lines = max(5, self._rows * self._page_limit_factor)
+            # Also cap absolute to avoid extreme growth when window huge
+            max_lines = min(max_lines, 500)
+            end = self.text.index(tk.END)
+            line_count = int(end.split(".")[0]) - 1
+            if line_count > max_lines:
+                delete_until = f"{line_count - max_lines + 1}.0"
+                self.text.delete("1.0", delete_until)
+                # Re-enforce after delete, trim char limit per line is handled by wrap=CHAR
+        except Exception:
+            pass
+
     # ---- Window size ----
     def _set_winsize(self):
         if self.master_fd is None:
@@ -201,6 +224,8 @@ class RealTerminalFrame(tk.Frame):
             except Exception:
                 cols = max(20, w // 8)
                 rows = max(5, h // 17)
+            self._cols = cols
+            self._rows = rows
             s = struct.pack("HHHH", rows, cols, 0, 0)
             fcntl.ioctl(self.master_fd, termios.TIOCSWINSZ, s)
             if self.proc and self.proc.pid:
@@ -208,6 +233,13 @@ class RealTerminalFrame(tk.Frame):
                     os.killpg(os.getpgid(self.proc.pid), signal.SIGWINCH)
                 except Exception:
                     pass
+            # Enforce limits immediately after resize so buffer fits new page
+            try:
+                self.text.configure(state=tk.NORMAL)
+                self._enforce_page_limits()
+                self.text.configure(state=tk.DISABLED)
+            except Exception:
+                pass
         except Exception:
             pass
 
@@ -329,6 +361,8 @@ class RealTerminalFrame(tk.Frame):
                         tail = tail[-12000:]
                     tags = tuple(current_tags) if current_tags else ()
                     self.text.insert(tk.END, tail, tags)
+            # Enforce page-length limit (vertical + width via wrap=CHAR)
+            self._enforce_page_limits()
             self.text.configure(state=tk.DISABLED)
             self.text.see(tk.END)
         except Exception:
@@ -339,6 +373,7 @@ class RealTerminalFrame(tk.Frame):
                 if len(clean) > 8000:
                     clean = clean[-8000:]
                 self.text.insert(tk.END, clean)
+                self._enforce_page_limits()
                 self.text.configure(state=tk.DISABLED)
                 self.text.see(tk.END)
             except Exception:
