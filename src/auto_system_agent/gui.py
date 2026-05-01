@@ -8,6 +8,7 @@ from typing import Callable
 
 from auto_system_agent.agent import AutoSystemAgent
 from auto_system_agent.models import ExecutionResult, StepStatus
+from auto_system_agent.real_terminal import RealTerminalFrame
 from auto_system_agent.settings import LLMSettings, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL, SettingsStore
 from auto_system_agent.system_info import SystemConfig, detect_system_config, system_config_from_dict, system_config_to_dict
 
@@ -92,15 +93,16 @@ class AgentChatGUI:
         menu_bar.add_cascade(label="System", menu=system_menu)
         self.root.config(menu=menu_bar)
 
-        # Main container: chat fills entire width (terminal removed)
+        # Main container: 1/4 chat | 3/4 terminal pinned (Alacritty style)
         main_container = tk.Frame(self.root, bg=BG_APP)
         main_container.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
-        main_container.grid_columnconfigure(0, weight=1)
+        main_container.grid_columnconfigure(0, weight=1, uniform="panel")
+        main_container.grid_columnconfigure(1, weight=3, uniform="panel")
         main_container.grid_rowconfigure(0, weight=1)
 
-        # Chat panel: full width
+        # Left panel (1/4): chat + input stacked vertically
         left_panel = tk.Frame(main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
-        left_panel.grid(row=0, column=0, sticky="nsew")
+        left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         left_panel.grid_rowconfigure(0, weight=1)
         left_panel.grid_columnconfigure(0, weight=1)
 
@@ -161,7 +163,77 @@ class AgentChatGUI:
         )
         self.send_button.grid(row=0, column=1, padx=(6, 0))
 
+        # Right panel (3/4): pinned terminal – Alacritty style, pty-backed bash, same session for AI and you
+        right_panel = tk.Frame(main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
+        right_panel.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+        right_panel.grid_rowconfigure(1, weight=1)
+        right_panel.grid_columnconfigure(0, weight=1)
+
+        header_frame = tk.Frame(right_panel, bg=BG_PANEL)
+        header_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 4))
+        header_frame.grid_columnconfigure(0, weight=1)
+        tk.Label(header_frame, text="Terminal — Alacritty (pty, same for AI & you)", font=("TkDefaultFont", 10, "bold"), fg=ACCENT, bg=BG_PANEL).grid(row=0, column=0, sticky="w")
+        tk.Button(header_frame, text="Clear", command=lambda: self.real_terminal.text.configure(state=tk.NORMAL) or self.real_terminal.text.delete("1.0", tk.END) or self.real_terminal.text.configure(state=tk.DISABLED) if hasattr(self, "real_terminal") else None, bg="#6b7280", fg="#ffffff", relief=tk.FLAT, padx=8, font=("TkDefaultFont", 8)).grid(row=0, column=1, sticky="e")
+        tk.Label(header_frame, text="AI and you share this SAME terminal. sudo/password prompts appear here — type directly here.", font=("TkDefaultFont", 8), fg="#b45309", bg=BG_PANEL, wraplength=520, justify=tk.LEFT).grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+
+        # Real pty terminal (bash -i) – auto-started, no external button
+        try:
+            cwd_for_pty = self.agent._executor.terminal.cwd if hasattr(self.agent, "_executor") and hasattr(self.agent._executor, "terminal") else None
+        except Exception:
+            cwd_for_pty = None
+        self.real_terminal = RealTerminalFrame(right_panel, cwd=cwd_for_pty, bg=BG_PANEL, highlightbackground="#0f172a", highlightthickness=1)
+        self.real_terminal.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        self.terminal_text = self.real_terminal.text
         self._step_progress_rows: dict[int, int] = {}
+        self.progress_list = self.terminal_text
+
+        # Patch agent's TerminalSession to use the SAME pty (so AI commands run in this visible terminal)
+        try:
+            _orig_terminal = self.agent._executor.terminal
+            real_term = self.real_terminal
+
+            def _pty_run(cmd, timeout=30):
+                out, code = real_term.run_command(cmd, timeout=timeout)
+                try:
+                    _orig_terminal._history.append(cmd)
+                    if len(_orig_terminal._history) > 500:
+                        _orig_terminal._history = _orig_terminal._history[-500:]
+                    stripped = cmd.strip()
+                    if stripped == "cd" or stripped.startswith("cd "):
+                        import shlex
+                        from pathlib import Path
+                        try:
+                            parts = shlex.split(stripped)
+                            target = parts[1] if len(parts) > 1 else "~"
+                            if target == "~":
+                                p = Path.home().resolve()
+                            elif target.startswith("~"):
+                                p = Path(target).expanduser().resolve()
+                            elif target.startswith("/"):
+                                p = Path(target).resolve()
+                            else:
+                                p = (_orig_terminal._cwd / target).resolve()
+                            if p.exists() and p.is_dir():
+                                _orig_terminal._cwd = p
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                success = code == 0
+                msg = out.strip() if out.strip() else (f"Command executed: {cmd}" if success else f"Command failed (exit {code}): {cmd}")
+                if len(msg) > 6000:
+                    msg = msg[-6000:]
+                return ExecutionResult(success=success, message=msg, data={"exit_code": code, "command": cmd})
+
+            _orig_terminal.run = _pty_run
+        except Exception as e:
+            # If patch fails, keep original terminal but log
+            try:
+                self.real_terminal.text.configure(state=tk.NORMAL)
+                self.real_terminal.text.insert(tk.END, f"Failed to attach pty to executor: {e}\n")
+                self.real_terminal.text.configure(state=tk.DISABLED)
+            except Exception:
+                pass
 
         self._append_message("Agent", "Welcome. Type help to see example commands.")
         self.root.after(50, self._drain_ui_queue)
@@ -933,6 +1005,12 @@ class AgentChatGUI:
             if geometry and isinstance(geometry, str) and geometry.strip():
                 self._settings.window_geometry = geometry.strip()
                 self._settings_store.save(self._settings)
+        except Exception:
+            pass
+        # Properly terminate pinned terminal pty and bash
+        try:
+            if hasattr(self, "real_terminal") and self.real_terminal is not None:
+                self.real_terminal.destroy()
         except Exception:
             pass
         try:
