@@ -540,7 +540,7 @@ class RealTerminalFrame(tk.Frame):
         return "break"
 
     # ---- Public API for AI ----
-    def run_command(self, cmd: str, timeout: int = 30) -> tuple[str, int]:
+    def run_command(self, cmd: str, timeout: int = 300) -> tuple[str, int]:
         """Run a command in this SAME pty and capture output.
 
         Writes `cmd` + marker, reads until marker appears, returns (output, exit_code).

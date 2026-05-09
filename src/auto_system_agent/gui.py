@@ -227,7 +227,7 @@ class AgentChatGUI:
             _orig_terminal = self.agent._executor.terminal
             real_term = self.real_terminal
 
-            def _pty_run(cmd, timeout=30):
+            def _pty_run(cmd, timeout=300):
                 out, code = real_term.run_command(cmd, timeout=timeout)
                 try:
                     _orig_terminal._history.append(cmd)

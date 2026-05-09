@@ -73,7 +73,7 @@ class TerminalSession:
         # cd with too many args -> treat as error, but let shell handle
         return None
 
-    def run(self, command: str, timeout: int = 30) -> ExecutionResult:
+    def run(self, command: str, timeout: int = 300) -> ExecutionResult:
         cmd = command.strip()
         if not cmd:
             return ExecutionResult(success=False, message="No command provided.")
