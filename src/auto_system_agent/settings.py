@@ -15,7 +15,7 @@ class LLMSettings:
     api_key: str = ""
     model: str = OLLAMA_DEFAULT_MODEL
     timeout: float = 30.0
-    gui_timeout_seconds: float = 45.0
+    gui_timeout_seconds: float = 300.0
     install_retries: int = 2
     confirm_high_risk: bool = True
     window_geometry: str = "920x560"
@@ -44,11 +44,11 @@ class SettingsStore:
         except (TypeError, ValueError):
             timeout = 30.0
 
-        gui_timeout_value = payload.get("gui_timeout_seconds", 45.0)
+        gui_timeout_value = payload.get("gui_timeout_seconds", 300.0)
         try:
             gui_timeout_seconds = float(gui_timeout_value)
         except (TypeError, ValueError):
-            gui_timeout_seconds = 45.0
+            gui_timeout_seconds = 300.0
 
         retries_value = payload.get("install_retries", 2)
         try:
