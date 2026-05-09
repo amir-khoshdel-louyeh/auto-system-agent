@@ -1506,13 +1506,13 @@ class AgentChatGUI:
                 return
             # Validate App
             try:
-                gui_timeout = float(app_timeout_entry.get().strip() or "45")
+                gui_timeout = float(app_timeout_entry.get().strip() or "300")
                 install_retries = int(app_retries_entry.get().strip() or "2")
             except ValueError:
                 messagebox.showerror("Invalid value", "Timeout must be numeric and retries must be integer.", parent=window)
                 return
-            if gui_timeout <= 0:
-                messagebox.showerror("Invalid value", "GUI timeout must be > 0.", parent=window)
+            if gui_timeout < 0:
+                messagebox.showerror("Invalid value", "GUI timeout must be >= 0 (0 disables timeout).", parent=window)
                 return
             if install_retries < 0:
                 messagebox.showerror("Invalid value", "Install retries cannot be negative.", parent=window)
@@ -1572,14 +1572,14 @@ class AgentChatGUI:
 
         def save_and_close() -> None:
             try:
-                gui_timeout = float(timeout_entry.get().strip() or "45")
+                gui_timeout = float(timeout_entry.get().strip() or "300")
                 install_retries = int(retries_entry.get().strip() or "2")
             except ValueError:
                 messagebox.showerror("Invalid value", "Timeout must be numeric and retries must be integer.", parent=dialog)
                 return
 
-            if gui_timeout <= 0:
-                messagebox.showerror("Invalid value", "GUI timeout must be > 0.", parent=dialog)
+            if gui_timeout < 0:
+                messagebox.showerror("Invalid value", "GUI timeout must be >= 0 (0 disables timeout).", parent=dialog)
                 return
             if install_retries < 0:
                 messagebox.showerror("Invalid value", "Install retries cannot be negative.", parent=dialog)
