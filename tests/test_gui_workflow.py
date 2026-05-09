@@ -271,7 +271,8 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(formatter.format_many_calls, [])
 
         self.assertIn(("You", "create folder demo"), messages)
-        self.assertTrue(any(speaker == "System" and "running create_folder" in text.lower() for speaker, text in messages))
+        # Progress is now hidden from chat – only progress_updates, not System bubbles
+        self.assertFalse(any(speaker == "System" for speaker, text in messages))
         self.assertIn(("Agent", "[SUCCESS] create_folder:demo"), messages)
 
     def test_on_send_runs_multi_step_pipeline_and_displays_final_summary(self):
@@ -354,7 +355,7 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         gui._start_background_task(long_task)
         gui._on_cancel()
         self.assertTrue(drain_until_idle(gui), "GUI worker did not settle after cancel")
-        self.assertTrue(any(speaker == "System" and "Cancelled running request" in text for speaker, text in messages))
+        self.assertTrue(any(speaker == "Agent" and "Cancelled" in text for speaker, text in messages))
         self.assertFalse(any(speaker == "Agent" and "should be ignored" in text for speaker, text in messages))
 
     def test_timeout_stops_waiting_for_running_request(self):
@@ -367,7 +368,7 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
 
         gui._start_background_task(long_task)
         self.assertTrue(drain_until_idle(gui), "GUI worker did not settle after timeout")
-        self.assertTrue(any(speaker == "System" and "timed out" in text.lower() for speaker, text in messages))
+        self.assertTrue(any(speaker == "Agent" and "timed out" in text.lower() for speaker, text in messages))
         self.assertFalse(any(speaker == "Agent" and "late response" in text for speaker, text in messages))
 
     def test_insert_tool_command_populates_entry(self):

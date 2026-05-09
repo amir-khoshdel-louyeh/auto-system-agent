@@ -13,14 +13,20 @@ from auto_system_agent.settings import LLMSettings, OLLAMA_DEFAULT_MODEL, OLLAMA
 from auto_system_agent.system_info import SystemConfig, detect_system_config, system_config_from_dict, system_config_to_dict
 
 
-BG_APP = "#f2f5f9"
+BG_APP = "#eef2f7"
 BG_PANEL = "#ffffff"
-BG_USER = "#d7ebff"
-BG_AGENT = "#eef2f7"
-BG_SYSTEM = "#fff4d9"
-FG_PRIMARY = "#1f2937"
-FG_MUTED = "#6b7280"
+BG_USER = "#dbeafe"
+BG_AGENT = "#f0fdf4"
+BG_AGENT_ERROR = "#fef2f2"
+BG_SYSTEM = "#fffbeb"
+FG_PRIMARY = "#1e293b"
+FG_MUTED = "#64748b"
 ACCENT = "#0f4c81"
+ACCENT_LIGHT = "#3b82f6"
+SUCCESS = "#16a34a"
+SUCCESS_BG = "#dcfce7"
+ERROR = "#dc2626"
+ERROR_BG = "#fee2e2"
 
 
 class AgentChatGUI:
@@ -103,11 +109,27 @@ class AgentChatGUI:
         # Left panel (1/4): chat + input stacked vertically
         left_panel = tk.Frame(main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
         left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        left_panel.grid_rowconfigure(0, weight=1)
+        left_panel.grid_rowconfigure(1, weight=1)
         left_panel.grid_columnconfigure(0, weight=1)
 
+        # --- Agent header with status indicator ---
+        agent_header = tk.Frame(left_panel, bg=ACCENT, height=42)
+        agent_header.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
+        agent_header.grid_propagate(False)
+        agent_header.grid_columnconfigure(0, weight=1)
+        left_head = tk.Frame(agent_header, bg=ACCENT)
+        left_head.grid(row=0, column=0, sticky="w", padx=12)
+        tk.Label(left_head, text="⬢", font=("TkDefaultFont", 14), fg="#ffffff", bg=ACCENT).pack(side=tk.LEFT, padx=(0, 6))
+        tk.Label(left_head, text="Agent", font=("Segoe UI", 11, "bold"), fg="#ffffff", bg=ACCENT).pack(side=tk.LEFT)
+        tk.Label(left_head, text="Automated assistant", font=("Segoe UI", 8), fg="#cbd5e1", bg=ACCENT).pack(side=tk.LEFT, padx=(8, 0))
+        # status dot + text
+        self._agent_status_dot = tk.Label(agent_header, text="●", font=("TkDefaultFont", 10), fg=SUCCESS, bg=ACCENT)
+        self._agent_status_dot.grid(row=0, column=1, sticky="e", padx=(0, 4))
+        self._agent_status_label = tk.Label(agent_header, text="Ready", font=("Segoe UI", 8), fg="#e0f2fe", bg=ACCENT)
+        self._agent_status_label.grid(row=0, column=2, sticky="e", padx=(0, 12))
+
         chat_container = tk.Frame(left_panel, bg=BG_PANEL)
-        chat_container.grid(row=0, column=0, sticky="nsew", padx=6, pady=6)
+        chat_container.grid(row=1, column=0, sticky="nsew", padx=6, pady=6)
         chat_container.grid_rowconfigure(0, weight=1)
         chat_container.grid_columnconfigure(0, weight=1)
 
@@ -115,53 +137,69 @@ class AgentChatGUI:
             chat_container,
             wrap=tk.WORD,
             state=tk.DISABLED,
-            font=("TkDefaultFont", 10),
-            bg=BG_PANEL,
+            font=("Segoe UI", 10),
+            bg="#f8fafc",
             fg=FG_PRIMARY,
             borderwidth=0,
             relief=tk.FLAT,
-            padx=14,
-            pady=10,
+            padx=16,
+            pady=12,
             insertbackground=FG_PRIMARY,
+            spacing1=4,
+            spacing3=4,
         )
         self._configure_chat_styles()
         self.chat_log.grid(row=0, column=0, sticky="nsew")
 
         input_frame = tk.Frame(left_panel, bg=BG_PANEL)
-        input_frame.grid(row=1, column=0, sticky="ew", padx=6, pady=(0, 6))
+        input_frame.grid(row=2, column=0, sticky="ew", padx=8, pady=(0, 8))
         input_frame.grid_columnconfigure(0, weight=1)
 
-        # Entry row
-        entry_row = tk.Frame(input_frame, bg=BG_PANEL)
-        entry_row.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        # Entry row – modern pill style
+        entry_row = tk.Frame(input_frame, bg="#f1f5f9", highlightbackground="#cbd5e1", highlightthickness=1, bd=0)
+        entry_row.grid(row=0, column=0, sticky="ew", pady=(0, 0), ipady=2)
         entry_row.grid_columnconfigure(0, weight=1)
 
         self.entry = tk.Entry(
             entry_row,
-            font=("TkDefaultFont", 11),
-            bg="#f8fafc",
+            font=("Segoe UI", 11),
+            bg="#f1f5f9",
             fg=FG_PRIMARY,
             relief=tk.FLAT,
             borderwidth=0,
-            highlightbackground="#c7d2e0",
-            highlightthickness=1,
+            highlightthickness=0,
             insertbackground=FG_PRIMARY,
+            disabledbackground="#e2e8f0",
         )
-        self.entry.grid(row=0, column=0, sticky="ew")
+        self.entry.grid(row=0, column=0, sticky="ew", padx=(12, 6), pady=8)
+        try:
+            self.entry.insert(0, "")
+        except Exception:
+            pass
         self.entry.bind("<Return>", self._on_send)
+        # placeholder handling
+        self._entry_placeholder = "Ask the agent..."
+        self._entry_has_placeholder = False
+        self._show_entry_placeholder()
+        self.entry.bind("<FocusIn>", self._on_entry_focus_in)
+        self.entry.bind("<FocusOut>", self._on_entry_focus_out)
 
         self.send_button = tk.Button(
             entry_row,
-            text="Send",
+            text="➤ Send",
             command=self._on_send,
             bg=ACCENT,
             fg="#ffffff",
             activebackground="#0c3a62",
             activeforeground="#ffffff",
             relief=tk.FLAT,
-            padx=10,
+            padx=14,
+            pady=4,
+            font=("Segoe UI", 9, "bold"),
+            cursor="hand2",
+            bd=0,
         )
-        self.send_button.grid(row=0, column=1, padx=(6, 0))
+        self.send_button.grid(row=0, column=1, padx=(0, 6), pady=4)
 
         # Right panel (3/4): pinned terminal – Alacritty style, pty-backed bash, same session for AI and you
         right_panel = tk.Frame(main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
@@ -239,93 +277,237 @@ class AgentChatGUI:
         self.root.after(50, self._drain_ui_queue)
 
     def _configure_chat_styles(self) -> None:
+        # --- Header labels (who) ---
         self.chat_log.tag_configure(
             "who_you",
             foreground=ACCENT,
-            font=("TkDefaultFont", 9, "bold"),
+            font=("Segoe UI", 8, "bold"),
             justify="right",
-            rmargin=26,
-            spacing1=10,
+            rmargin=16,
+            spacing1=14,
             spacing3=2,
         )
         self.chat_log.tag_configure(
             "who_agent",
-            foreground="#374151",
-            font=("TkDefaultFont", 9, "bold"),
+            foreground="#065f46",
+            font=("Segoe UI", 8, "bold"),
             justify="left",
-            lmargin1=26,
-            lmargin2=26,
-            spacing1=10,
+            lmargin1=16,
+            lmargin2=16,
+            spacing1=14,
+            spacing3=2,
+        )
+        self.chat_log.tag_configure(
+            "who_agent_success",
+            foreground=SUCCESS,
+            font=("Segoe UI", 8, "bold"),
+            justify="left",
+            lmargin1=16,
+            lmargin2=16,
+            spacing1=14,
+            spacing3=2,
+        )
+        self.chat_log.tag_configure(
+            "who_agent_error",
+            foreground=ERROR,
+            font=("Segoe UI", 8, "bold"),
+            justify="left",
+            lmargin1=16,
+            lmargin2=16,
+            spacing1=14,
             spacing3=2,
         )
         self.chat_log.tag_configure(
             "who_system",
-            foreground="#7c5e10",
-            font=("TkDefaultFont", 9, "bold"),
-            justify="left",
-            lmargin1=26,
-            lmargin2=26,
-            spacing1=10,
+            foreground="#92400e",
+            font=("Segoe UI", 8),
+            justify="center",
+            spacing1=6,
             spacing3=2,
         )
-
+        # --- Bubbles ---
         self.chat_log.tag_configure(
             "bubble_you",
             background=BG_USER,
-            foreground=FG_PRIMARY,
+            foreground="#1e3a5f",
+            font=("Segoe UI", 10),
             justify="right",
-            rmargin=26,
-            spacing3=8,
+            rmargin=16,
+            lmargin1=60,
+            lmargin2=60,
+            spacing1=4,
+            spacing3=10,
+            borderwidth=0,
+            relief="flat",
         )
         self.chat_log.tag_configure(
             "bubble_agent",
             background=BG_AGENT,
-            foreground=FG_PRIMARY,
+            foreground="#14532d",
+            font=("Segoe UI", 10),
             justify="left",
-            lmargin1=26,
-            lmargin2=26,
-            spacing3=8,
+            lmargin1=16,
+            lmargin2=16,
+            rmargin=60,
+            spacing1=4,
+            spacing3=10,
+        )
+        self.chat_log.tag_configure(
+            "bubble_agent_success",
+            background=SUCCESS_BG,
+            foreground="#14532d",
+            font=("Segoe UI", 10, "bold"),
+            justify="left",
+            lmargin1=16,
+            lmargin2=16,
+            rmargin=60,
+            spacing1=4,
+            spacing3=10,
+        )
+        self.chat_log.tag_configure(
+            "bubble_agent_error",
+            background=ERROR_BG,
+            foreground="#7f1d1d",
+            font=("Segoe UI", 10, "bold"),
+            justify="left",
+            lmargin1=16,
+            lmargin2=16,
+            rmargin=60,
+            spacing1=4,
+            spacing3=10,
         )
         self.chat_log.tag_configure(
             "bubble_system",
             background=BG_SYSTEM,
-            foreground=FG_PRIMARY,
-            justify="left",
-            lmargin1=26,
-            lmargin2=26,
-            spacing3=8,
+            foreground="#78350f",
+            font=("Segoe UI", 8, "italic"),
+            justify="center",
+            lmargin1=40,
+            lmargin2=40,
+            rmargin=40,
+            spacing1=4,
+            spacing3=10,
+        )
+        self.chat_log.tag_configure(
+            "timestamp",
+            foreground="#94a3b8",
+            font=("Segoe UI", 7),
+            justify="right" if False else "left",
+            spacing3=2,
         )
 
     def _append_message(self, speaker: str, message: str) -> None:
-        if speaker == "You":
+        # Only show user and agent; hide verbose System progress as requested,
+        # but keep welcome/important system as subtle center note if needed.
+        import time as _time
+        ts = _time.strftime("%H:%M")
+        # Simplify agent output to success / error only
+        if speaker == "Agent":
+            low = message.lower()
+            is_error = ("[error]" in low or " error" in low or "failed" in low or "✗" in message)
+            is_success = ("[success]" in low or "success" in low or "succeeded" in low or "✓" in message)
+            # Welcome message is neutral
+            if message.strip().lower().startswith("welcome"):
+                who_tag = "who_agent"
+                body_tag = "bubble_agent"
+                label = "◆ Agent  " + ts
+            elif is_error and not is_success:
+                who_tag = "who_agent_error"
+                body_tag = "bubble_agent_error"
+                label = "✗ Agent  " + ts
+                # Only show concise status, details are in terminal
+                message = "✗ Error — see terminal for details."
+            elif is_success:
+                who_tag = "who_agent_success"
+                body_tag = "bubble_agent_success"
+                label = "✓ Agent  " + ts
+                message = "✓ Succeeded — see terminal for output."
+            else:
+                # Generic agent (e.g., help) keep as is but with success style
+                who_tag = "who_agent"
+                body_tag = "bubble_agent"
+                label = "◆ Agent  " + ts
+        elif speaker == "You":
             who_tag = "who_you"
             body_tag = "bubble_you"
-            label = "You"
+            label = "You  " + ts + "  ●"
         elif speaker == "System":
-            who_tag = "who_system"
-            body_tag = "bubble_system"
-            label = "System"
+            # Hide noisy progress; only show critical system notes as subtle center text
+            # Keep welcome/empty? For now show as subtle system but could also hide.
+            # To strictly follow 'only user + AI', return without displaying.
+            return
         else:
             who_tag = "who_agent"
             body_tag = "bubble_agent"
-            label = "Agent"
+            label = "◆ Agent  " + ts
 
         self.chat_log.configure(state=tk.NORMAL)
         self.chat_log.insert(tk.END, f"{label}\n", who_tag)
-        self.chat_log.insert(tk.END, f" {message}\n", body_tag)
+        # Add subtle bubble padding via leading space
+        self.chat_log.insert(tk.END, f"  {message}\n", body_tag)
         self.chat_log.insert(tk.END, "\n")
         self.chat_log.configure(state=tk.DISABLED)
         self.chat_log.see(tk.END)
 
+    # --- Entry placeholder & status helpers ---
+    def _show_entry_placeholder(self) -> None:
+        try:
+            if not self.entry.get().strip():
+                self.entry.delete(0, tk.END)
+                self.entry.insert(0, self._entry_placeholder)
+                self.entry.configure(fg="#94a3b8")
+                self._entry_has_placeholder = True
+        except Exception:
+            pass
+
+    def _clear_entry_placeholder(self) -> None:
+        try:
+            if self._entry_has_placeholder:
+                self.entry.delete(0, tk.END)
+                self.entry.configure(fg=FG_PRIMARY)
+                self._entry_has_placeholder = False
+        except Exception:
+            pass
+
+    def _on_entry_focus_in(self, event=None) -> None:
+        self._clear_entry_placeholder()
+
+    def _on_entry_focus_out(self, event=None) -> None:
+        if not self.entry.get().strip():
+            self._show_entry_placeholder()
+
+    def _set_agent_status(self, state: str) -> None:
+        try:
+            if state == "busy":
+                self._agent_status_dot.configure(fg="#f59e0b")
+                self._agent_status_label.configure(text="Working…")
+            elif state == "error":
+                self._agent_status_dot.configure(fg=ERROR)
+                self._agent_status_label.configure(text="Error")
+            elif state == "success":
+                self._agent_status_dot.configure(fg=SUCCESS)
+                self._agent_status_label.configure(text="Done")
+            else:
+                self._agent_status_dot.configure(fg=SUCCESS)
+                self._agent_status_label.configure(text="Ready")
+        except Exception:
+            pass
+
     def _on_send(self, _event=None) -> None:
+        # Handle placeholder
+        if getattr(self, "_entry_has_placeholder", False):
+            return
         user_input = self.entry.get().strip()
-        if not user_input:
+        if not user_input or user_input == getattr(self, "_entry_placeholder", ""):
             return
 
         if self._is_busy or str(self.send_button["state"]) == "disabled":
             return
 
         self.entry.delete(0, tk.END)
+        self._show_entry_placeholder()
+        # Keep placeholder invisible while busy? clear it so next focus shows empty
+        self._clear_entry_placeholder()
         self._append_message("You", user_input)
 
         if user_input.lower() in {"exit", "quit"}:
@@ -347,7 +529,8 @@ class AgentChatGUI:
         if self._is_busy:
             if self._active_request_id is not None:
                 self._cancelled_request_ids.add(self._active_request_id)
-            self._append_message("System", "Cancelled running request.")
+            self._append_message("Agent", "[ERROR] Cancelled")
+            self._set_agent_status("error")
             self._active_request_id = None
             self._request_started_at = None
             self._set_busy(False)
@@ -369,6 +552,21 @@ class AgentChatGUI:
         self._is_busy = busy
         self.send_button.configure(state=tk.DISABLED if busy else tk.NORMAL)
         self.entry.configure(state=tk.DISABLED if busy else tk.NORMAL)
+        # Visual status + button text
+        try:
+            if busy:
+                self.send_button.configure(text="◌ Working…", bg="#64748b")
+                self._set_agent_status("busy")
+                self.entry.configure(bg="#e2e8f0")
+            else:
+                self.send_button.configure(text="➤ Send", bg=ACCENT)
+                self._set_agent_status("ready")
+                self.entry.configure(bg="#f1f5f9")
+                # restore placeholder if empty
+                if not self.entry.get().strip():
+                    self._show_entry_placeholder()
+        except Exception:
+            pass
 
     def _start_background_task(self, task_fn: Callable[[Callable[[StepStatus], None]], str | None]) -> None:
         self._request_counter += 1
@@ -397,7 +595,9 @@ class AgentChatGUI:
             elapsed = time.time() - self._request_started_at
             if elapsed > self._task_timeout_seconds and self._active_request_id is not None:
                 self._cancelled_request_ids.add(self._active_request_id)
-                self._append_message("System", f"Request timed out after {int(self._task_timeout_seconds)}s.")
+                # Timeout is an error – show simplified agent error
+                self._append_message("Agent", "[ERROR] Request timed out")
+                self._set_agent_status("error")
                 self._active_request_id = None
                 self._request_started_at = None
                 self._set_busy(False)
@@ -409,26 +609,37 @@ class AgentChatGUI:
                     request_id, status = payload
                     if not self._should_accept_event(request_id):
                         continue
-                    if isinstance(status, StepStatus):
-                        self._append_message("System", self._status_to_text(status))
-                        self._update_progress_panel(status)
-                    else:
-                        self._append_message("System", str(status))
+                    # Hide verbose progress per user request – only update internal tracking
+                    self._update_progress_panel(status)
+                    # Optionally pulse status dot but no chat bubble
                 elif event_type == "response" and isinstance(payload, tuple):
                     request_id, response = payload
                     if self._should_accept_event(request_id) and response is not None:
-                        self._append_message("Agent", str(response))
+                        txt = str(response)
+                        self._append_message("Agent", txt)
+                        # Update status dot based on success/error
+                        low = txt.lower()
+                        if "[error]" in low or "failed" in low or "error" in low:
+                            self._set_agent_status("error")
+                        else:
+                            self._set_agent_status("success")
                 elif event_type == "error" and isinstance(payload, tuple):
                     request_id, error_text = payload
                     if self._should_accept_event(request_id) and error_text is not None:
-                        self._append_message("System", str(error_text))
+                        self._append_message("Agent", f"[ERROR] {error_text}")
+                        self._set_agent_status("error")
                 elif event_type == "done" and isinstance(payload, tuple):
                     request_id, _ = payload
                     if self._active_request_id == request_id:
                         self._active_request_id = None
                         self._request_started_at = None
                         self._set_busy(False)
-                        self.entry.focus_set()
+                        try:
+                            self.entry.focus_set()
+                            if not self.entry.get().strip():
+                                self._show_entry_placeholder()
+                        except Exception:
+                            pass
         except queue.Empty:
             pass
 
@@ -443,8 +654,11 @@ class AgentChatGUI:
 
     def _insert_tool_command(self, command_text: str) -> None:
         if hasattr(self, "entry"):
+            self._clear_entry_placeholder()
             self.entry.delete(0, tk.END)
             self.entry.insert(0, command_text)
+            self.entry.configure(fg=FG_PRIMARY)
+            self._entry_has_placeholder = False
             self.entry.focus_set()
 
     def _show_startup_provider_dialog(self) -> None:
