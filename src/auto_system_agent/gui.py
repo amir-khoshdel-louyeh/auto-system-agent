@@ -41,7 +41,7 @@ class AgentChatGUI:
         self._active_request_id: int | None = None
         self._cancelled_request_ids: set[int] = set()
         self._request_started_at: float | None = None
-        self._task_timeout_seconds = float(os.getenv("AUTO_AGENT_GUI_TASK_TIMEOUT", "45") or "45")
+        self._task_timeout_seconds = float(os.getenv("AUTO_AGENT_GUI_TASK_TIMEOUT", "300") or "300")
         self._geometry_save_after_id: str | None = None
         self._pending_geometry: str | None = None
         self._tools_window: tk.Toplevel | None = None
@@ -844,7 +844,7 @@ class AgentChatGUI:
                 api_key=api_key,
                 model=model,
                 timeout=timeout_val,
-                gui_timeout_seconds=getattr(prev, "gui_timeout_seconds", 45.0),
+                gui_timeout_seconds=getattr(prev, "gui_timeout_seconds", 300.0),
                 install_retries=getattr(prev, "install_retries", 2),
                 confirm_high_risk=False,
                 window_geometry=getattr(prev, "window_geometry", "920x560"),
@@ -1726,7 +1726,7 @@ class AgentChatGUI:
                 return
 
             previous_geometry = getattr(self._settings, "window_geometry", "920x560")
-            previous_gui_timeout = getattr(self._settings, "gui_timeout_seconds", 45.0)
+            previous_gui_timeout = getattr(self._settings, "gui_timeout_seconds", 300.0)
             previous_retries = getattr(self._settings, "install_retries", 2)
             self._settings = LLMSettings(
                 provider_mode=mode,
