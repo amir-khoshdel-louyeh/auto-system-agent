@@ -20,8 +20,10 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import scrolledtext
 
-# Fallback stripping for non-SGR sequences
-_ANSI_OSC_RE = re.compile(r"\x1b\].*?\x07|\x1b\(B")
+# Fallback stripping for OSC/CSI sequences – Fedora shell integration emits OSC 3008 with ESC\ terminator
+_ANSI_OSC_RE = re.compile(r"\x1b\].*?(?:\x07|\x1b\\)")
+_CSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
+_ANSI_EXTRA_RE = re.compile(r"\x1b\(B")
 _SGR_RE = re.compile(r"\x1b\[([0-9;]*)m")
 # Sequences that mean clear screen
 _CLEAR_RE = re.compile(r"\x1b\[2J|\x1b\[3J|\x1b\[H\x1b\[2J|\x1b\[2K")
@@ -287,6 +289,13 @@ class RealTerminalFrame(tk.Frame):
 
     def _write_to_text(self, data: str, tag: str | None):
         try:
+            # Suppress AI marker echo from display (keep it queued for run_command)
+            if "__CMD_DONE_" in data:
+                data = re.sub(r"__CMD_DONE_\d+__:\d+\r?\n?", "", data)
+                # Also handle without underscores (legacy)
+                data = re.sub(r"CMD_DONE_\d+:\d+\r?\n?", "", data)
+                if not data.strip():
+                    return
             # Handle clear screen sequences first
             if _CLEAR_RE.search(data):
                 # If clear detected, wipe widget
@@ -301,9 +310,9 @@ class RealTerminalFrame(tk.Frame):
                 # Also handle ESC[H ESC[2J combos stripped above, but also ESC[H alone shouldn't clear entire?
                 # For Ctrl+L, bash sends \x1b[H\x1b[2J, already cleared.
 
-            # Strip OSC and other non-SGR that we don't render (keep SGR for parsing)
-            # We keep SGR sequences for parsing below, so only strip OSC
+            # Strip OSC (including Fedora's 3008 shell integration) and ESC ( B
             data_for_parse = _ANSI_OSC_RE.sub("", data)
+            data_for_parse = _ANSI_EXTRA_RE.sub("", data_for_parse)
             # Replace carriage returns and handle cursor moves
             # Normalize \r\n -> \n
             data_for_parse = data_for_parse.replace("\r\n", "\n")
@@ -324,10 +333,8 @@ class RealTerminalFrame(tk.Frame):
                 # Insert text before this SGR
                 chunk = data_for_parse[last:start]
                 if chunk:
-                    # Handle also Erase in Line / Cursor sequences that are not SGR but captured as \x1b[...K etc.
-                    # Those were not matched by SGR_RE, so they remain in chunk as \x1b[2K etc.
-                    # Strip them for now
-                    chunk = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", chunk)
+                    # Strip remaining CSI including [?2004h/l bracketed paste and ?25h cursor etc.
+                    chunk = _CSI_RE.sub("", chunk)
                     if chunk:
                         if len(chunk) > 12000:
                             chunk = chunk[-12000:]
@@ -370,7 +377,7 @@ class RealTerminalFrame(tk.Frame):
             # Tail chunk
             tail = data_for_parse[last:]
             if tail:
-                tail = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", tail)
+                tail = _CSI_RE.sub("", tail)
                 if tail:
                     if len(tail) > 12000:
                         tail = tail[-12000:]
@@ -381,9 +388,9 @@ class RealTerminalFrame(tk.Frame):
             self.text.configure(state=tk.DISABLED)
             self.text.see(tk.END)
         except Exception:
-            # Fallback: strip all ANSI
+            # Fallback: strip all ANSI (CSI with ?, OSC with BEL or ESC\)
             try:
-                clean = re.sub(r"\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?\x07|\x1b\(B|\r", "", data)
+                clean = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\].*?(?:\x07|\x1b\\)|\x1b\(B|\r", "", data)
                 self.text.configure(state=tk.NORMAL)
                 if len(clean) > 8000:
                     clean = clean[-8000:]
@@ -571,10 +578,10 @@ class RealTerminalFrame(tk.Frame):
                         exit_code = int(m.group(1))
                         out = buf[: m.start()]
                         # Strip ANSI for AI result but keep readable
-                        # Remove SGR for clean output used by formatter
                         out_clean = _SGR_RE.sub("", out)
                         out_clean = _ANSI_OSC_RE.sub("", out_clean)
-                        out_clean = re.sub(r"\x1b\[[0-9;]*[A-Za-z]", "", out_clean)
+                        out_clean = _ANSI_EXTRA_RE.sub("", out_clean)
+                        out_clean = _CSI_RE.sub("", out_clean)
                         out_clean = out_clean.replace("\r\n", "\n").replace("\r", "\n")
                         if len(out_clean) > 8000:
                             out_clean = out_clean[-8000:]
