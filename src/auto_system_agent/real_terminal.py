@@ -163,6 +163,21 @@ class RealTerminalFrame(tk.Frame):
         self.text.bind("<KeyPress>", self._on_key_press)
         self.text.bind("<<Paste>>", self._on_paste)
         self.text.bind("<Button-1>", lambda e: self.text.focus_set())
+        # Explicit Alacritty-style shortcuts (redundant with _on_key_press but ensures Shift+Ctrl caught)
+        self.text.bind("<Control-Shift-C>", self._copy_selection)
+        self.text.bind("<Control-Shift-V>", self._on_paste)
+        self.text.bind("<Control-P>", lambda e: self._send_ctrl(b"\x10"))
+        self.text.bind("<Control-p>", lambda e: self._send_ctrl(b"\x10"))
+        self.text.bind("<Control-N>", lambda e: self._send_ctrl(b"\x0e"))
+        self.text.bind("<Control-n>", lambda e: self._send_ctrl(b"\x0e"))
+        self.text.bind("<Control-A>", lambda e: self._send_ctrl(b"\x01"))
+        self.text.bind("<Control-a>", lambda e: self._send_ctrl(b"\x01"))
+        self.text.bind("<Control-E>", lambda e: self._send_ctrl(b"\x05"))
+        self.text.bind("<Control-e>", lambda e: self._send_ctrl(b"\x05"))
+        self.text.bind("<Control-L>", lambda e: self._send_ctrl(b"\x0c"))
+        self.text.bind("<Control-l>", lambda e: self._send_ctrl(b"\x0c"))
+        self.text.bind("<Control-C>", lambda e: self._send_ctrl(b"\x03"))
+        self.text.bind("<Control-c>", lambda e: self._send_ctrl(b"\x03"))
         # Handle Ctrl+L etc via keypress already
 
         self.after(400, lambda: self._write_to_text("\n# Alacritty embedded terminal ready — same pty for AI and user. sudo prompts appear here.\n", None))
@@ -425,7 +440,23 @@ class RealTerminalFrame(tk.Frame):
                 return "break"
             if event.state & 0x4:  # Control
                 k = event.keysym.lower()
-                if k == "c":
+                is_shift = bool(event.state & 0x1)
+                # Ctrl+Shift+C = Copy, Ctrl+Shift+V = Paste (Alacritty style)
+                if is_shift:
+                    if k == "c":
+                        # Copy selection to clipboard
+                        try:
+                            sel = self.text.selection_get()
+                            if sel:
+                                self.clipboard_clear()
+                                self.clipboard_append(sel)
+                        except Exception:
+                            pass
+                        return "break"
+                    if k == "v":
+                        return self._on_paste()
+                    # For other Shift+Ctrl combos, fall through to normal handling without shift distinction
+                if k == "c" and not is_shift:
                     os.write(self.master_fd, b"\x03")
                     return "break"
                 if k == "d":
@@ -450,8 +481,16 @@ class RealTerminalFrame(tk.Frame):
                 if k == "e":
                     os.write(self.master_fd, b"\x05")
                     return "break"
-                if k == "v":
-                    return None  # allow paste via <<Paste>>
+                if k == "p":
+                    # Ctrl+P = previous history (like Up) – send 0x10
+                    os.write(self.master_fd, b"\x10")
+                    return "break"
+                if k == "n":
+                    # Ctrl+N = next history (like Down) – send 0x0e
+                    os.write(self.master_fd, b"\x0e")
+                    return "break"
+                if k == "v" and not is_shift:
+                    return self._on_paste()
                 if event.char and 0 < ord(event.char) < 32:
                     os.write(self.master_fd, event.char.encode())
                     return "break"
@@ -469,6 +508,26 @@ class RealTerminalFrame(tk.Frame):
             data = self.clipboard_get()
             if data:
                 os.write(self.master_fd, data.encode("utf-8", errors="replace"))
+        except Exception:
+            pass
+        return "break"
+
+    def _copy_selection(self, event=None):
+        """Ctrl+Shift+C – copy selected text to clipboard."""
+        try:
+            sel = self.text.selection_get()
+            if sel:
+                self.clipboard_clear()
+                self.clipboard_append(sel)
+        except Exception:
+            pass
+        return "break"
+
+    def _send_ctrl(self, data: bytes, event=None):
+        """Helper to send raw control byte to pty."""
+        try:
+            if self.master_fd is not None:
+                os.write(self.master_fd, data)
         except Exception:
             pass
         return "break"
