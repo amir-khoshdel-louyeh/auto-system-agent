@@ -588,7 +588,7 @@ class AgentChatGUI:
         threading.Thread(target=worker, daemon=True).start()
 
     def _drain_ui_queue(self) -> None:
-        if self._is_busy and self._request_started_at is not None:
+        if self._is_busy and self._request_started_at is not None and self._task_timeout_seconds > 0:
             elapsed = time.time() - self._request_started_at
             if elapsed > self._task_timeout_seconds and self._active_request_id is not None:
                 self._cancelled_request_ids.add(self._active_request_id)
@@ -608,6 +608,8 @@ class AgentChatGUI:
                         continue
                     # Hide verbose progress per user request – only update internal tracking
                     self._update_progress_panel(status)
+                    # Reset idle timer on progress so long jobs with steps don't time out
+                    self._request_started_at = time.time()
                     # Optionally pulse status dot but no chat bubble
                 elif event_type == "response" and isinstance(payload, tuple):
                     request_id, response = payload
