@@ -201,7 +201,7 @@ class AgentChatGUI:
         )
         self.send_button.grid(row=0, column=1, padx=(0, 6), pady=4)
 
-        # Right panel (3/4): pinned terminal – Alacritty style, pty-backed bash, same session for AI and you
+        # Right panel (3/4): pinned terminal – pty-backed bash, same session for AI and you
         right_panel = tk.Frame(main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
         right_panel.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
         right_panel.grid_rowconfigure(1, weight=1)
@@ -209,12 +209,9 @@ class AgentChatGUI:
 
         header_frame = tk.Frame(right_panel, bg=BG_PANEL)
         header_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 4))
-        header_frame.grid_columnconfigure(0, weight=1)
-        tk.Label(header_frame, text="Terminal — Alacritty (pty, same for AI & you)", font=("TkDefaultFont", 10, "bold"), fg=ACCENT, bg=BG_PANEL).grid(row=0, column=0, sticky="w")
-        tk.Button(header_frame, text="Clear", command=lambda: self.real_terminal.text.configure(state=tk.NORMAL) or self.real_terminal.text.delete("1.0", tk.END) or self.real_terminal.text.configure(state=tk.DISABLED) if hasattr(self, "real_terminal") else None, bg="#6b7280", fg="#ffffff", relief=tk.FLAT, padx=8, font=("TkDefaultFont", 8)).grid(row=0, column=1, sticky="e")
-        tk.Label(header_frame, text="AI and you share this SAME terminal. sudo/password prompts appear here — type directly here.", font=("TkDefaultFont", 8), fg="#b45309", bg=BG_PANEL, wraplength=520, justify=tk.LEFT).grid(row=1, column=0, columnspan=2, sticky="w", pady=(2, 0))
+        tk.Label(header_frame, text="Terminal", font=("TkDefaultFont", 10, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
 
-        # Real pty terminal (bash -i) – auto-started, no external button
+        # Real pty terminal (bash -i) – auto-started
         try:
             cwd_for_pty = self.agent._executor.terminal.cwd if hasattr(self.agent, "_executor") and hasattr(self.agent._executor, "terminal") else None
         except Exception:
