@@ -178,6 +178,30 @@ class AutoSystemAgent:
             f"(e.g. `ollama pull {model_hint}` and `ollama serve`). Then configure the URL/model in Settings."
         )
 
+    def _explain_failure_with_llm(self, user_input: str, tool_key: str, task: PlannedTask, result: ExecutionResult) -> str | None:
+        """Ask LLM to explain a failed command without hard-coded messages."""
+        if result.success:
+            return None
+        # Build a prompt that lets the model decide explanation, fix or next command
+        try:
+            history = list(self._history[-6:]) if self._history else []
+            explain_prompt = (
+                f"The user asked: '{user_input}'. "
+                f"The agent executed '{task.target}' via {tool_key} and it failed with output: '{result.message}'. "
+                "Explain in the user's language why it failed and suggest what to do next. "
+                "If you suggest a corrected command, include it in the explanation. "
+                "Respond as a helpful assistant, not as JSON."
+            )
+            llm_reply = self._assistant.resolve(explain_prompt, set(self._selector.SUPPORTED_ACTIONS), history)
+            if llm_reply and llm_reply.get("type") == "chat" and llm_reply.get("response"):
+                return str(llm_reply["response"]).strip()
+            # Fallback: if LLM returns plain text chat, _assistant already handles it
+            if llm_reply and isinstance(llm_reply.get("response"), str):
+                return str(llm_reply["response"]).strip()
+        except Exception:
+            pass
+        return None
+
     def has_pending_confirmation(self) -> bool:
         return self._pending_confirmation is not None
 
