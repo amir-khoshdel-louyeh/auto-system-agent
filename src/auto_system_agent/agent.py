@@ -95,6 +95,18 @@ class AutoSystemAgent:
                 StepStatus(step=1, total=1, tool=tool_key, state="done" if result.success else "failed", message=result.message),
             )
             self._update_context_from_task(task, result)
+            if not result.success:
+                llm_explain = self._explain_failure_with_llm(user_input, tool_key, task, result)
+                if llm_explain:
+                    self._remember(user_input, llm_explain)
+                    self._log_event(
+                        user_input=user_input,
+                        mode="ollama_tool_explained",
+                        planned_tasks=tasks,
+                        steps=[self._step_payload(tool_key, task, result)],
+                        reply=llm_explain,
+                    )
+                    return llm_explain
             reply = self._formatter.format(result)
             self._remember(user_input, reply)
             self._log_event(
