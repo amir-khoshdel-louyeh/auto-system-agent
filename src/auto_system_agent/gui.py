@@ -590,7 +590,19 @@ class AgentChatGUI:
         threading.Thread(target=worker, daemon=True).start()
 
     def _drain_ui_queue(self) -> None:
-        if self._is_busy and self._request_started_at is not None and self._task_timeout_seconds > 0:
+        # Condition-based timeout: do not disturb while busy.
+        # Only timeout if idle (no progress) AND terminal not executing. If terminal/worker is busy, keep waiting.
+        is_terminal_busy = False
+        try:
+            if hasattr(self, "real_terminal") and self.real_terminal is not None:
+                # _exec_lock is held during run_command
+                if hasattr(self.real_terminal, "_exec_lock") and self.real_terminal._exec_lock.locked():
+                    is_terminal_busy = True
+                # also check pty output activity via recent queue if needed
+        except Exception:
+            is_terminal_busy = False
+
+        if self._is_busy and self._request_started_at is not None and self._task_timeout_seconds > 0 and not is_terminal_busy:
             elapsed = time.time() - self._request_started_at
             if elapsed > self._task_timeout_seconds and self._active_request_id is not None:
                 self._cancelled_request_ids.add(self._active_request_id)
