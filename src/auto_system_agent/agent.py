@@ -227,6 +227,7 @@ class AutoSystemAgent:
                 f"The agent executed '{task.target}' via {tool_key} and it failed with output: '{result.message}'. "
                 "Explain in the user's language why it failed and suggest what to do next. "
                 "If you suggest a corrected command, include it in the explanation. "
+                "Do not hallucinate new flatpak IDs - if the ID was wrong, explain that it does not exist in flathub and suggest how to search (flatpak search / dnf search) instead of inventing another ID. "
                 "Respond as a helpful assistant, not as JSON."
             )
             llm_reply = self._assistant.resolve(explain_prompt, set(self._selector.SUPPORTED_ACTIONS), history)

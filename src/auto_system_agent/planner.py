@@ -106,6 +106,7 @@ class Planner:
             "- If the instruction contains multiple steps, return multiple entries in tasks in order (each is a run_command).\n"
             "- If it is general chat, return {\"tasks\": [{\"action\": \"unknown\", \"target\": \"\"}]}\n"
             "- Always use absolute or ~/ paths. For Downloads use ~/Downloads/<name>. Do not use bare filenames.\n"
+            "- Do not hallucinate flatpak/snap/dnf/apt package IDs. For flatpak only use IDs you are certain exist (e.g. org.videolan.VLC). If unsure about an ID, return unknown so it can be answered conversationally instead of guessing com.example or org.example variants.\n"
             f"{system_context}"
             "- Never add fields outside the schema."
         )
