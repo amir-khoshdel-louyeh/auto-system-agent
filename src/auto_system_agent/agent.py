@@ -73,6 +73,19 @@ class AutoSystemAgent:
                 return reply
 
             reply, steps = self._process_multi_step(user_input, tasks, progress_callback)
+            # If multi-step failed, ask LLM to explain the last failure in chat
+            if steps and not steps[-1]["result"]["success"]:
+                last_idx = len(steps) - 1
+                last_task = tasks[last_idx] if last_idx < len(tasks) else tasks[-1]
+                last_tool = steps[-1]["tool"]
+                last_msg = steps[-1]["result"]["message"]
+                fake_result = ExecutionResult(success=False, message=last_msg)
+                llm_explain = self._explain_failure_with_llm(user_input, last_tool, last_task, fake_result)
+                if llm_explain:
+                    combined = f"{reply}\n\n{llm_explain}"
+                    self._remember(user_input, combined)
+                    self._log_event(user_input=user_input, mode="multi_step_explained", planned_tasks=tasks, steps=steps, reply=combined)
+                    return combined
             self._remember(user_input, reply)
             self._log_event(user_input=user_input, mode="multi_step", planned_tasks=tasks, steps=steps, reply=reply)
             return reply
@@ -156,6 +169,18 @@ class AutoSystemAgent:
 
             result = self._executor.execute(llm_tool_key, llm_task)
             self._update_context_from_task(llm_task, result)
+            if not result.success:
+                llm_explain = self._explain_failure_with_llm(user_input, llm_tool_key, llm_task, result)
+                if llm_explain:
+                    self._remember(user_input, llm_explain)
+                    self._log_event(
+                        user_input=user_input,
+                        mode="ollama_tool_explained",
+                        planned_tasks=planned_tasks,
+                        steps=[self._step_payload(llm_tool_key, llm_task, result)],
+                        reply=llm_explain,
+                    )
+                    return llm_explain
             reply = self._formatter.format(result)
             self._remember(user_input, reply)
             self._log_event(
