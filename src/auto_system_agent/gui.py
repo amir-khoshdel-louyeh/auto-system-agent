@@ -412,8 +412,10 @@ class AgentChatGUI:
                 who_tag = "who_agent_error"
                 body_tag = "bubble_agent_error"
                 label = "✗ Agent  " + ts
-                # Only show concise status, details are in terminal
-                message = "✗ Error — see terminal for details."
+                # Show LLM explanation in chat when available, otherwise concise fallback
+                if len(message.strip()) < 25 or message.strip().lower() == "✗ error — see terminal for details.":
+                    message = "✗ Error — see terminal for details."
+                # Keep the actual LLM-generated explanation (no generic replacement)
             elif is_success:
                 who_tag = "who_agent_success"
                 body_tag = "bubble_agent_success"
