@@ -211,13 +211,45 @@ class AgentChatGUI:
         header_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 4))
         tk.Label(header_frame, text="Terminal", font=("TkDefaultFont", 10, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
 
-        # Real pty terminal (bash -i) – auto-started
+        # Vertical split: top explanation box, bottom terminal (each ~50%)
+        self._right_paned = tk.PanedWindow(right_panel, orient=tk.VERTICAL, bg=BG_APP, sashwidth=4, sashrelief=tk.FLAT, showhandle=False)
+        self._right_paned.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        right_panel.grid_rowconfigure(1, weight=1)
+
+        # Top: explanation box
+        explanation_container = tk.Frame(self._right_paned, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
+        self._right_paned.add(explanation_container, minsize=100, height=180)
+        tk.Label(explanation_container, text="Explanation", font=("TkDefaultFont", 9, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w", padx=8, pady=(6, 2))
+        self.explanation_text = scrolledtext.ScrolledText(
+            explanation_container,
+            wrap=tk.WORD,
+            font=("Segoe UI", 9),
+            bg="#f8fafc",
+            fg=FG_PRIMARY,
+            borderwidth=0,
+            relief=tk.FLAT,
+            padx=10,
+            pady=6,
+            height=8,
+            state=tk.DISABLED,
+        )
+        self.explanation_text.pack(fill=tk.BOTH, expand=True, padx=6, pady=(0, 6))
+        self.explanation_text.tag_configure("exp_title", font=("Segoe UI", 9, "bold"), foreground=ACCENT)
+        self.explanation_text.tag_configure("exp_body", font=("Segoe UI", 9), foreground=FG_PRIMARY)
+        self.explanation_text.tag_configure("exp_error", font=("Segoe UI", 9), foreground=ERROR)
+        self.explanation_text.tag_configure("exp_success", font=("Segoe UI", 9), foreground=SUCCESS)
+
+        # Bottom: pty terminal
+        terminal_container = tk.Frame(self._right_paned, bg=BG_PANEL, highlightbackground="#0f172a", highlightthickness=1)
+        self._right_paned.add(terminal_container, minsize=150)
+        terminal_container.grid_rowconfigure(0, weight=1)
+        terminal_container.grid_columnconfigure(0, weight=1)
         try:
             cwd_for_pty = self.agent._executor.terminal.cwd if hasattr(self.agent, "_executor") and hasattr(self.agent._executor, "terminal") else None
         except Exception:
             cwd_for_pty = None
-        self.real_terminal = RealTerminalFrame(right_panel, cwd=cwd_for_pty, bg=BG_PANEL, highlightbackground="#0f172a", highlightthickness=1)
-        self.real_terminal.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
+        self.real_terminal = RealTerminalFrame(terminal_container, cwd=cwd_for_pty, bg=BG_PANEL, highlightbackground="#0f172a", highlightthickness=1)
+        self.real_terminal.grid(row=0, column=0, sticky="nsew")
         self.terminal_text = self.real_terminal.text
         self._step_progress_rows: dict[int, int] = {}
         self.progress_list = self.terminal_text
