@@ -547,6 +547,11 @@ class AgentChatGUI:
             return
 
         self._reset_progress_panel()
+        # Show user command in explanation box immediately
+        try:
+            self._append_explanation(f"You: {user_input}", "Processing...", is_error=False)
+        except Exception:
+            pass
         self._start_background_task(
             lambda on_progress: self.agent.process(user_input, progress_callback=on_progress)
         )
@@ -662,9 +667,15 @@ class AgentChatGUI:
                     if self._should_accept_event(request_id) and response is not None:
                         txt = str(response)
                         self._append_message("Agent", txt)
-                        # Update status dot based on success/error
+                        # Also show LLM-driven explanation in top box
                         low = txt.lower()
-                        if "[error]" in low or "failed" in low or "error" in low:
+                        is_err = "[error]" in low or "failed" in low or "error" in low or "✗" in txt
+                        try:
+                            self._append_explanation("Agent response", txt, is_error=is_err)
+                        except Exception:
+                            pass
+                        # Update status dot based on success/error
+                        if is_err:
                             self._set_agent_status("error")
                         else:
                             self._set_agent_status("success")
@@ -672,6 +683,10 @@ class AgentChatGUI:
                     request_id, error_text = payload
                     if self._should_accept_event(request_id) and error_text is not None:
                         self._append_message("Agent", f"[ERROR] {error_text}")
+                        try:
+                            self._append_explanation("Error", str(error_text), is_error=True)
+                        except Exception:
+                            pass
                         self._set_agent_status("error")
                 elif event_type == "done" and isinstance(payload, tuple):
                     request_id, _ = payload
