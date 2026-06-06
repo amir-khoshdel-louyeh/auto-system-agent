@@ -125,8 +125,8 @@ class RealTerminalFrame(tk.Frame):
         # Page limits: rows/cols updated by _set_winsize, used to trim buffer
         self._rows: int = 24
         self._cols: int = 80
-        # How many pages to keep as scrollback before trimming (1 = strictly page length)
-        self._page_limit_factor: int = 1  # strictly limited to visible page
+        # Keep scrollback history for scrolling (was 1 page only, now 200 pages)
+        self._page_limit_factor: int = 200
 
         try:
             self.master_fd, slave_fd = pty.openpty()
@@ -207,13 +207,12 @@ class RealTerminalFrame(tk.Frame):
             pass
 
     def _enforce_page_limits(self):
-        """Trim text widget so content never exceeds visible page length."""
+        """Trim text widget to keep scrollback history."""
         try:
-            # Strict limit: keep only last N lines where N = visible rows
-            # Use _page_limit_factor to allow 1 page exactly (user request)
+            # Keep large scrollback (e.g. 200 pages) instead of just visible page
             max_lines = max(5, self._rows * self._page_limit_factor)
-            # Also cap absolute to avoid extreme growth when window huge
-            max_lines = min(max_lines, 500)
+            # Cap absolute to avoid unbounded memory, but allow scrolling
+            max_lines = min(max_lines, 5000)
             end = self.text.index(tk.END)
             line_count = int(end.split(".")[0]) - 1
             if line_count > max_lines:
