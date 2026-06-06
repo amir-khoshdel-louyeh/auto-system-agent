@@ -253,7 +253,8 @@ class RealTerminalFrame(tk.Frame):
             try:
                 self.text.configure(state=tk.NORMAL)
                 self._enforce_page_limits()
-                self.text.configure(state=tk.DISABLED)
+                # Keep NORMAL so BackSpace/Delete and typing work via _on_key_press
+                self.text.configure(state=tk.NORMAL)
             except Exception:
                 pass
         except Exception:
@@ -384,7 +385,7 @@ class RealTerminalFrame(tk.Frame):
                     self.text.insert(tk.END, tail, tags)
             # Enforce page-length limit (vertical + width via wrap=CHAR)
             self._enforce_page_limits()
-            self.text.configure(state=tk.DISABLED)
+            self.text.configure(state=tk.NORMAL)
             self.text.see(tk.END)
         except Exception:
             # Fallback: strip all ANSI (CSI with ?, OSC with BEL or ESC\)
@@ -395,7 +396,7 @@ class RealTerminalFrame(tk.Frame):
                     clean = clean[-8000:]
                 self.text.insert(tk.END, clean)
                 self._enforce_page_limits()
-                self.text.configure(state=tk.DISABLED)
+                self.text.configure(state=tk.NORMAL)
                 self.text.see(tk.END)
             except Exception:
                 pass
