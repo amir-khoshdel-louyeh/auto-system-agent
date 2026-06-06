@@ -693,6 +693,26 @@ class AgentChatGUI:
     def _reset_progress_panel(self) -> None:
         self._step_progress_rows.clear()
 
+    def _append_explanation(self, title: str, body: str, is_error: bool = False) -> None:
+        try:
+            self.explanation_text.configure(state=tk.NORMAL)
+            ts = time.strftime("%H:%M:%S")
+            tag = "exp_error" if is_error else "exp_body"
+            self.explanation_text.insert(tk.END, f"[{ts}] {title}\n", "exp_title")
+            self.explanation_text.insert(tk.END, f"{body.strip()}\n\n", tag)
+            self.explanation_text.configure(state=tk.DISABLED)
+            self.explanation_text.see(tk.END)
+        except Exception:
+            pass
+
+    def _clear_explanation(self) -> None:
+        try:
+            self.explanation_text.configure(state=tk.NORMAL)
+            self.explanation_text.delete("1.0", tk.END)
+            self.explanation_text.configure(state=tk.DISABLED)
+        except Exception:
+            pass
+
     def _clear_timeline(self) -> None:
         # Timeline removed – no-op kept for compatibility
         return
