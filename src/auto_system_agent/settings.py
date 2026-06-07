@@ -19,6 +19,7 @@ class LLMSettings:
     install_retries: int = 2
     confirm_high_risk: bool = True
     window_geometry: str = "920x560"
+    react_max_iters: int = 3
     system_config: dict | None = None  # persisted SystemConfig dict (see system_info.SystemConfig)
 
 
@@ -56,6 +57,13 @@ class SettingsStore:
         except (TypeError, ValueError):
             install_retries = 2
 
+        react_value = payload.get("react_max_iters", 3)
+        try:
+            react_max_iters = int(react_value)
+        except (TypeError, ValueError):
+            react_max_iters = 3
+        react_max_iters = min(10, max(1, react_max_iters))
+
         confirm_high_risk = bool(payload.get("confirm_high_risk", True))
 
         window_geometry = self._normalize_window_geometry(payload.get("window_geometry", "920x560"))
@@ -75,6 +83,7 @@ class SettingsStore:
             install_retries=max(0, install_retries),
             confirm_high_risk=confirm_high_risk,
             window_geometry=window_geometry,
+            react_max_iters=react_max_iters,
             system_config=system_config,
         )
 
@@ -90,6 +99,7 @@ class SettingsStore:
             "install_retries": int(settings.install_retries),
             "confirm_high_risk": bool(settings.confirm_high_risk),
             "window_geometry": self._normalize_window_geometry(settings.window_geometry),
+            "react_max_iters": int(getattr(settings, "react_max_iters", 3)),
             "system_config": settings.system_config if isinstance(settings.system_config, dict) else None,
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
