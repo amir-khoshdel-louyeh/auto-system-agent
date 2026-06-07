@@ -545,6 +545,8 @@ class RealTerminalFrame(tk.Frame):
 
         Writes `cmd` + marker, reads until marker appears, returns (output, exit_code).
         Output is also already displayed in Text via reader thread, but we also capture for ExecutionResult.
+        The marker is chained onto the same shell line (`cmd; echo marker`)
+        so interactive prompts (e.g. sudo password) cannot swallow it as input.
         """
         if self.master_fd is None or not self._alive:
             return ("Terminal not available", 1)
@@ -555,17 +557,17 @@ class RealTerminalFrame(tk.Frame):
                 except queue.Empty:
                     break
             marker = f"__CMD_DONE_{int(time.time()*1000) % 100000}__"
-            full = f"{cmd}\n"
+            marker_cmd = f"echo {marker}:$?"
+            chained = self._chain_marker(cmd, marker_cmd)
             try:
-                os.write(self.master_fd, full.encode("utf-8", errors="replace"))
+                if chained is not None:
+                    os.write(self.master_fd, chained.encode("utf-8", errors="replace"))
+                else:
+                    os.write(self.master_fd, f"{cmd}\n".encode("utf-8", errors="replace"))
+                    time.sleep(0.05)
+                    os.write(self.master_fd, f"{marker_cmd}\n".encode())
             except OSError as e:
                 return (f"Write failed: {e}", 1)
-            time.sleep(0.05)
-            marker_cmd = f"echo {marker}:$?\n"
-            try:
-                os.write(self.master_fd, marker_cmd.encode())
-            except OSError as e:
-                return (f"Write marker failed: {e}", 1)
             buf = ""
             start = time.time()
             exit_code = 0
@@ -591,6 +593,22 @@ class RealTerminalFrame(tk.Frame):
                         return (buf, 1)
                     continue
             return (buf.strip() + f"\n[timeout after {timeout}s waiting for marker]", 124)
+
+    def _chain_marker(self, cmd: str, marker_cmd: str) -> str | None:
+        """Combine command and marker on one shell line, or None if unsafe.
+
+        Bash parses the whole line as one command list before executing,
+        so programs reading the tty (sudo, passwd, ssh) cannot consume
+        the marker as their input. Multi-line commands and trailing
+        operators (which would be syntax errors with `;`) use the
+        legacy two-write path instead.
+        """
+        stripped = cmd.strip()
+        if not stripped or "\n" in stripped:
+            return None
+        if stripped.endswith(("\\", "&", "|")) or stripped.endswith(("&&", "||")):
+            return None
+        return f"{stripped}; {marker_cmd}\n"
 
     def destroy(self):
         self._alive = False
