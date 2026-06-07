@@ -108,7 +108,9 @@ class AutoSystemAgent:
                 self._log_event(user_input=user_input, mode="confirmation_requested", planned_tasks=[task], steps=[], reply=reply)
                 return reply
 
-            reply, steps = self._run_react_loop(user_input, [task], progress_callback)
+            reply, steps = self._run_react_loop(
+                user_input, [task], progress_callback, preselected_tools={id(task): tool_key}
+            )
             if steps and not steps[-1]["result"]["success"]:
                 last_tool = steps[-1]["tool"]
                 last_msg = steps[-1]["result"]["message"]
@@ -296,18 +298,20 @@ class AutoSystemAgent:
         user_input: str,
         initial_tasks: list[PlannedTask],
         progress_callback: Callable[[StepStatus], None] | None = None,
+        preselected_tools: dict[int, str] | None = None,
     ) -> tuple[str, list[dict]]:
         """Thought -> Act -> Observe -> Evaluate loop over planned tasks."""
         tasks = list(initial_tasks)
         scratchpad: list[ReActStep] = []
         step_payloads: list[dict] = []
+        preselected_tools = dict(preselected_tools or {})
 
         for _ in range(self._max_react_iters):
             repaired: list[PlannedTask] | None = None
             aborted: Evaluation | None = None
 
             for task in tasks:
-                tool_key = self._selector.select(task)
+                tool_key = preselected_tools.pop(id(task), None) or self._selector.select(task)
                 step_no = len(scratchpad) + 1
                 self._notify(progress_callback, StepStatus(step=step_no, total=step_no, tool=tool_key, state="running"))
 
@@ -365,6 +369,8 @@ class AutoSystemAgent:
             if repaired is None:
                 # Either all steps done, or planner could not repair.
                 results = [step.result for step in scratchpad]
+                if len(results) == 1 and len(initial_tasks) == 1:
+                    return self._formatter.format(results[0]), step_payloads
                 return self._formatter.format_many(results), step_payloads
 
             tasks = repaired
