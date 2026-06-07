@@ -633,8 +633,8 @@ class AgentChatGUI:
         threading.Thread(target=worker, daemon=True).start()
 
     def _drain_ui_queue(self) -> None:
-        # Condition-based timeout: do not disturb while busy.
-        # Only timeout if idle (no progress) AND terminal not executing. If terminal/worker is busy, keep waiting.
+        # Condition-based timeout: output flowing in the terminal counts as
+        # activity, so long installs are never killed. Only quiet periods expire.
         is_terminal_busy = False
         try:
             if hasattr(self, "real_terminal") and self.real_terminal is not None:
@@ -645,16 +645,19 @@ class AgentChatGUI:
         except Exception:
             is_terminal_busy = False
 
-        if self._is_busy and self._request_started_at is not None and self._task_timeout_seconds > 0 and not is_terminal_busy:
-            elapsed = time.time() - self._request_started_at
-            if elapsed > self._task_timeout_seconds and self._active_request_id is not None:
-                self._cancelled_request_ids.add(self._active_request_id)
-                # Timeout is an error – show simplified agent error
-                self._append_message("Agent", "[ERROR] Request timed out")
-                self._set_agent_status("error")
-                self._active_request_id = None
-                self._request_started_at = None
-                self._set_busy(False)
+        if self._is_busy and self._request_started_at is not None and self._task_timeout_seconds > 0:
+            if is_terminal_busy:
+                self._request_started_at = time.time()
+            else:
+                elapsed = time.time() - self._request_started_at
+                if elapsed > self._task_timeout_seconds and self._active_request_id is not None:
+                    self._cancelled_request_ids.add(self._active_request_id)
+                    # Timeout is an error – show simplified agent error
+                    self._append_message("Agent", "[ERROR] Request timed out")
+                    self._set_agent_status("error")
+                    self._active_request_id = None
+                    self._request_started_at = None
+                    self._set_busy(False)
 
         try:
             while True:
