@@ -358,7 +358,7 @@ class AutoSystemAgent:
                     aborted = evaluation
                     break
                 # retry / replan: ask planner for corrected tasks and start next iteration
-                repaired = self._planner.plan_repair(user_input, scratchpad, evaluation)
+                repaired = self._repair_tasks(user_input, scratchpad, evaluation)
                 break
 
             if aborted is not None:
@@ -374,6 +374,20 @@ class AutoSystemAgent:
 
         results = [step.result for step in scratchpad]
         return f"{self._formatter.format_many(results)}\n\nStopped after {self._max_react_iters} attempts.".strip(), step_payloads
+
+    def _repair_tasks(
+        self,
+        user_input: str,
+        scratchpad: list[ReActStep],
+        evaluation: Evaluation,
+    ) -> list[PlannedTask] | None:
+        repair = getattr(self._planner, "plan_repair", None)
+        if not callable(repair):
+            return None
+        try:
+            return repair(user_input, scratchpad, evaluation)
+        except Exception:
+            return None
 
     def _update_context_from_chat(self, reply: str) -> None:
         # Terminal mode: no app extraction needed
