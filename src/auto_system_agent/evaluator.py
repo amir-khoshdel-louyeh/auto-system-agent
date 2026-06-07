@@ -40,6 +40,10 @@ class Evaluator:
         if result.success:
             return Evaluation(verdict="done", reason="Command reported success.")
 
+        # User-cancelled waits must stop the loop, not retry.
+        if "cancelled by user" in message:
+            return Evaluation(verdict="abort", reason="Cancelled by user.")
+
         # Idempotent goals: target state already holds.
         if "already exists" in message or "file exists" in message:
             return Evaluation(verdict="done", reason="Target state already exists.")

@@ -34,6 +34,11 @@ class EvaluatorTests(unittest.TestCase):
         ev = Evaluator().evaluate("x", _task("cat /root/f"), "run_command", result)
         self.assertEqual(ev.verdict, "abort")
 
+    def test_user_cancel_aborts(self):
+        result = ExecutionResult(False, "Cancelled by user.")
+        ev = Evaluator().evaluate("x", _task("sleep 60"), "run_command", result)
+        self.assertEqual(ev.verdict, "abort")
+
     def test_generic_failure_retries(self):
         result = ExecutionResult(False, "something broke")
         ev = Evaluator().evaluate("x", _task("false"), "run_command", result)

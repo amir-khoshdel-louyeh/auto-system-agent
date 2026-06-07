@@ -565,6 +565,12 @@ class AgentChatGUI:
         if self._is_busy:
             if self._active_request_id is not None:
                 self._cancelled_request_ids.add(self._active_request_id)
+            # Release a stuck terminal marker wait so the worker ends promptly
+            try:
+                if getattr(self, "real_terminal", None) is not None:
+                    self.real_terminal.abort_wait()
+            except Exception:
+                pass
             self._append_message("Agent", "[ERROR] Cancelled")
             self._set_agent_status("error")
             self._active_request_id = None

@@ -118,6 +118,7 @@ class RealTerminalFrame(tk.Frame):
         self._alive = True
         self._write_lock = threading.Lock()
         self._exec_lock = threading.Lock()
+        self._abort_wait = threading.Event()
         self._output_queue: queue.Queue[str] = queue.Queue()
         self._cwd = (cwd or Path.home()).resolve() if (cwd or Path.home()).exists() else Path.cwd().resolve()
         if not self._cwd.exists():
@@ -551,6 +552,7 @@ class RealTerminalFrame(tk.Frame):
         if self.master_fd is None or not self._alive:
             return ("Terminal not available", 1)
         with self._exec_lock:
+            self._abort_wait.clear()
             while not self._output_queue.empty():
                 try:
                     self._output_queue.get_nowait()
@@ -572,6 +574,8 @@ class RealTerminalFrame(tk.Frame):
             start = time.time()
             exit_code = 0
             while time.time() - start < timeout:
+                if self._abort_wait.is_set():
+                    return ("Cancelled by user.", 130)
                 try:
                     chunk = self._output_queue.get(timeout=0.2)
                     buf += chunk
@@ -593,6 +597,13 @@ class RealTerminalFrame(tk.Frame):
                         return (buf, 1)
                     continue
             return (buf.strip() + f"\n[timeout after {timeout}s waiting for marker]", 124)
+
+    def abort_wait(self) -> None:
+        """Ask a stuck run_command marker wait to return early."""
+        try:
+            self._abort_wait.set()
+        except Exception:
+            pass
 
     def _chain_marker(self, cmd: str, marker_cmd: str) -> str | None:
         """Combine command and marker on one shell line, or None if unsafe.
