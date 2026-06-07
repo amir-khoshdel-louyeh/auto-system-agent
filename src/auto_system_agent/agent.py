@@ -108,32 +108,29 @@ class AutoSystemAgent:
                 self._log_event(user_input=user_input, mode="confirmation_requested", planned_tasks=[task], steps=[], reply=reply)
                 return reply
 
-            self._notify(progress_callback, StepStatus(step=1, total=1, tool=tool_key, state="running"))
-            result = self._executor.execute(tool_key, task)
-            self._notify(
-                progress_callback,
-                StepStatus(step=1, total=1, tool=tool_key, state="done" if result.success else "failed", message=result.message),
-            )
-            self._update_context_from_task(task, result)
-            if not result.success:
-                llm_explain = self._explain_failure_with_llm(user_input, tool_key, task, result)
+            reply, steps = self._run_react_loop(user_input, [task], progress_callback)
+            if steps and not steps[-1]["result"]["success"]:
+                last_tool = steps[-1]["tool"]
+                last_msg = steps[-1]["result"]["message"]
+                fake_result = ExecutionResult(success=False, message=last_msg)
+                llm_explain = self._explain_failure_with_llm(user_input, last_tool, task, fake_result)
                 if llm_explain:
-                    self._remember(user_input, llm_explain)
+                    combined = f"{reply}\n\n{llm_explain}"
+                    self._remember(user_input, combined)
                     self._log_event(
                         user_input=user_input,
                         mode="ollama_tool_explained",
                         planned_tasks=tasks,
-                        steps=[self._step_payload(tool_key, task, result)],
-                        reply=llm_explain,
+                        steps=steps,
+                        reply=combined,
                     )
-                    return llm_explain
-            reply = self._formatter.format(result)
+                    return combined
             self._remember(user_input, reply)
             self._log_event(
                 user_input=user_input,
                 mode="ollama_tool",
                 planned_tasks=tasks,
-                steps=[self._step_payload(tool_key, task, result)],
+                steps=steps,
                 reply=reply,
             )
             return reply
