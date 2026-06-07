@@ -1,3 +1,4 @@
+from auto_system_agent.command_guard import check_command
 from auto_system_agent.models import ExecutionResult, PlannedTask
 from auto_system_agent.terminal import TerminalSession
 
@@ -47,6 +48,13 @@ class SafeExecutor:
                 command = (task.raw_input or "").strip()
             if not command:
                 return ExecutionResult(success=False, message="No command provided.")
+            guard_message = check_command(command, cwd=self._terminal.cwd)
+            if guard_message:
+                return ExecutionResult(
+                    success=False,
+                    message=guard_message,
+                    data={"command": command, "guard": "preflight"},
+                )
             return self._terminal.run(command)
 
         # Backward compat: old action names mapped to shell equivalents via terminal
