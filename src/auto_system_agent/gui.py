@@ -931,6 +931,7 @@ class AgentChatGUI:
                 install_retries=getattr(prev, "install_retries", 2),
                 confirm_high_risk=False,
                 window_geometry=getattr(prev, "window_geometry", "920x560"),
+                react_max_iters=getattr(prev, "react_max_iters", 3),
             )
             try:
                 self._settings_store.save(self._settings)
@@ -1610,6 +1611,7 @@ class AgentChatGUI:
                 install_retries=install_retries,
                 confirm_high_risk=False,
                 window_geometry=prev_geo,
+                react_max_iters=getattr(self._settings, "react_max_iters", 3),
             )
             try:
                 self._settings_store.save(self._settings)
@@ -1722,7 +1724,12 @@ class AgentChatGUI:
         except Exception:
             system_cfg = None
         # Confirmation removed – always execute without pending confirmation
-        return AutoSystemAgent(llm_config=config, confirm_high_risk=False, system_config=system_cfg)
+        return AutoSystemAgent(
+            llm_config=config,
+            confirm_high_risk=False,
+            system_config=system_cfg,
+            max_react_iters=getattr(self._settings, "react_max_iters", 3),
+        )
 
     def _open_settings_dialog(self) -> None:
         dialog = tk.Toplevel(self.root)
@@ -1821,6 +1828,7 @@ class AgentChatGUI:
                 install_retries=previous_retries,
                 confirm_high_risk=False,
                 window_geometry=previous_geometry,
+                react_max_iters=getattr(self._settings, "react_max_iters", 3),
             )
             self._settings_store.save(self._settings)
             self.agent = self._build_agent()
