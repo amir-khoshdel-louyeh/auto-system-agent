@@ -2,10 +2,13 @@ from dataclasses import replace
 from typing import Callable
 
 from auto_system_agent.event_logger import EventLogger
+from auto_system_agent.evaluator import Evaluator
 from auto_system_agent.llm_conversation_assistant import LLMConversationAssistant
 from auto_system_agent.llm_tool_mapper import LLMToolMapper
+from auto_system_agent.models import Evaluation
 from auto_system_agent.models import ExecutionResult
 from auto_system_agent.models import PlannedTask
+from auto_system_agent.models import ReActStep
 from auto_system_agent.models import StepStatus
 from auto_system_agent.planner import Planner
 from auto_system_agent.result_formatter import ResultFormatter
@@ -32,9 +35,11 @@ class AutoSystemAgent:
         formatter: ResultFormatter | None = None,
         assistant: LLMConversationAssistant | None = None,
         event_logger: EventLogger | None = None,
+        evaluator: Evaluator | None = None,
         llm_config: dict | None = None,
         confirm_high_risk: bool = True,
         system_config: dict | None = None,
+        max_react_iters: int = 3,
     ) -> None:
         llm_mapper = LLMToolMapper(config=llm_config)
         # Planner is now LLM-only and needs the OLLAMA config + system context
@@ -45,6 +50,8 @@ class AutoSystemAgent:
         self._formatter = formatter or ResultFormatter()
         self._assistant = assistant or LLMConversationAssistant(config=llm_config)
         self._event_logger = event_logger or EventLogger()
+        self._evaluator = evaluator or Evaluator(config=llm_config)
+        self._max_react_iters = max(1, max_react_iters)
         self._history: list[dict[str, str]] = []
         self._context: dict[str, str] = {"last_app": "", "last_path": ""}
         self._pending_confirmation: dict | None = None
@@ -285,42 +292,88 @@ class AutoSystemAgent:
         tasks: list[PlannedTask],
         progress_callback: Callable[[StepStatus], None] | None = None,
     ) -> tuple[str, list[dict]]:
-        results: list[ExecutionResult] = []
+        return self._run_react_loop(user_input, tasks, progress_callback)
+
+    def _run_react_loop(
+        self,
+        user_input: str,
+        initial_tasks: list[PlannedTask],
+        progress_callback: Callable[[StepStatus], None] | None = None,
+    ) -> tuple[str, list[dict]]:
+        """Thought -> Act -> Observe -> Evaluate loop over planned tasks."""
+        tasks = list(initial_tasks)
+        scratchpad: list[ReActStep] = []
         step_payloads: list[dict] = []
-        for index, task in enumerate(tasks, start=1):
-            tool_key = self._selector.select(task)
-            self._notify(progress_callback, StepStatus(step=index, total=len(tasks), tool=tool_key, state="running"))
-            if tool_key == "unknown":
-                unknown_result = ExecutionResult(
-                    success=False,
-                    message=f"OLLAMA could not map step to a supported tool: {task.target or task.raw_input}",
-                )
-                results.append(unknown_result)
-                step_payloads.append(self._step_payload(tool_key, task, unknown_result))
-                self._notify(
-                    progress_callback,
-                    StepStatus(step=index, total=len(tasks), tool=tool_key, state="failed", message=unknown_result.message),
-                )
+
+        for _ in range(self._max_react_iters):
+            repaired: list[PlannedTask] | None = None
+            aborted: Evaluation | None = None
+
+            for task in tasks:
+                tool_key = self._selector.select(task)
+                step_no = len(scratchpad) + 1
+                self._notify(progress_callback, StepStatus(step=step_no, total=step_no, tool=tool_key, state="running"))
+
+                if tool_key == "unknown":
+                    unknown_result = ExecutionResult(
+                        success=False,
+                        message=f"OLLAMA could not map step to a supported tool: {task.target or task.raw_input}",
+                    )
+                    evaluation = self._evaluator.evaluate_with_llm(
+                        user_input, task, tool_key, unknown_result, scratchpad
+                    )
+                    scratchpad.append(ReActStep(thought=evaluation.reason, task=task, tool=tool_key, result=unknown_result))
+                    step_payloads.append(self._step_payload(tool_key, task, unknown_result))
+                    self._notify(
+                        progress_callback,
+                        StepStatus(step=step_no, total=step_no, tool=tool_key, state="failed", message=unknown_result.message),
+                    )
+                else:
+                    if self._requires_confirmation_for_tasks([task]):
+                        reply = self._queue_confirmation(user_input, [task], source_mode="react_loop")
+                        self._remember(user_input, reply)
+                        self._log_event(user_input=user_input, mode="confirmation_requested", planned_tasks=[task], steps=step_payloads, reply=reply)
+                        pending_results = [step.result for step in scratchpad]
+                        return (f"{self._formatter.format_many(pending_results)}\n\n{reply}".strip() if pending_results else reply), step_payloads
+
+                    result = self._executor.execute(tool_key, task)
+                    self._update_context_from_task(task, result)
+                    evaluation = self._evaluator.evaluate_with_llm(user_input, task, tool_key, result, scratchpad)
+                    scratchpad.append(ReActStep(thought=evaluation.reason, task=task, tool=tool_key, result=result))
+                    step_payloads.append(self._step_payload(tool_key, task, result))
+                    self._notify(
+                        progress_callback,
+                        StepStatus(
+                            step=step_no,
+                            total=step_no,
+                            tool=tool_key,
+                            state="done" if result.success and evaluation.verdict == "done" else "failed" if evaluation.verdict in ("abort",) or not result.success else "done",
+                            message=evaluation.reason or result.message,
+                        ),
+                    )
+
+                if evaluation.verdict == "done":
+                    continue
+                if evaluation.verdict == "abort":
+                    aborted = evaluation
+                    break
+                # retry / replan: ask planner for corrected tasks and start next iteration
+                repaired = self._planner.plan_repair(user_input, scratchpad, evaluation)
                 break
 
-            result = self._executor.execute(tool_key, task)
-            results.append(result)
-            step_payloads.append(self._step_payload(tool_key, task, result))
-            self._update_context_from_task(task, result)
-            self._notify(
-                progress_callback,
-                StepStatus(
-                    step=index,
-                    total=len(tasks),
-                    tool=tool_key,
-                    state="done" if result.success else "failed",
-                    message=result.message,
-                ),
-            )
-            if not result.success:
-                break
+            if aborted is not None:
+                results = [step.result for step in scratchpad]
+                return f"{self._formatter.format_many(results)}\n\nStopped: {aborted.reason}".strip(), step_payloads
 
-        return self._formatter.format_many(results), step_payloads
+            if repaired is None:
+                # Either all steps done, or planner could not repair.
+                results = [step.result for step in scratchpad]
+                return self._formatter.format_many(results), step_payloads
+
+            tasks = repaired
+
+        results = [step.result for step in scratchpad]
+        return f"{self._formatter.format_many(results)}\n\nStopped after {self._max_react_iters} attempts.".strip(), step_payloads
 
     def _update_context_from_chat(self, reply: str) -> None:
         # Terminal mode: no app extraction needed
