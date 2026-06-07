@@ -56,6 +56,40 @@ class Planner:
     def plan(self, user_input: str) -> PlannedTask:
         return self.plan_tasks(user_input)[0]
 
+    def plan_repair(
+        self,
+        user_input: str,
+        scratchpad: list,
+        evaluation,
+    ) -> list[PlannedTask] | None:
+        """Propose corrected next tasks from ReAct history + evaluator feedback."""
+        verdict = getattr(evaluation, "verdict", "")
+        fixed = getattr(evaluation, "fixed_command", "").strip()
+
+        # Fast path: a concrete fixed command needs no LLM round-trip.
+        if verdict == "retry" and fixed:
+            return [PlannedTask(action="run_command", target=fixed, raw_input=user_input)]
+
+        history_lines = []
+        for step in list(scratchpad or [])[-4:]:
+            cmd = getattr(step.task, "target", "") or ""
+            out = getattr(step.result, "message", "") or ""
+            history_lines.append(f"- ran `{cmd}` -> {out[:300]}")
+        history = "\n".join(history_lines) or "(no previous commands)"
+
+        repair_input = (
+            f"Original goal: {user_input}\n"
+            f"Previous attempts:\n{history}\n"
+            f"Evaluator feedback ({verdict}): {getattr(evaluation, 'reason', '')}\n"
+            "Propose the corrected next tasks for the original goal as strict JSON."
+        )
+        tasks = self._plan_via_ollama(repair_input)
+        if tasks is None:
+            return None
+        for task in tasks:
+            task.raw_input = user_input
+        return tasks
+
     def plan_tasks(self, user_input: str) -> list[PlannedTask]:
         text = user_input.strip()
         if not text:
