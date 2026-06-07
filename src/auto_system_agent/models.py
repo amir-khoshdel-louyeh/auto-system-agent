@@ -30,3 +30,22 @@ class StepStatus:
     tool: str
     state: str
     message: str = ""
+
+
+@dataclass
+class Evaluation:
+    """Verdict from the evaluator about a single executed step."""
+
+    verdict: str = "done"
+    reason: str = ""
+    fixed_command: str = ""
+
+
+@dataclass
+class ReActStep:
+    """One Thought -> Act -> Observe record for the ReAct loop."""
+
+    thought: str
+    task: PlannedTask
+    tool: str
+    result: ExecutionResult
