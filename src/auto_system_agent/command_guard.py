@@ -3,13 +3,256 @@
 Catches obvious breakage (missing binary, macOS-only `open` on Linux,
 `xdg-open` of a nonexistent file) instantly with an actionable message,
 so the ReAct loop repairs from information instead of blind retries.
+
+P1.1 adds a small shell AST (CommandNode / Pipe / Redir / Subshell / Chain)
+built from an operator-aware tokenizer, so later steps can score risk and
+enforce verdicts without a direct `bash -lc` bypass.
 """
 
+from dataclasses import dataclass, field
 import shlex
 import shutil
 from pathlib import Path
 
 from auto_system_agent.os_utils import detect_os
+
+
+# ---------------------------------------------------------------------------
+# P1.1a: shell AST nodes + operator-aware tokenizer + simple-command parser.
+# Compound parsing (Chain/Pipe/Redir/Subshell) is extended in P1.1b, and
+# expansion/glob detection lives in P1.1c.
+# ---------------------------------------------------------------------------
+
+#: Separators that join independent commands.
+CHAIN_SEPARATORS = (";", "&&", "||")
+
+#: Operators treated as redirections (prefix number like `2>` kept together).
+REDIR_OPERATORS = (">>", "<<", "2>>", "2>", "&>", ">", "<")
+
+_ALL_OPERATORS = ("&&", "||", ">>", "<<", "2>>", "2>", "&>", "|", ";", ">", "<", "(", ")")
+
+
+class CommandSyntaxError(ValueError):
+    """Raised when shell text cannot be parsed (unclosed quote, bad redir)."""
+
+
+@dataclass
+class CommandNode:
+    """A single simple command: leading VAR= assignments + argv."""
+
+    argv: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
+
+
+@dataclass
+class PipeNode:
+    """`left | right` pipeline (right may nest further pipes)."""
+
+    left: object
+    right: object
+
+
+@dataclass
+class RedirNode:
+    """A command with one shell redirection applied."""
+
+    cmd: object
+    target: str
+    op: str
+
+
+@dataclass
+class SubshellNode:
+    """A parenthesised subshell: `( ... )`."""
+
+    cmd: object
+
+
+@dataclass
+class ChainNode:
+    """Sequential/conditional chaining: `left SEP right` with SEP in ; && ||."""
+
+    left: object
+    right: object
+    sep: str
+
+
+ShellNode = CommandNode | PipeNode | RedirNode | SubshellNode | ChainNode
+
+
+def tokenize_shell(text: str) -> list[str]:
+    """Split shell text into words and operators, respecting quotes.
+
+    Raises CommandSyntaxError on unclosed quotes or trailing backslash.
+    """
+    tokens: list[str] = []
+    buf: list[str] = []
+    quote: str | None = None
+    escaped = False
+    i = 0
+    n = len(text)
+
+    def flush_word() -> None:
+        if buf:
+            tokens.append("".join(buf))
+            buf.clear()
+
+    while i < n:
+        ch = text[i]
+        if escaped:
+            buf.append(ch)
+            escaped = False
+            i += 1
+            continue
+        if ch == "\\":
+            if quote == "'":
+                buf.append(ch)
+            else:
+                # Keep the backslash so later feature detection sees `\*` etc.
+                # A lone trailing backslash is a syntax error (checked below).
+                if i + 1 >= n:
+                    raise CommandSyntaxError("trailing backslash in command")
+                buf.append(ch)
+                escaped = True
+            i += 1
+            continue
+        if quote is not None:
+            buf.append(ch)
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            buf.append(ch)
+            i += 1
+            continue
+        if ch in (" ", "\t", "\n"):
+            flush_word()
+            i += 1
+            continue
+        # Try longest operators first (&&, ||, >>, 2>>, ...).
+        matched: str | None = None
+        for op in _ALL_OPERATORS:
+            if text.startswith(op, i):
+                # `2>` must not split the `2` off a word like `a2>b`; only
+                # treat it as redirection when it starts a fresh token.
+                if op in ("2>", "2>>") and buf:
+                    continue
+                matched = op
+                break
+        if matched is not None:
+            flush_word()
+            tokens.append(matched)
+            i += len(matched)
+            continue
+        buf.append(ch)
+        i += 1
+
+    if quote is not None:
+        raise CommandSyntaxError("unclosed quote in command")
+    flush_word()
+    return tokens
+
+
+def parse_command(text: str) -> ShellNode:
+    """Parse shell text into a small AST.
+
+    P1.1a scope: full tokenization + single simple command parsing.
+    Compound forms (Chain/Pipe/Redir/Subshell) are completed in P1.1b;
+    this entry point already exists so callers can depend on it.
+    """
+    tokens = tokenize_shell(text)
+    if not tokens:
+        return CommandNode(argv=[], env={})
+    node, pos = _parse_chain(tokens, 0)
+    if pos != len(tokens):
+        raise CommandSyntaxError(f"unexpected token: {tokens[pos]!r}")
+    return node
+
+
+def _parse_chain(tokens: list[str], pos: int) -> tuple[ShellNode, int]:
+    """Parse `a ; b`, `a && b`, `a || b` chains (P1.1b completes pipes)."""
+    # P1.1a: parse one side; P1.1b adds full Chain/Pipe/Redir/Subshell loops.
+    # Import here is unnecessary; helper is defined below for forward growth.
+    return _parse_simple_with_redir(tokens, pos)
+
+
+def _split_env_assignments(words: list[str]) -> tuple[dict[str, str], list[str]]:
+    env: dict[str, str] = {}
+    rest = list(words)
+    while rest:
+        head = rest[0]
+        if "=" in head and "/" not in head and not head.startswith("-"):
+            key, _, value = head.partition("=")
+            if key and key[0].isalpha() or key.startswith("_"):
+                env[key] = value
+                rest.pop(0)
+                continue
+        break
+    return env, rest
+
+
+def _parse_simple_with_redir(tokens: list[str], pos: int) -> tuple[ShellNode, int]:
+    """Parse one simple command plus trailing redirections (no pipes yet)."""
+    words: list[str] = []
+    node: ShellNode | None = None
+    i = pos
+    while i < len(tokens):
+        tok = tokens[i]
+        if tok in CHAIN_SEPARATORS or tok in ("|", "(", ")"):
+            break
+        if tok in REDIR_OPERATORS:
+            # P1.1a keeps target validation minimal; P1.1b hardens it.
+            if i + 1 >= len(tokens):
+                raise CommandSyntaxError(f"redirection {tok!r} misses a target")
+            target = tokens[i + 1]
+            if target in _ALL_OPERATORS or target in CHAIN_SEPARATORS:
+                raise CommandSyntaxError(f"redirection {tok!r} misses a target")
+            base: ShellNode = node if node is not None else CommandNode(argv=words, env={})
+            if isinstance(base, CommandNode) and node is None:
+                env, argv = _split_env_assignments(words)
+                base = CommandNode(argv=argv, env=env)
+            node = RedirNode(cmd=base, target=target, op=tok)
+            words = []
+            i += 2
+            continue
+        words.append(tok)
+        i += 1
+    if node is None:
+        env, argv = _split_env_assignments(words)
+        node = CommandNode(argv=argv, env=env)
+    elif words:
+        # Words after a redirection belong to the same simple command tail,
+        # e.g. `> out.log ls` is unusual; keep them visible for P1.1b review.
+        node = ChainNode(left=node, right=CommandNode(argv=words, env={}), sep=";")
+    return node, i
+
+
+def iter_command_nodes(node: ShellNode) -> list[CommandNode]:
+    """Flatten an AST into its leaf simple commands (for risk scoring)."""
+    if isinstance(node, CommandNode):
+        return [node]
+    if isinstance(node, (PipeNode, ChainNode)):
+        return iter_command_nodes(node.left) + iter_command_nodes(node.right)  # type: ignore[arg-type]
+    if isinstance(node, RedirNode):
+        return iter_command_nodes(node.cmd)  # type: ignore[arg-type]
+    if isinstance(node, SubshellNode):
+        return iter_command_nodes(node.cmd)  # type: ignore[arg-type]
+    return []
+
+
+def iter_redir_targets(node: ShellNode) -> list[tuple[str, str]]:
+    """Collect (op, target) redirections in an AST."""
+    if isinstance(node, CommandNode):
+        return []
+    if isinstance(node, RedirNode):
+        return [(node.op, node.target)] + iter_redir_targets(node.cmd)  # type: ignore[arg-type]
+    if isinstance(node, (PipeNode, ChainNode)):
+        return iter_redir_targets(node.left) + iter_redir_targets(node.right)  # type: ignore[arg-type]
+    if isinstance(node, SubshellNode):
+        return iter_redir_targets(node.cmd)  # type: ignore[arg-type]
+    return []
 
 # Handled inside TerminalSession / the pty shell, not real executables.
 _SHELL_BUILTINS = {
