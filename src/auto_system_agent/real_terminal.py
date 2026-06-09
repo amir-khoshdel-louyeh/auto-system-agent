@@ -27,6 +27,14 @@ _ANSI_EXTRA_RE = re.compile(r"\x1b\(B")
 _SGR_RE = re.compile(r"\x1b\[([0-9;]*)m")
 # Sequences that mean clear screen
 _CLEAR_RE = re.compile(r"\x1b\[2J|\x1b\[3J|\x1b\[H\x1b\[2J|\x1b\[2K")
+# Output shapes that mean the shell is waiting for the user to type
+# (sudo password, passphrase, interactive confirmations).
+_NEEDS_INPUT_RE = re.compile(
+    r"\[sudo\]\s+password|password\s+for\s+\S+\s*:|passphrase.*:|^\s*Password:\s*$|\[[yY]/[nN]\]|\([yY]/[nN]\)",
+    re.IGNORECASE | re.MULTILINE,
+)
+# Minimum seconds between two alert bells.
+_BELL_DEBOUNCE_SECONDS = 5.0
 
 
 # Alacritty-inspired palette approximation for 8 + bright colors
@@ -119,6 +127,7 @@ class RealTerminalFrame(tk.Frame):
         self._write_lock = threading.Lock()
         self._exec_lock = threading.Lock()
         self._abort_wait = threading.Event()
+        self._last_bell_at = 0.0
         self._output_queue: queue.Queue[str] = queue.Queue()
         self._cwd = (cwd or Path.home()).resolve() if (cwd or Path.home()).exists() else Path.cwd().resolve()
         if not self._cwd.exists():
@@ -289,6 +298,7 @@ class RealTerminalFrame(tk.Frame):
         self._alive = False
 
     def _write_to_text(self, data: str, tag: str | None):
+        self._maybe_alert(data)
         try:
             # Suppress AI marker echo from display (keep it queued for run_command)
             if "__CMD_DONE_" in data:
@@ -597,6 +607,26 @@ class RealTerminalFrame(tk.Frame):
                         return (buf, 1)
                     continue
             return (buf.strip() + f"\n[timeout after {timeout}s waiting for marker]", 124)
+
+    def _maybe_alert(self, data: str) -> bool:
+        """Ring the display bell if the shell is waiting for user input.
+
+        Debounced so a streaming prompt beeps once. Returns True on a bell.
+        """
+        if not data or not _NEEDS_INPUT_RE.search(data):
+            return False
+        now = time.monotonic()
+        if now - getattr(self, "_last_bell_at", 0.0) < _BELL_DEBOUNCE_SECONDS:
+            return False
+        self._last_bell_at = now
+        try:
+            self.bell()
+        except Exception:
+            try:
+                print("\a", end="", flush=True)
+            except Exception:
+                pass
+        return True
 
     def abort_wait(self) -> None:
         """Ask a stuck run_command marker wait to return early."""
