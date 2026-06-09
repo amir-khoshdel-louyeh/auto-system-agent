@@ -131,6 +131,39 @@ def tokenize_shell(text: str) -> list[str]:
             flush_word()
             i += 1
             continue
+        # Keep `$(...)` (and `$((...))`) as one word so command
+        # substitution is not split into subshell tokens.
+        if ch == "$" and i + 1 < n and text[i + 1] == "(":
+            buf.append("$")
+            depth = 0
+            j = i + 1
+            inner_quote: str | None = None
+            while j < n:
+                c = text[j]
+                if inner_quote is not None:
+                    buf.append(c)
+                    if c == inner_quote:
+                        inner_quote = None
+                    j += 1
+                    continue
+                if c in ("'", '"'):
+                    inner_quote = c
+                    buf.append(c)
+                    j += 1
+                    continue
+                buf.append(c)
+                if c == "(":
+                    depth += 1
+                elif c == ")":
+                    depth -= 1
+                    if depth == 0:
+                        j += 1
+                        break
+                j += 1
+            if depth != 0:
+                raise CommandSyntaxError("unclosed $(...) substitution")
+            i = j
+            continue
         # Try longest operators first (&&, ||, >>, 2>>, ...).
         matched: str | None = None
         for op in _ALL_OPERATORS:
@@ -313,6 +346,143 @@ def iter_redir_targets(node: ShellNode) -> list[tuple[str, str]]:
     if isinstance(node, SubshellNode):
         return iter_redir_targets(node.cmd)  # type: ignore[arg-type]
     return []
+
+
+# ---------------------------------------------------------------------------
+# P1.1c: unsafe expansion + glob detection (quote-aware, for risk scoring).
+# check_command() behaviour is unchanged here; P1.2 consumes these helpers.
+# ---------------------------------------------------------------------------
+
+def detect_expansions(text: str) -> list[str]:
+    """List unsafe shell expansions in raw text: $(), ${}, $VAR, backticks."""
+    found: list[str] = []
+    quote: str | None = None
+    escaped = False
+    seen_var = seen_subst = seen_brace = seen_backtick = False
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if escaped:
+            escaped = False
+            i += 1
+            continue
+        if ch == "\\":
+            # Backslash escapes next char outside single quotes.
+            if quote != "'":
+                escaped = True
+            i += 1
+            continue
+        if quote is not None:
+            if ch == quote:
+                quote = None
+            elif quote == '"' and ch == "`" and not seen_backtick:
+                found.append("backtick substitution `...`")
+                seen_backtick = True
+            elif quote == '"' and ch == "$" and i + 1 < n:
+                nxt = text[i + 1]
+                if nxt == "(" and not seen_subst:
+                    found.append("command substitution $(...)")
+                    seen_subst = True
+                elif nxt == "{" and not seen_brace:
+                    found.append("parameter expansion ${...}")
+                    seen_brace = True
+                elif (nxt.isalpha() or nxt == "_" or nxt in "?$!#*@0123456789") and not seen_var:
+                    found.append("variable expansion $VAR")
+                    seen_var = True
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            i += 1
+            continue
+        if ch == "`" and not seen_backtick:
+            found.append("backtick substitution `...`")
+            seen_backtick = True
+            i += 1
+            continue
+        if ch == "$" and i + 1 < n:
+            nxt = text[i + 1]
+            if nxt == "(" and not seen_subst:
+                found.append("command substitution $(...)")
+                seen_subst = True
+            elif nxt == "{" and not seen_brace:
+                found.append("parameter expansion ${...}")
+                seen_brace = True
+            elif (nxt.isalpha() or nxt == "_" or nxt in "?$!#*@0123456789") and not seen_var:
+                found.append("variable expansion $VAR")
+                seen_var = True
+        i += 1
+    return found
+
+
+def detect_globs(text: str) -> list[str]:
+    """List unquoted glob characters (*, ?, [...]) in raw text."""
+    found: list[str] = []
+    quote: str | None = None
+    escaped = False
+    seen_star = seen_q = seen_bracket = False
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if escaped:
+            escaped = False
+            i += 1
+            continue
+        if ch == "\\":
+            if quote != "'":
+                escaped = True
+            i += 1
+            continue
+        if quote is not None:
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ("'", '"'):
+            quote = ch
+            i += 1
+            continue
+        if ch == "*" and not seen_star:
+            found.append("glob '*'")
+            seen_star = True
+        elif ch == "?" and not seen_q:
+            found.append("glob '?'")
+            seen_q = True
+        elif ch == "[" and not seen_bracket:
+            # Only count '[' when it looks like a character class: has a
+            # closing ']' later on the same token stretch.
+            j = text.find("]", i + 1)
+            if j != -1 and j - i <= 64 and " " not in text[i:j]:
+                found.append("glob '[...]'")
+                seen_bracket = True
+        i += 1
+    return found
+
+
+def list_shell_features(text: str) -> dict[str, list[str]]:
+    """Combined expansion + glob report for one command line."""
+    return {"expansions": detect_expansions(text), "globs": detect_globs(text)}
+
+
+def node_shell_features(node: ShellNode) -> dict[str, list[str]]:
+    """Run expansion/glob detection over every leaf command in an AST."""
+    expansions: list[str] = []
+    globs: list[str] = []
+    for leaf in iter_command_nodes(node):
+        for part in leaf.argv:
+            for item in detect_expansions(part):
+                if item not in expansions:
+                    expansions.append(item)
+            for item in detect_globs(part):
+                if item not in globs:
+                    globs.append(item)
+    for _, target in iter_redir_targets(node):
+        for item in detect_globs(target):
+            if item not in globs:
+                globs.append(item)
+    return {"expansions": expansions, "globs": globs}
 
 # Handled inside TerminalSession / the pty shell, not real executables.
 _SHELL_BUILTINS = {
