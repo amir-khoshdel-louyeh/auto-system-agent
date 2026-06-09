@@ -484,6 +484,39 @@ def node_shell_features(node: ShellNode) -> dict[str, list[str]]:
                 globs.append(item)
     return {"expansions": expansions, "globs": globs}
 
+# ---------------------------------------------------------------------------
+# P1.2: risk tables (weights per proposal.txt P1.2). Scoring helpers follow
+# in later portions; this portion only adds constants, no behaviour change.
+# ---------------------------------------------------------------------------
+
+#: Verdict thresholds on the normalized 0-100 score.
+ALLOW_MAX = 30
+CONFIRM_MAX = 70
+
+#: w1 privilege escalation (sudo/su/doas).
+_PRIVILEGE_WEIGHT = 25
+_PRIVILEGE_PROGS = {"sudo", "su", "doas", "runas"}
+
+#: w2 destructiveness (rm -rf /=40, mkfs/dd=35, shutdown/reboot, fork bomb).
+_DESTRUCTIVE_WEIGHT_RM_ROOT = 40
+_DESTRUCTIVE_WEIGHT_FORMAT = 35
+_FORMAT_PROGS = {"mkfs", "mkfs.ext4", "mkfs.vfat", "fdisk", "parted", "dd"}
+_HALT_PROGS = {"shutdown", "reboot", "poweroff", "halt", "init"}
+
+#: w3 scope (target breadth): `/`=20, `~`=10, `./`=5.
+_SCOPE_WEIGHT_ROOT = 20
+_SCOPE_WEIGHT_HOME = 10
+_SCOPE_WEIGHT_LOCAL = 5
+
+#: w4 irreversibility (delete/format/remove).
+_IRREVERSIBLE_WEIGHT = 20
+_DELETE_PROGS = {"rm", "rmdir", "shred", "wipefs"}
+
+#: w5 network exfil / pipe-to-shell (curl|sh=15).
+_NETWORK_WEIGHT = 15
+_DOWNLOAD_PROGS = {"curl", "wget", "aria2c", "axel", "ftp", "nc", "ncat", "socat"}
+_SHELL_PROGS = {"bash", "sh", "dash", "zsh", "fish", "ksh", "pwsh", "powershell"}
+
 # Handled inside TerminalSession / the pty shell, not real executables.
 _SHELL_BUILTINS = {
     "cd", "pwd", "history", "clear", "exit", "echo", "true", "false", ":",
