@@ -517,6 +517,56 @@ _NETWORK_WEIGHT = 15
 _DOWNLOAD_PROGS = {"curl", "wget", "aria2c", "axel", "ftp", "nc", "ncat", "socat"}
 _SHELL_PROGS = {"bash", "sh", "dash", "zsh", "fish", "ksh", "pwsh", "powershell"}
 
+
+def _prog_name(argv0: str) -> str:
+    """Basename of the executable, lowercased (`/usr/bin/sudo` -> `sudo`)."""
+    return Path(argv0).name.lower() if argv0 else ""
+
+
+def _score_privilege(leaves: list[CommandNode]) -> tuple[int, list[str]]:
+    """w1: privilege escalation via sudo/su/doas (+25)."""
+    for leaf in leaves:
+        if leaf.argv and _prog_name(leaf.argv[0]) in _PRIVILEGE_PROGS:
+            return _PRIVILEGE_WEIGHT, [f"privilege escalation via {leaf.argv[0]}"]
+    return 0, []
+
+
+def _path_scope_weight(path: str) -> tuple[int, str]:
+    """w3 for one path: `/`=20, `~`=10, `./`=5, else 0."""
+    p = (path or "").strip().strip("'\"")
+    if not p:
+        return 0, ""
+    if p in ("/", "/*", "/**"):
+        return _SCOPE_WEIGHT_ROOT, "scope covers filesystem root '/'"
+    if p.startswith("/"):
+        # Absolute path outside home still touches system breadth.
+        if p in ("/etc", "/usr", "/bin", "/sbin", "/boot", "/dev"):
+            return _SCOPE_WEIGHT_ROOT, f"scope covers system path '{p}'"
+        return _SCOPE_WEIGHT_HOME, f"scope covers absolute path '{p}'"
+    if p.startswith("~") or p.startswith("$HOME") or p.startswith("${HOME"):
+        return _SCOPE_WEIGHT_HOME, f"scope covers home '{p}'"
+    if p.startswith(("./", "../")) or p in (".", ".."):
+        return _SCOPE_WEIGHT_LOCAL, f"scope covers local path '{p}'"
+    return 0, ""
+
+
+def _score_scope(leaves: list[CommandNode], redirs: list[tuple[str, str]]) -> tuple[int, list[str]]:
+    """w3: widest target breadth across args and redirection targets."""
+    best = 0
+    reason = ""
+    candidates: list[str] = []
+    for leaf in leaves:
+        candidates.extend(leaf.argv[1:])
+    candidates.extend(target for _, target in redirs)
+    for cand in candidates:
+        # Skip flags; only paths/patterns carry scope.
+        if cand.startswith("-") and "/" not in cand and not cand.startswith("~"):
+            continue
+        weight, why = _path_scope_weight(cand)
+        if weight > best:
+            best, reason = weight, why
+    return (best, [reason] if reason else [])
+
 # Handled inside TerminalSession / the pty shell, not real executables.
 _SHELL_BUILTINS = {
     "cd", "pwd", "history", "clear", "exit", "echo", "true", "false", ":",
