@@ -172,10 +172,82 @@ def parse_command(text: str) -> ShellNode:
 
 
 def _parse_chain(tokens: list[str], pos: int) -> tuple[ShellNode, int]:
-    """Parse `a ; b`, `a && b`, `a || b` chains (P1.1b completes pipes)."""
-    # P1.1a: parse one side; P1.1b adds full Chain/Pipe/Redir/Subshell loops.
-    # Import here is unnecessary; helper is defined below for forward growth.
+    """Parse `a ; b`, `a && b`, `a || b` chains on top of pipes."""
+    node, pos = _parse_pipe(tokens, pos)
+    while pos < len(tokens) and tokens[pos] in CHAIN_SEPARATORS:
+        sep = tokens[pos]
+        if not _has_command(node):
+            raise CommandSyntaxError(f"separator {sep!r} misses a command before it")
+        pos += 1
+        if pos >= len(tokens):
+            raise CommandSyntaxError(f"separator {sep!r} misses a command after it")
+        if tokens[pos] in CHAIN_SEPARATORS or tokens[pos] in ("|", ")"):
+            raise CommandSyntaxError(f"separator {sep!r} misses a command after it")
+        right, pos = _parse_pipe(tokens, pos)
+        node = ChainNode(left=node, right=right, sep=sep)
+    return node, pos
+
+
+def _parse_pipe(tokens: list[str], pos: int) -> tuple[ShellNode, int]:
+    """Parse `a | b | c` pipelines."""
+    node, pos = _parse_factor(tokens, pos)
+    while pos < len(tokens) and tokens[pos] == "|":
+        if not _has_command(node):
+            raise CommandSyntaxError("pipe '|' misses a command before it")
+        pos += 1
+        if pos >= len(tokens) or tokens[pos] in ("|", ")", *CHAIN_SEPARATORS):
+            raise CommandSyntaxError("pipe '|' misses a command after it")
+        right, pos = _parse_factor(tokens, pos)
+        node = PipeNode(left=node, right=right)
+    return node, pos
+
+
+def _has_command(node: ShellNode) -> bool:
+    """True when an AST branch holds at least one word or subshell."""
+    for leaf in iter_command_nodes(node):
+        if leaf.argv or leaf.env:
+            return True
+    if isinstance(node, SubshellNode):
+        return True
+    if isinstance(node, RedirNode):
+        return True
+    return False
+
+
+def _parse_factor(tokens: list[str], pos: int) -> tuple[ShellNode, int]:
+    """Parse one subshell or simple command with redirections."""
+    if pos < len(tokens) and tokens[pos] == "(":
+        pos += 1
+        if pos < len(tokens) and tokens[pos] == ")":
+            raise CommandSyntaxError("empty subshell '()'")
+        inner, pos = _parse_chain(tokens, pos)
+        if pos >= len(tokens) or tokens[pos] != ")":
+            raise CommandSyntaxError("unclosed subshell: misses ')'")
+        pos += 1
+        node: ShellNode = SubshellNode(cmd=inner)
+        # Trailing redirections on a subshell, e.g. `(ls) > out`.
+        while pos < len(tokens) and tokens[pos] in REDIR_OPERATORS:
+            op = tokens[pos]
+            target, pos = _parse_redir_target(tokens, pos)
+            node = RedirNode(cmd=node, target=target, op=op)
+        return node, pos
+    if pos < len(tokens) and tokens[pos] == ")":
+        raise CommandSyntaxError("unexpected ')'")
     return _parse_simple_with_redir(tokens, pos)
+
+
+def _parse_redir_target(tokens: list[str], pos: int) -> tuple[str, int]:
+    """Validate one redirection target after tokens[pos] (the operator)."""
+    op = tokens[pos]
+    if pos + 1 >= len(tokens):
+        raise CommandSyntaxError(f"redirection {op!r} misses a target")
+    target = tokens[pos + 1]
+    if target in _ALL_OPERATORS or target in CHAIN_SEPARATORS:
+        raise CommandSyntaxError(f"redirection {op!r} misses a target")
+    # `>&2`, `&>file` style numeric targets stay as-is; descriptors are fine.
+    if not target.strip():
+        raise CommandSyntaxError(f"redirection {op!r} misses a target")
+    return target, pos + 2
 
 
 def _split_env_assignments(words: list[str]) -> tuple[dict[str, str], list[str]]:
@@ -194,38 +266,26 @@ def _split_env_assignments(words: list[str]) -> tuple[dict[str, str], list[str]]
 
 
 def _parse_simple_with_redir(tokens: list[str], pos: int) -> tuple[ShellNode, int]:
-    """Parse one simple command plus trailing redirections (no pipes yet)."""
+    """Parse one simple command with interleaved redirections."""
     words: list[str] = []
-    node: ShellNode | None = None
+    redirs: list[tuple[str, str]] = []
     i = pos
     while i < len(tokens):
         tok = tokens[i]
         if tok in CHAIN_SEPARATORS or tok in ("|", "(", ")"):
             break
         if tok in REDIR_OPERATORS:
-            # P1.1a keeps target validation minimal; P1.1b hardens it.
-            if i + 1 >= len(tokens):
-                raise CommandSyntaxError(f"redirection {tok!r} misses a target")
-            target = tokens[i + 1]
-            if target in _ALL_OPERATORS or target in CHAIN_SEPARATORS:
-                raise CommandSyntaxError(f"redirection {tok!r} misses a target")
-            base: ShellNode = node if node is not None else CommandNode(argv=words, env={})
-            if isinstance(base, CommandNode) and node is None:
-                env, argv = _split_env_assignments(words)
-                base = CommandNode(argv=argv, env=env)
-            node = RedirNode(cmd=base, target=target, op=tok)
-            words = []
-            i += 2
+            target, i = _parse_redir_target(tokens, i)
+            redirs.append((tok, target))
             continue
         words.append(tok)
         i += 1
-    if node is None:
-        env, argv = _split_env_assignments(words)
-        node = CommandNode(argv=argv, env=env)
-    elif words:
-        # Words after a redirection belong to the same simple command tail,
-        # e.g. `> out.log ls` is unusual; keep them visible for P1.1b review.
-        node = ChainNode(left=node, right=CommandNode(argv=words, env={}), sep=";")
+    if not words and not redirs:
+        raise CommandSyntaxError("misses a command")
+    env, argv = _split_env_assignments(words)
+    node: ShellNode = CommandNode(argv=argv, env=env)
+    for op, target in redirs:
+        node = RedirNode(cmd=node, target=target, op=op)
     return node, i
 
 
@@ -267,6 +327,13 @@ _OPENERS = {"xdg-open", "gio", "gnome-open", "kde-open", "exo-open", "wslview"}
 
 def check_command(command: str, cwd: Path | None = None) -> str | None:
     """Return an error message if the command is doomed, else None."""
+    text = (command or "").strip()
+    if not text:
+        return None
+    try:
+        parse_command(text)
+    except CommandSyntaxError as exc:
+        return f"Invalid command syntax: {exc}"
     argv = _first_words(command)
     if not argv:
         return None
