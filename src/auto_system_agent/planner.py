@@ -128,6 +128,13 @@ class Planner:
             "Given the user's instruction, decide whether it requests a system task or is general conversation.\n"
             f"Allowed tool actions are: {sorted(SUPPORTED_ACTIONS)} and unknown.\n"
             "unknown means the message is not a system task and should be answered conversationally.\n"
+            "Action-first policy: questions about THIS machine are system tasks, not conversation. "
+            "Answer them by RUNNING a read-only command, never with an explanation. This includes "
+            "'how many/much ...', 'list/show ...', 'what is installed/running/open', 'do i have ...', "
+            "'check ...', 'find ...'. Examples: 'how many terminals do i have?' -> 'who | wc -l'; "
+            "'how much free space?' -> 'df -h /'.\n"
+            "unknown is ONLY for greetings, thanks, general-knowledge questions unrelated to this machine, "
+            "opinions/advice, and help.\n"
             "Respond ONLY as strict JSON with this shape:\n"
             '{"tasks": [{"action": "<action>", "target": "<target>"}]}\n'
             "Rules:\n"
