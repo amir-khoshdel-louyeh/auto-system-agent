@@ -183,6 +183,10 @@ class AgentChatGUI:
         self._show_entry_placeholder()
         self.entry.bind("<FocusIn>", self._on_entry_focus_in)
         self.entry.bind("<FocusOut>", self._on_entry_focus_out)
+        # The hint can be (re-)shown while the box already has focus
+        # (e.g. after a task finishes), when no FocusIn fires anymore.
+        self.entry.bind("<KeyPress>", self._on_entry_key_press)
+        self.entry.bind("<<Paste>>", self._on_entry_paste)
 
         self.send_button = tk.Button(
             entry_row,
@@ -507,6 +511,46 @@ class AgentChatGUI:
         if not self.entry.get().strip():
             self._show_entry_placeholder()
 
+    def _on_entry_key_press(self, event=None) -> None:
+        # Clear a stale hint on the first keystroke so typing never
+        # lands after the hint text.
+        if getattr(self, "_entry_has_placeholder", False):
+            self._clear_entry_placeholder()
+
+    def _on_entry_paste(self, event=None) -> None:
+        if getattr(self, "_entry_has_placeholder", False):
+            self._clear_entry_placeholder()
+
+    def _read_entry_text(self) -> str:
+        """User text with any stale hint removed.
+
+        Heals the state where text was typed after the hint while the
+        box already had focus (no FocusIn fired to clear it).
+        """
+        try:
+            content = self.entry.get()
+        except Exception:
+            return ""
+        text = (content or "").strip()
+        if not text:
+            return ""
+        placeholder = getattr(self, "_entry_placeholder", "") or ""
+        if getattr(self, "_entry_has_placeholder", False):
+            if text == placeholder:
+                return ""
+            if placeholder and text.startswith(placeholder):
+                return text[len(placeholder):].strip()
+            # Flag set but content is fully user text: drop the stale flag.
+            self._entry_has_placeholder = False
+            try:
+                self.entry.configure(fg=FG_PRIMARY)
+            except Exception:
+                pass
+            return text
+        if placeholder and text == placeholder:
+            return ""
+        return text
+
     def _set_agent_status(self, state: str) -> None:
         try:
             if state == "busy":
@@ -525,20 +569,19 @@ class AgentChatGUI:
             pass
 
     def _on_send(self, _event=None) -> None:
-        # Handle placeholder
-        if getattr(self, "_entry_has_placeholder", False):
-            return
-        user_input = self.entry.get().strip()
-        if not user_input or user_input == getattr(self, "_entry_placeholder", ""):
+        user_input = self._read_entry_text()
+        if not user_input:
             return
 
         if self._is_busy or str(self.send_button["state"]) == "disabled":
             return
 
-        self.entry.delete(0, tk.END)
-        self._show_entry_placeholder()
-        # Keep placeholder invisible while busy? clear it so next focus shows empty
-        self._clear_entry_placeholder()
+        try:
+            self.entry.delete(0, tk.END)
+            self.entry.configure(fg=FG_PRIMARY)
+            self._entry_has_placeholder = False
+        except Exception:
+            pass
         self._append_message("You", user_input)
 
         if user_input.lower() in {"exit", "quit"}:
