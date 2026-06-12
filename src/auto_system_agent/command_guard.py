@@ -567,6 +567,91 @@ def _score_scope(leaves: list[CommandNode], redirs: list[tuple[str, str]]) -> tu
             best, reason = weight, why
     return (best, [reason] if reason else [])
 
+
+def _has_recursive_flag(args: list[str]) -> bool:
+    for arg in args:
+        low = arg.lower()
+        if low in ("-r", "-rf", "-fr", "-rm", "--recursive"):
+            return True
+        if low.startswith("-") and "r" in low and all(c in "rfRil" for c in low[1:]):
+            # Covers `-rf`, `-fr`, `-r` bundles; keeps `-rm` out of scope creep.
+            return True
+    return False
+
+
+def _score_destructiveness(leaves: list[CommandNode], raw_text: str) -> tuple[int, list[str]]:
+    """w2: rm -rf /=40, mkfs/dd=35, halt/reboot, fork bomb, chmod 777 /."""
+    if ":(){" in raw_text.replace(" ", "") or ":(){:|:&};:" in raw_text.replace(" ", ""):
+        return _DESTRUCTIVE_WEIGHT_RM_ROOT, ["fork bomb ':(){:|:&};:' pattern"]
+    best = 0
+    reason = ""
+    for leaf in leaves:
+        if not leaf.argv:
+            continue
+        prog = _prog_name(leaf.argv[0])
+        args = leaf.argv[1:]
+        lowered = [a.lower() for a in args]
+        if prog in _FORMAT_PROGS:
+            if _DESTRUCTIVE_WEIGHT_FORMAT > best:
+                best, reason = _DESTRUCTIVE_WEIGHT_FORMAT, f"formatting/raw-disk tool '{prog}'"
+        if prog in _HALT_PROGS:
+            if 30 > best:
+                best, reason = 30, f"system halt/reboot via '{prog}'"
+        if prog == "chmod" and ("777" in lowered or "7777" in lowered):
+            targets = [a for a in args if not a.startswith("-")]
+            if any(t.strip().strip("'\"") in ("/", "/*", "/**") for t in targets):
+                if 35 > best:
+                    best, reason = 35, "permission wipe 'chmod 777 /'"
+        if prog == "rm":
+            targets = [a for a in args if not a.startswith("-") or "/" in a]
+            hits_root = any(t.strip().strip("'\"") in ("/", "/*", "/**", "/.") for t in targets)
+            if _has_recursive_flag(args) and hits_root:
+                return _DESTRUCTIVE_WEIGHT_RM_ROOT, ["destructive 'rm -rf /'"]
+            if _has_recursive_flag(args) and best < 30:
+                best, reason = 30, "recursive delete 'rm -r'"
+            elif "--no-preserve-root" in lowered:
+                return _DESTRUCTIVE_WEIGHT_RM_ROOT, ["destructive 'rm --no-preserve-root'"]
+    return (best, [reason] if reason else [])
+
+
+def _score_irreversibility(leaves: list[CommandNode]) -> tuple[int, list[str]]:
+    """w4: delete/format/remove cannot be undone (+20)."""
+    for leaf in leaves:
+        if leaf.argv and _prog_name(leaf.argv[0]) in _DELETE_PROGS | _FORMAT_PROGS:
+            return _IRREVERSIBLE_WEIGHT, [f"irreversible operation via '{leaf.argv[0]}'"]
+    return 0, []
+
+
+def _has_pipe_to_shell(node: ShellNode) -> bool:
+    """True when a download/streaming prog pipes into a shell interpreter."""
+    if isinstance(node, PipeNode):
+        left_progs = {_prog_name(c.argv[0]) for c in iter_command_nodes(node.left) if c.argv}  # type: ignore[arg-type]
+        right_progs = {_prog_name(c.argv[0]) for c in iter_command_nodes(node.right) if c.argv}  # type: ignore[arg-type]
+        if left_progs & _DOWNLOAD_PROGS and right_progs & (_SHELL_PROGS | {"sudo", "python", "python3", "perl", "ruby", "node"}):
+            return True
+        # Recurse: `a | b | sh` nests on the right.
+        return _has_pipe_to_shell(node.left) or _has_pipe_to_shell(node.right)  # type: ignore[arg-type]
+    if isinstance(node, (ChainNode, SubshellNode, RedirNode)):
+        children: list[ShellNode] = []
+        if isinstance(node, ChainNode):
+            children = [node.left, node.right]  # type: ignore[list-item]
+        elif isinstance(node, (SubshellNode, RedirNode)):
+            children = [node.cmd]  # type: ignore[list-item]
+        return any(_has_pipe_to_shell(c) for c in children)
+    return False
+
+
+def _score_network(node: ShellNode, leaves: list[CommandNode]) -> tuple[int, list[str]]:
+    """w5: network exfil / pipe-to-shell (+15)."""
+    if _has_pipe_to_shell(node):
+        return _NETWORK_WEIGHT, ["network pipe-to-shell 'curl|sh' pattern"]
+    for leaf in leaves:
+        if leaf.argv and _prog_name(leaf.argv[0]) in _DOWNLOAD_PROGS:
+            joined = " ".join(leaf.argv[1:])
+            if "http://" in joined or "https://" in joined or "|" in joined:
+                return _NETWORK_WEIGHT, [f"network download via '{leaf.argv[0]}'"]
+    return 0, []
+
 # Handled inside TerminalSession / the pty shell, not real executables.
 _SHELL_BUILTINS = {
     "cd", "pwd", "history", "clear", "exit", "echo", "true", "false", ":",
