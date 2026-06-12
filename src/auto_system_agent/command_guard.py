@@ -535,10 +535,13 @@ def _check_deny_list(node: ShellNode, leaves: list[CommandNode], raw_text: str) 
     for leaf in leaves:
         if not leaf.argv:
             continue
-        prog = _prog_name(leaf.argv[0])
-        args = leaf.argv[1:]
+        prog, args = _effective_argv(leaf.argv)
         lowered = [a.lower() for a in args]
         if prog in _FORMAT_PROGS:
+            if prog == "dd":
+                joined = " ".join(lowered)
+                if "of=/dev/" not in joined and "if=/dev/" not in joined:
+                    continue
             return f"deny-list: raw-disk tool '{prog}'"
         if prog in _HALT_PROGS:
             return f"deny-list: system halt via '{prog}'"
@@ -570,6 +573,31 @@ def _score_privilege(leaves: list[CommandNode]) -> tuple[int, list[str]]:
         if leaf.argv and _prog_name(leaf.argv[0]) in _PRIVILEGE_PROGS:
             return _PRIVILEGE_WEIGHT, [f"privilege escalation via {leaf.argv[0]}"]
     return 0, []
+
+
+def _effective_argv(argv: list[str]) -> tuple[str, list[str]]:
+    """Real program + args behind privilege wrappers (`sudo -u root rm` -> rm).
+
+    Skips leading `sudo/su/doas` flags (`-u root`, `-n`) so destructive
+    inner commands cannot hide behind escalation.
+    """
+    if not argv:
+        return "", []
+    if _prog_name(argv[0]) not in _PRIVILEGE_PROGS:
+        return _prog_name(argv[0]), argv[1:]
+    rest = argv[1:]
+    skip_next = False
+    for idx, tok in enumerate(rest):
+        if skip_next:
+            skip_next = False
+            continue
+        if tok in ("-u", "--user", "-g", "--group", "-p", "--prompt"):
+            skip_next = True
+            continue
+        if tok.startswith("-") and tok not in ("-", "--"):
+            continue
+        return _prog_name(tok), rest[idx + 1 :]
+    return _prog_name(argv[0]), rest
 
 
 def _path_scope_weight(path: str) -> tuple[int, str]:
@@ -629,10 +657,17 @@ def _score_destructiveness(leaves: list[CommandNode], raw_text: str) -> tuple[in
     for leaf in leaves:
         if not leaf.argv:
             continue
-        prog = _prog_name(leaf.argv[0])
-        args = leaf.argv[1:]
+        prog, args = _effective_argv(leaf.argv)
         lowered = [a.lower() for a in args]
         if prog in _FORMAT_PROGS:
+            if prog == "dd":
+                joined = " ".join(lowered)
+                # Plain file-to-file copies score but stay out of the top band;
+                # raw-disk reads/writes keep full weight via the deny path below.
+                if "of=/dev/" not in joined and "if=/dev/" not in joined:
+                    if 30 > best:
+                        best, reason = 30, f"raw copy tool '{prog}'"
+                    continue
             if _DESTRUCTIVE_WEIGHT_FORMAT > best:
                 best, reason = _DESTRUCTIVE_WEIGHT_FORMAT, f"formatting/raw-disk tool '{prog}'"
         if prog in _HALT_PROGS:
@@ -658,7 +693,7 @@ def _score_destructiveness(leaves: list[CommandNode], raw_text: str) -> tuple[in
 def _score_irreversibility(leaves: list[CommandNode]) -> tuple[int, list[str]]:
     """w4: delete/format/remove cannot be undone (+20)."""
     for leaf in leaves:
-        if leaf.argv and _prog_name(leaf.argv[0]) in _DELETE_PROGS | _FORMAT_PROGS:
+        if leaf.argv and _effective_argv(leaf.argv)[0] in _DELETE_PROGS | _FORMAT_PROGS:
             return _IRREVERSIBLE_WEIGHT, [f"irreversible operation via '{leaf.argv[0]}'"]
     return 0, []
 
