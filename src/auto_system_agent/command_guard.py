@@ -517,6 +517,47 @@ _NETWORK_WEIGHT = 15
 _DOWNLOAD_PROGS = {"curl", "wget", "aria2c", "axel", "ftp", "nc", "ncat", "socat"}
 _SHELL_PROGS = {"bash", "sh", "dash", "zsh", "fish", "ksh", "pwsh", "powershell"}
 
+#: P1.2b allow-list: read-only / reversible commands that stay ALLOW on low score.
+_ALLOW_PROGS = {
+    "ls", "pwd", "whoami", "date", "uname", "df", "du", "ps", "cat", "head",
+    "tail", "grep", "find", "wc", "sort", "uniq", "echo", "printf", "true",
+    "false", "which", "who", "id", "uptime", "lsb_release",
+}
+
+
+def _check_deny_list(node: ShellNode, leaves: list[CommandNode], raw_text: str) -> str | None:
+    """Hard DENY patterns that bypass score thresholds (fork bomb, raw disk)."""
+    flat = raw_text.replace(" ", "")
+    if ":(){" in flat:
+        return "deny-list: fork bomb pattern"
+    if _has_pipe_to_shell(node):
+        return "deny-list: pipe-to-shell 'curl|sh' pattern"
+    for leaf in leaves:
+        if not leaf.argv:
+            continue
+        prog = _prog_name(leaf.argv[0])
+        args = leaf.argv[1:]
+        lowered = [a.lower() for a in args]
+        if prog in _FORMAT_PROGS:
+            return f"deny-list: raw-disk tool '{prog}'"
+        if prog in _HALT_PROGS:
+            return f"deny-list: system halt via '{prog}'"
+        if prog == "rm" and "--no-preserve-root" in lowered:
+            return "deny-list: 'rm --no-preserve-root'"
+        if prog == "rm" and _has_recursive_flag(args):
+            targets = [a.strip().strip("'\"") for a in args if not a.startswith("-") or "/" in a]
+            if any(t in ("/", "/*", "/**", "/.") for t in targets):
+                return "deny-list: 'rm -rf /'"
+        if prog == "chmod" and ("777" in lowered or "7777" in lowered):
+            targets = [a for a in args if not a.startswith("-")]
+            if any(t.strip().strip("'\"") in ("/", "/*", "/**") for t in targets):
+                return "deny-list: 'chmod 777 /'"
+        if prog == "dd":
+            joined = " ".join(lowered)
+            if "of=/dev/" in joined:
+                return "deny-list: 'dd of=/dev/...' raw-disk write"
+    return None
+
 
 def _prog_name(argv0: str) -> str:
     """Basename of the executable, lowercased (`/usr/bin/sudo` -> `sudo`)."""
