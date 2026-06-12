@@ -520,16 +520,26 @@ class AutoSystemAgent:
     def _requires_confirmation_for_tasks(self, tasks: list[PlannedTask]) -> bool:
         if not self._confirm_high_risk:
             return False
-        # In terminal mode, only destructive commands need confirmation
+        # In terminal mode, only destructive commands need confirmation.
+        # P1.3: verdict CONFIRM/DENY from assess_command triggers confirmation;
+        # legacy substring patterns stay as a safety net so sudo installs keep
+        # prompting while verdict coverage grows (P1.5 refines the UI card).
+        from auto_system_agent.command_guard import assess_command
+
         for task in tasks:
             if task.action not in HIGH_RISK_ACTIONS:
                 continue
             if task.action == "run_command" and task.target:
-                low = task.target.lower()
+                low = (task.target or "").lower()
                 # Only require confirmation for destructive patterns
                 dangerous = ["rm ", "rm -", "sudo ", "mkfs", " dd ", "shutdown", "reboot", ":(){", "chmod 777", "> /dev/"]
                 if any(pat in low for pat in dangerous):
                     return True
+                try:
+                    if assess_command(task.target or "")["verdict"] in ("CONFIRM", "DENY"):
+                        return True
+                except Exception:
+                    pass
                 # Safe commands like touch, mkdir, ls, cat, echo, pwd, cd do not need confirmation
                 return False
             return True
