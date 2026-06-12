@@ -694,6 +694,57 @@ def _score_network(node: ShellNode, leaves: list[CommandNode]) -> tuple[int, lis
     return 0, []
 
 
+def canonical_command(node: ShellNode) -> str:
+    """Normalized single-space form via shlex.join (for audit + UI)."""
+    if isinstance(node, CommandNode):
+        prefix = [f"{k}={v}" for k, v in node.env.items()]
+        return shlex.join(prefix + node.argv) if (prefix or node.argv) else ""
+    if isinstance(node, ChainNode):
+        return f"{canonical_command(node.left)} {node.sep} {canonical_command(node.right)}".strip()  # type: ignore[arg-type]
+    if isinstance(node, PipeNode):
+        return f"{canonical_command(node.left)} | {canonical_command(node.right)}".strip()  # type: ignore[arg-type]
+    if isinstance(node, RedirNode):
+        inner = canonical_command(node.cmd)  # type: ignore[arg-type]
+        return f"{inner} {node.op} {node.target}".strip()
+    if isinstance(node, SubshellNode):
+        return f"({canonical_command(node.cmd)})"  # type: ignore[arg-type]
+    return ""
+
+
+def _effective_prog(leaf: CommandNode) -> str:
+    """Real executable behind privilege wrappers (`sudo apt ...` -> `apt`)."""
+    if not leaf.argv:
+        return ""
+    prog = _prog_name(leaf.argv[0])
+    if prog in _PRIVILEGE_PROGS and len(leaf.argv) > 1:
+        nxt = leaf.argv[1]
+        if nxt.startswith("-"):
+            for tok in leaf.argv[2:]:
+                if not tok.startswith("-"):
+                    return _prog_name(tok)
+            return _prog_name(nxt)
+        return _prog_name(nxt)
+    return prog
+
+
+def _check_path(leaves: list[CommandNode]) -> str | None:
+    """PATH check via shutil.which; skips builtins and empty/redir-only leaves."""
+    from auto_system_agent.os_utils import detect_os  # local import: cheap, no cycle
+    _ = detect_os
+    for leaf in leaves:
+        if not leaf.argv:
+            continue
+        prog = _effective_prog(leaf)
+        if not prog or prog in _SHELL_BUILTINS or prog in _OPENERS:
+            continue
+        # Shell syntax tokens that never live on PATH.
+        if prog in (":", "[", "[[", "{", "}", "!", "time"):
+            continue
+        if shutil.which(prog) is None:
+            return prog
+    return None
+
+
 def _score_expansion_glob(raw_text: str) -> tuple[int, list[str]]:
     """Dynamic-content bonus: hidden commands/globs widen blast radius."""
     points = 0
