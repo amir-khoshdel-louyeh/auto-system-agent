@@ -822,6 +822,48 @@ _SHELL_BUILTINS = {
 _OPENERS = {"xdg-open", "gio", "gnome-open", "kde-open", "exo-open", "wslview"}
 
 
+def assess_command(command: str) -> dict:
+    """Score one command line: {verdict, score, reasons, canonical_form}.
+
+    Verdict thresholds: ALLOW<=30, CONFIRM<=70, DENY>70. Deny-list hits
+    force DENY with at least 85 points; missing binaries are reported as
+    reasons without changing the score (check_command still blocks them).
+    """
+    raw = (command or "").strip()
+    if not raw:
+        return {"verdict": "ALLOW", "score": 0, "reasons": [], "canonical_form": ""}
+    try:
+        node = parse_command(raw)
+    except CommandSyntaxError:
+        score, reasons = score_command(raw)
+        deny = _check_deny_list(CommandNode(argv=[], env={}), [], raw)
+        if deny:
+            reasons = [deny] + reasons
+            score = max(score, 100 if "fork bomb" in deny else 85)
+        verdict = "DENY" if score > CONFIRM_MAX else ("CONFIRM" if score > ALLOW_MAX else "ALLOW")
+        if deny:
+            verdict = "DENY"
+        return {"verdict": verdict, "score": score, "reasons": reasons, "canonical_form": raw}
+    leaves = iter_command_nodes(node)
+    canonical = canonical_command(node)
+    score, reasons = score_command(raw)
+    deny = _check_deny_list(node, leaves, raw)
+    if deny:
+        reasons = [deny] + reasons
+        score = max(score, 85)
+        return {"verdict": "DENY", "score": min(100, score), "reasons": reasons, "canonical_form": canonical}
+    missing = _check_path(leaves)
+    if missing:
+        reasons = reasons + [f"missing binary '{missing}'"]
+    if score <= ALLOW_MAX:
+        verdict = "ALLOW"
+    elif score <= CONFIRM_MAX:
+        verdict = "CONFIRM"
+    else:
+        verdict = "DENY"
+    return {"verdict": verdict, "score": score, "reasons": reasons, "canonical_form": canonical}
+
+
 def check_command(command: str, cwd: Path | None = None) -> str | None:
     """Return an error message if the command is doomed, else None."""
     text = (command or "").strip()
