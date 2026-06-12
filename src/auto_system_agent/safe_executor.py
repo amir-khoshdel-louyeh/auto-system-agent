@@ -82,27 +82,26 @@ class SafeExecutor:
                         "canonical_form": assessment["canonical_form"],
                     },
                 )
-            return self._terminal.run(command)
-
-        # Backward compat: old action names mapped to shell equivalents via terminal
-        # This keeps old tests working even though planner now only emits run_command
-        legacy_map = {
-            "create_folder": lambda t: f'mkdir -p {self._shell_escape(t)}',
-            "list_files": lambda t: f'ls -la {self._shell_escape(t or ".")}',
-            "delete_path": lambda t: f'rm -rf {self._shell_escape(t)}',
-            "move_path": lambda t: f'mv {self._shell_escape(t)} {self._shell_escape(task.options.get("destination",""))}',
-            "compress": lambda t: f'zip -r {self._shell_escape(t + ".zip")} {self._shell_escape(t)}' if t else 'zip -r archive.zip .',
-            "install_app": lambda t: f'sudo apt install -y {self._shell_escape(t)}' if t else "echo no app",
-        }
-        if tool_key in legacy_map:
+            result = self._terminal.run(command)
+            policy_data = {
+                "command": command,
+                "policy_decision": "approved",
+                "policy_reason": "; ".join(assessment["reasons"]) or "allowed_command",
+                "risk_score": assessment["score"],
+                "risk_level": _VERDICT_TO_LEVEL.get(assessment["verdict"], "low"),
+                "verdict": assessment["verdict"],
+                "canonical_form": assessment["canonical_form"],
+            }
             try:
-                cmd = legacy_map[tool_key](task.target or "")
-                return self._terminal.run(cmd)
-            except Exception as exc:
-                return ExecutionResult(success=False, message=f"Could not map legacy tool {tool_key}: {exc}")
+                result.data.update({k: v for k, v in policy_data.items() if k not in result.data})
+            except Exception:
+                pass
+            return result
 
-        return ExecutionResult(success=False, message=f"Unsupported tool: {tool_key}")
-
-    def _shell_escape(self, text: str) -> str:
-        import shlex
-        return shlex.quote(text.strip()) if text.strip() else "''"
+        # No legacy bypass: every shell path above carries a verdict first.
+        # Unknown tool keys never reach the terminal.
+        return ExecutionResult(
+            success=False,
+            message=f"Unsupported tool: {tool_key}",
+            data={"policy_decision": "blocked", "policy_reason": "unsupported_tool"},
+        )
