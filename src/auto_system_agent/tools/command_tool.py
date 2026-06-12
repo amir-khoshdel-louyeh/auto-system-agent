@@ -1,9 +1,17 @@
 import shlex
 import subprocess
-from pathlib import Path
 
+from auto_system_agent.command_guard import (
+    ALLOW_MAX,
+    CONFIRM_MAX,
+    assess_command,
+    check_command,
+    score_command,
+)
 from auto_system_agent.models import ExecutionResult
 
+# Kept for import compatibility; decisions now come from command_guard
+# (assess_command), which is the single source of safety truth.
 COMMAND_TOOL_POLICY = {
     "blocked_separators": {"&&", "||", ";", "|"},
     "blocked_interpreters": {
@@ -13,56 +21,54 @@ COMMAND_TOOL_POLICY = {
     "blocked_arguments": {"--no-preserve-root", "-rf", "-fr"},
 }
 
+_VERDICT_TO_LEVEL = {"ALLOW": "low", "CONFIRM": "medium", "DENY": "high"}
+
 
 def _risk_score(parts: list[str]) -> int:
-    executable_name = Path(parts[0]).name.lower()
-    read_only = {"ls", "pwd", "whoami", "date", "uname", "df", "du", "ps", "cat", "echo"}
-    if executable_name in read_only:
-        return 15
-    return 45
+    """Single-source risk score via command_guard (0-100)."""
+    try:
+        return score_command(shlex.join(parts))[0]
+    except Exception:
+        return 0
 
 
 def _risk_level(score: int) -> str:
-    if score <= 25:
+    if score <= ALLOW_MAX:
         return "low"
-    if score <= 60:
+    if score <= CONFIRM_MAX:
         return "medium"
     return "high"
 
 
 def _check_command_policy(parts: list[str]) -> ExecutionResult | None:
-    risk = _risk_score(parts)
-
-    if any(token in COMMAND_TOOL_POLICY["blocked_separators"] for token in parts):
+    """Single-source policy gate: preflight first, then DENY verdict."""
+    text = shlex.join(parts)
+    guard_message = check_command(text)
+    if guard_message:
+        score = _risk_score(parts)
         return ExecutionResult(
             success=False,
-            message="Command chaining is blocked by safety policy.",
-            data={"policy_decision": "blocked", "policy_reason": "command_chaining", "risk_score": risk, "risk_level": _risk_level(risk)},
+            message=guard_message,
+            data={"policy_decision": "blocked", "policy_reason": "preflight", "risk_score": score, "risk_level": _risk_level(score)},
         )
-
-    executable_name = Path(parts[0]).name.lower()
-    if executable_name in COMMAND_TOOL_POLICY["blocked_interpreters"]:
+    assessment = assess_command(text)
+    if assessment["verdict"] == "DENY":
+        reasons = "; ".join(assessment["reasons"]) or "deny-list"
         return ExecutionResult(
             success=False,
-            message="Interpreter and shell execution is blocked by safety policy.",
-            data={"policy_decision": "blocked", "policy_reason": "interpreter_execution", "risk_score": risk, "risk_level": _risk_level(risk)},
+            message=(
+                f"Blocked by safety policy ({assessment['score']}/100): {reasons}. "
+                f"Canonical: {assessment['canonical_form'] or text}"
+            ),
+            data={
+                "policy_decision": "blocked",
+                "policy_reason": assessment["reasons"][0] if assessment["reasons"] else "deny-list",
+                "risk_score": assessment["score"],
+                "risk_level": _VERDICT_TO_LEVEL["DENY"],
+                "verdict": "DENY",
+                "canonical_form": assessment["canonical_form"],
+            },
         )
-
-    if executable_name in COMMAND_TOOL_POLICY["blocked_commands"]:
-        return ExecutionResult(
-            success=False,
-            message="Command blocked by safety policy.",
-            data={"policy_decision": "blocked", "policy_reason": "blocked_command", "risk_score": risk, "risk_level": _risk_level(risk)},
-        )
-
-    lowered_args = [token.lower() for token in parts[1:]]
-    if any(token in COMMAND_TOOL_POLICY["blocked_arguments"] for token in lowered_args):
-        return ExecutionResult(
-            success=False,
-            message="Command blocked by safety policy.",
-            data={"policy_decision": "blocked", "policy_reason": "blocked_argument", "risk_score": risk, "risk_level": _risk_level(risk)},
-        )
-
     return None
 
 
@@ -82,7 +88,10 @@ def run_command(command_text: str) -> ExecutionResult:
     if policy_result is not None:
         return policy_result
 
-    risk = _risk_score(parts)
+    assessment = assess_command(shlex.join(parts))
+    risk = assessment["score"]
+    verdict = assessment["verdict"]
+    reason = "; ".join(assessment["reasons"]) or "allowed_command"
 
     try:
         completed = subprocess.run(parts, capture_output=True, text=True, check=False)
@@ -99,11 +108,11 @@ def run_command(command_text: str) -> ExecutionResult:
         return ExecutionResult(
             success=False,
             message=f"Command failed with code {completed.returncode}.\n{output.strip()}",
-            data={"policy_decision": "approved", "policy_reason": "allowed_command", "risk_score": risk, "risk_level": _risk_level(risk)},
+            data={"policy_decision": "approved", "policy_reason": reason, "risk_score": risk, "risk_level": _risk_level(risk), "verdict": verdict, "canonical_form": assessment["canonical_form"]},
         )
 
     return ExecutionResult(
         success=True,
         message=output.strip() or "Command executed successfully.",
-        data={"policy_decision": "approved", "policy_reason": "allowed_command", "risk_score": risk, "risk_level": _risk_level(risk)},
+        data={"policy_decision": "approved", "policy_reason": reason, "risk_score": risk, "risk_level": _risk_level(risk), "verdict": verdict, "canonical_form": assessment["canonical_form"]},
     )
