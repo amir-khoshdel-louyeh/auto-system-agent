@@ -652,6 +652,73 @@ def _score_network(node: ShellNode, leaves: list[CommandNode]) -> tuple[int, lis
                 return _NETWORK_WEIGHT, [f"network download via '{leaf.argv[0]}'"]
     return 0, []
 
+
+def _score_expansion_glob(raw_text: str) -> tuple[int, list[str]]:
+    """Dynamic-content bonus: hidden commands/globs widen blast radius."""
+    points = 0
+    reasons: list[str] = []
+    for item in detect_expansions(raw_text):
+        if "command substitution" in item or "backtick" in item:
+            points = max(points, 10)
+            reasons.append(f"dynamic content: {item}")
+        else:
+            points = max(points, 5)
+            reasons.append(f"dynamic content: {item}")
+        break
+    for item in detect_globs(raw_text):
+        points += 5
+        reasons.append(f"broad match: {item}")
+        break
+    return min(points, 15), reasons
+
+
+def score_command(text: str) -> tuple[int, list[str]]:
+    """Aggregate w1..w5 + expansion/glob into a 0-100 score with reasons."""
+    raw = (text or "").strip()
+    if not raw:
+        return 0, []
+    try:
+        node = parse_command(raw)
+    except CommandSyntaxError as exc:
+        # Unparsable input never runs silently: fork bombs stay at 100,
+        # other syntax slips stay DENY-high so the caller blocks them.
+        pts, why = _score_destructiveness([CommandNode(argv=[], env={})], raw)
+        base = max(pts, 85)
+        reasons = [f"invalid syntax: {exc}"]
+        reasons.extend(why)
+        return min(100, base), reasons
+    leaves = iter_command_nodes(node)
+    redirs = iter_redir_targets(node)
+    total = 0
+    reasons: list[str] = []
+    for scorer in (
+        _score_privilege(leaves),
+        _score_destructiveness(leaves, raw),
+        _score_scope(leaves, redirs),
+        _score_irreversibility(leaves),
+        _score_network(node, leaves),
+        _score_expansion_glob(raw),
+    ):
+        pts, why = scorer
+        total += pts
+        reasons.extend(why)
+    # Highest-risk leaf dominates chains: `ls; rm -rf /` must not average down.
+    if len(leaves) > 1:
+        worst = 0
+        for leaf in leaves:
+            sub = sum(
+                p
+                for p, _ in (
+                    _score_privilege([leaf]),
+                    _score_destructiveness([leaf], " ".join(leaf.argv)),
+                    _score_scope([leaf], []),
+                    _score_irreversibility([leaf]),
+                )
+            )
+            worst = max(worst, sub)
+        total = max(total, worst)
+    return min(100, total), reasons
+
 # Handled inside TerminalSession / the pty shell, not real executables.
 _SHELL_BUILTINS = {
     "cd", "pwd", "history", "clear", "exit", "echo", "true", "false", ":",
