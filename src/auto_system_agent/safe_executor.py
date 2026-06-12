@@ -1,6 +1,8 @@
-from auto_system_agent.command_guard import check_command
+from auto_system_agent.command_guard import assess_command, check_command
 from auto_system_agent.models import ExecutionResult, PlannedTask
 from auto_system_agent.terminal import TerminalSession
+
+_VERDICT_TO_LEVEL = {"ALLOW": "low", "CONFIRM": "medium", "DENY": "high"}
 
 
 class SafeExecutor:
@@ -53,7 +55,32 @@ class SafeExecutor:
                 return ExecutionResult(
                     success=False,
                     message=guard_message,
-                    data={"command": command, "guard": "preflight"},
+                    data={
+                        "command": command,
+                        "guard": "preflight",
+                        "policy_decision": "blocked",
+                        "policy_reason": "preflight",
+                    },
+                )
+            assessment = assess_command(command)
+            if assessment["verdict"] == "DENY":
+                reasons = "; ".join(assessment["reasons"]) or "deny-list"
+                return ExecutionResult(
+                    success=False,
+                    message=(
+                        f"Blocked by safety policy ({assessment['score']}/100): {reasons}. "
+                        f"Canonical: {assessment['canonical_form'] or command}"
+                    ),
+                    data={
+                        "command": command,
+                        "guard": "policy",
+                        "policy_decision": "blocked",
+                        "policy_reason": assessment["reasons"][0] if assessment["reasons"] else "deny-list",
+                        "risk_score": assessment["score"],
+                        "risk_level": _VERDICT_TO_LEVEL["DENY"],
+                        "verdict": "DENY",
+                        "canonical_form": assessment["canonical_form"],
+                    },
                 )
             return self._terminal.run(command)
 
