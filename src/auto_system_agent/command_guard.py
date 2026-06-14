@@ -701,8 +701,8 @@ def _score_irreversibility(leaves: list[CommandNode]) -> tuple[int, list[str]]:
 def _has_pipe_to_shell(node: ShellNode) -> bool:
     """True when a download/streaming prog pipes into a shell interpreter."""
     if isinstance(node, PipeNode):
-        left_progs = {_prog_name(c.argv[0]) for c in iter_command_nodes(node.left) if c.argv}  # type: ignore[arg-type]
-        right_progs = {_prog_name(c.argv[0]) for c in iter_command_nodes(node.right) if c.argv}  # type: ignore[arg-type]
+        left_progs = {_effective_argv(c.argv)[0] for c in iter_command_nodes(node.left) if c.argv}  # type: ignore[arg-type]
+        right_progs = {_effective_argv(c.argv)[0] for c in iter_command_nodes(node.right) if c.argv}  # type: ignore[arg-type]
         if left_progs & _DOWNLOAD_PROGS and right_progs & (_SHELL_PROGS | {"sudo", "python", "python3", "perl", "ruby", "node"}):
             return True
         # Recurse: `a | b | sh` nests on the right.
