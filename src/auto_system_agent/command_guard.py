@@ -905,19 +905,21 @@ def check_command(command: str, cwd: Path | None = None) -> str | None:
     if not text:
         return None
     try:
-        parse_command(text)
+        node = parse_command(text)
     except CommandSyntaxError as exc:
         return f"Invalid command syntax: {exc}"
-    argv = _first_words(command)
-    if not argv:
+    # First leaf carries the binary check, so chains like `cd /tmp && ls`
+    # or `ls; rm -rf /` inspect `cd`/`ls` instead of choking on `;`/`&&`.
+    leaves = [leaf for leaf in iter_command_nodes(node) if leaf.argv]
+    if not leaves:
         return None
-    prog = argv[0]
-    if prog in _SHELL_BUILTINS:
+    prog = leaves[0].argv[0]
+    if _prog_name(prog) in _SHELL_BUILTINS or prog in _SHELL_BUILTINS:
         return None
     if shutil.which(prog) is None:
         return _missing_binary_hint(prog)
-    if prog in _OPENERS and len(argv) > 1:
-        return _opener_target_hint(prog, argv[1], cwd)
+    if len(leaves) == 1 and prog in _OPENERS and len(leaves[0].argv) > 1:
+        return _opener_target_hint(prog, leaves[0].argv[1], cwd)
     return None
 
 

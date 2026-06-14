@@ -52,16 +52,28 @@ class SafeExecutor:
                 return ExecutionResult(success=False, message="No command provided.")
             guard_message = check_command(command, cwd=self._terminal.cwd)
             if guard_message:
-                return ExecutionResult(
-                    success=False,
-                    message=guard_message,
-                    data={
-                        "command": command,
-                        "guard": "preflight",
-                        "policy_decision": "blocked",
-                        "policy_reason": "preflight",
-                    },
-                )
+                try:
+                    preflight_assessment = assess_command(command)
+                except Exception:
+                    preflight_assessment = None
+                data: dict = {
+                    "command": command,
+                    "guard": "preflight",
+                    "policy_decision": "blocked",
+                    "policy_reason": "preflight",
+                }
+                if preflight_assessment:
+                    data.update(
+                        {
+                            "risk_score": preflight_assessment["score"],
+                            "risk_level": _VERDICT_TO_LEVEL.get(
+                                preflight_assessment["verdict"], "high"
+                            ),
+                            "verdict": preflight_assessment["verdict"],
+                            "canonical_form": preflight_assessment["canonical_form"],
+                        }
+                    )
+                return ExecutionResult(success=False, message=guard_message, data=data)
             assessment = assess_command(command)
             if assessment["verdict"] == "DENY":
                 reasons = "; ".join(assessment["reasons"]) or "deny-list"
