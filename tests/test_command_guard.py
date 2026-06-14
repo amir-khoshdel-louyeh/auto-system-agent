@@ -191,5 +191,122 @@ class RiskVerdictTests(unittest.TestCase):
                 )
 
 
+class ParsingAndFeatureTests(unittest.TestCase):
+    """P1.4: AST shape, syntax errors, expansion/glob, canonical, PATH."""
+
+    def test_chain_pipe_redir_subshell_shapes(self):
+        from auto_system_agent.command_guard import (
+            ChainNode,
+            CommandNode,
+            PipeNode,
+            RedirNode,
+            SubshellNode,
+            parse_command,
+        )
+
+        node = parse_command("cd /tmp && ls")
+        self.assertIsInstance(node, ChainNode)
+        self.assertEqual(node.sep, "&&")
+        node = parse_command("ls | grep foo")
+        self.assertIsInstance(node, PipeNode)
+        node = parse_command("echo hi > out.txt")
+        self.assertIsInstance(node, RedirNode)
+        self.assertEqual((node.op, node.target), (">", "out.txt"))
+        node = parse_command("(cd /tmp && ls) > out.txt")
+        self.assertIsInstance(node, RedirNode)
+        self.assertIsInstance(node.cmd, SubshellNode)
+        node = parse_command("FOO=1 ls /tmp")
+        self.assertIsInstance(node, CommandNode)
+        self.assertEqual(node.env, {"FOO": "1"})
+        self.assertEqual(node.argv, ["ls", "/tmp"])
+
+    def test_substitution_stays_one_token(self):
+        from auto_system_agent.command_guard import parse_command, tokenize_shell
+
+        self.assertIn("$(whoami)", tokenize_shell("echo $(whoami)"))
+        node = parse_command("echo $(whoami)")
+        self.assertEqual(node.argv, ["echo", "$(whoami)"])
+
+    SYNTAX_ERRORS = [
+        'echo "unclosed',
+        "echo 'unclosed",
+        "ls |",
+        "| ls",
+        "ls &&",
+        "&& ls",
+        "ls >",
+        "ls > | grep x",
+        "(ls",
+        "()",
+        "( )",
+        "ls )",
+        "cmd \\",
+    ]
+
+    def test_syntax_error_messages(self):
+        for command in self.SYNTAX_ERRORS:
+            with self.subTest(command=command):
+                message = check_command(command)
+                self.assertIsNotNone(message, command)
+                self.assertIn("Invalid command syntax", message, command)
+
+    EXPANSION_CASES = [
+        ("echo $(whoami)", ["command substitution"]),
+        ("echo `whoami`", ["backtick"]),
+        ("echo $HOME", ["variable"]),
+        ("echo ${HOME}", ["parameter"]),
+        ("echo \"$HOME\"", ["variable"]),
+        ("echo hello", []),
+        ("echo '$HOME'", []),
+        ("echo \\$HOME", []),
+        ("echo \\$(x)", []),
+    ]
+
+    def test_expansion_detection(self):
+        from auto_system_agent.command_guard import detect_expansions
+
+        for command, expected in self.EXPANSION_CASES:
+            with self.subTest(command=command):
+                found = detect_expansions(command)
+                if not expected:
+                    self.assertEqual(found, [], command)
+                else:
+                    self.assertTrue(
+                        any(any(part in item for item in found) for part in expected),
+                        f"{command}: {found}",
+                    )
+
+    GLOB_CASES = [
+        ("ls *.log", True),
+        ("ls file?.txt", True),
+        ("ls [a-z].txt", True),
+        ("echo hello", False),
+        ('echo "*"', False),
+        ("echo \\*.log", False),
+    ]
+
+    def test_glob_detection(self):
+        from auto_system_agent.command_guard import detect_globs
+
+        for command, expected in self.GLOB_CASES:
+            with self.subTest(command=command):
+                self.assertEqual(bool(detect_globs(command)), expected, command)
+
+    def test_canonical_round_trip(self):
+        from auto_system_agent.command_guard import canonical_command, parse_command
+
+        for command in ("ls -la /tmp", "cd /tmp && ls", "ls | grep foo", "echo hi > out.txt"):
+            with self.subTest(command=command):
+                self.assertEqual(canonical_command(parse_command(command)), command)
+
+    def test_path_check_unwraps_sudo(self):
+        from auto_system_agent.command_guard import _check_path, iter_command_nodes, parse_command
+
+        missing = _check_path(iter_command_nodes(parse_command("definitely-not-a-real-binary-xyz")))
+        self.assertEqual(missing, "definitely-not-a-real-binary-xyz")
+        self.assertIsNone(_check_path(iter_command_nodes(parse_command("ls -la /tmp"))))
+        self.assertIsNone(_check_path(iter_command_nodes(parse_command("cd /tmp"))))
+
+
 if __name__ == "__main__":
     unittest.main()
