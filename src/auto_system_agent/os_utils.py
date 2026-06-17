@@ -1,4 +1,6 @@
 import platform
+import shutil
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -112,6 +114,67 @@ CAPABILITIES: dict[str, list[Provider]] = {
         ),
     ]
 }
+
+
+def provider_cost(provider: Provider, available: frozenset[str] | set[str]) -> float:
+    """Penalty cost: availability * 0.5 + infidelity * 0.3 + privilege * 0.2."""
+    missing = not any(binary in available for binary in provider.binaries)
+    return (
+        COST_WEIGHTS["availability"] * (1.0 if missing else 0.0)
+        + COST_WEIGHTS["fidelity"] * (1.0 - provider.fidelity)
+        + COST_WEIGHTS["privilege"] * (1.0 if provider.needs_sudo else 0.0)
+    )
+
+
+def _provider_eligible(provider: Provider, os_name: str, distro_id: str) -> bool:
+    if os_name not in provider.os_names:
+        return False
+    if provider.distros is not None and distro_id not in provider.distros:
+        return False
+    return True
+
+
+def resolve(
+    capability: str,
+    *,
+    os_name: str,
+    distro_id: str = "unknown",
+    available: frozenset[str] | set[str] | None = None,
+) -> list[Provider]:
+    """BFS over the capability graph, eligible providers ranked by cost.
+
+    The graph fans out capability -> providers; edges are guarded by
+    preconditions (os/distro). BFS order is hops-first, ties broken by
+    ascending cost, so the head is the cheapest reachable provider.
+    Unknown capabilities yield an empty chain.
+    """
+    if available is None:
+        available = frozenset()
+    frontier: deque[str] = deque([capability])
+    seen: set[str] = {capability}
+    found: list[Provider] = []
+    while frontier:
+        node = frontier.popleft()
+        for provider in CAPABILITIES.get(node, []):
+            if not _provider_eligible(provider, os_name, distro_id):
+                continue
+            found.append(provider)
+            # Providers are leaves today; keep BFS structure for multi-hop
+            # capabilities (e.g. install_package -> sandbox -> runtime).
+            if provider.name not in seen and provider.name in CAPABILITIES:
+                seen.add(provider.name)
+                frontier.append(provider.name)
+    found.sort(key=lambda provider: (provider_cost(provider, available), provider.name))
+    return found
+
+
+def live_available_binaries() -> frozenset[str]:
+    """Probe PATH for every binary named in the capability graph."""
+    names: set[str] = set()
+    for providers in CAPABILITIES.values():
+        for provider in providers:
+            names.update(provider.binaries)
+    return frozenset(name for name in names if shutil.which(name) is not None)
 
 
 def detect_os() -> str:
