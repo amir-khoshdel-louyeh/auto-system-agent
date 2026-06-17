@@ -266,9 +266,13 @@ def detect_os() -> str:
     return "linux"
 
 
-def detect_linux_distro() -> str:
-    """Returns Linux distro id from /etc/os-release when available."""
-    os_release_path = Path("/etc/os-release")
+def detect_linux_distro(os_release: Path | str | None = None) -> str:
+    """Returns Linux distro id from os-release when available.
+
+    The path is injectable so resolver matrix tests can emulate any
+    distro without touching the host file.
+    """
+    os_release_path = Path(os_release) if os_release is not None else Path("/etc/os-release")
     if not os_release_path.exists():
         return "unknown"
 
@@ -283,9 +287,9 @@ def detect_linux_distro() -> str:
     return "unknown"
 
 
-def detect_linux_package_manager() -> str:
+def detect_linux_package_manager(distro_id: str | None = None) -> str:
     """Maps distro id to package manager family."""
-    distro_id = detect_linux_distro()
+    distro_id = distro_id if distro_id is not None else detect_linux_distro()
     if distro_id in {"ubuntu", "debian", "linuxmint", "pop", "elementary"}:
         return "apt"
     if distro_id in {"fedora", "rhel", "centos", "rocky", "almalinux"}:
