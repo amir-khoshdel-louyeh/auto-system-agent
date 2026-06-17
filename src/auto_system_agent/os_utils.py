@@ -177,6 +177,85 @@ def live_available_binaries() -> frozenset[str]:
     return frozenset(name for name in names if shutil.which(name) is not None)
 
 
+def render_install(provider: Provider, package: str) -> str:
+    """Render one provider template for a package name."""
+    return provider.template.format(package=package)
+
+
+def rewrite_install(
+    package: str,
+    *,
+    os_name: str,
+    distro_id: str = "unknown",
+    available: frozenset[str] | set[str] | None = None,
+) -> list[str]:
+    """Ordered fallback chain of shell install commands, cheapest first."""
+    package = (package or "").strip()
+    if not package:
+        return []
+    chain = resolve("install_package", os_name=os_name, distro_id=distro_id, available=available)
+    return [render_install(provider, package) for provider in chain]
+
+
+def best_install_command(
+    package: str,
+    *,
+    os_name: str,
+    distro_id: str = "unknown",
+    available: frozenset[str] | set[str] | None = None,
+) -> str | None:
+    """Head of the fallback chain, or None when nothing can install."""
+    chain = rewrite_install(package, os_name=os_name, distro_id=distro_id, available=available)
+    return chain[0] if chain else None
+
+
+def extract_install_package(command_text: str) -> str | None:
+    """Pull the package name out of install-like commands.
+
+    Handles `install vlc`, `sudo apt install -y vlc`, `brew install vlc`,
+    `winget install --id VideoLAN.VLC -e`, `choco install -y vlc`.
+    Returns None when no install verb with a package is found.
+    """
+    import shlex
+
+    try:
+        parts = shlex.split(command_text.strip())
+    except ValueError:
+        return None
+    if not parts:
+        return None
+    lowered = [part.lower() for part in parts]
+    if "install" not in lowered:
+        return None
+    verb_at = lowered.index("install")
+    skip_flags = {
+        "-y", "--yes", "-e", "--exact", "--noconfirm", "--id", "-e",
+        "--silent", "-q", "--quiet",
+    }
+    for token in parts[verb_at + 1 :]:
+        if not token or token in skip_flags or token.startswith("-"):
+            continue
+        # `flatpak install -y flathub <pkg>` names the remote first.
+        if token.lower() == "flathub":
+            continue
+        return token
+    return None
+
+
+def rewrite_install_command(
+    command_text: str,
+    *,
+    os_name: str,
+    distro_id: str = "unknown",
+    available: frozenset[str] | set[str] | None = None,
+) -> list[str]:
+    """Rewrite an install command into a provider fallback chain."""
+    package = extract_install_package(command_text)
+    if not package:
+        return []
+    return rewrite_install(package, os_name=os_name, distro_id=distro_id, available=available)
+
+
 def detect_os() -> str:
     """Returns one of: windows, linux, macos."""
     system_name = platform.system().lower()
