@@ -45,7 +45,7 @@ class AutoSystemAgent:
         # Planner is now LLM-only and needs the OLLAMA config + system context
         self._planner = planner or Planner(config=llm_config, system_config=system_config)
         self._system_config = system_config if isinstance(system_config, dict) else None
-        self._selector = selector or ToolSelector(llm_mapper=llm_mapper)
+        self._selector = selector or ToolSelector(llm_mapper=llm_mapper, system_config=system_config)
         self._executor = executor or SafeExecutor()
         self._formatter = formatter or ResultFormatter()
         self._assistant = assistant or LLMConversationAssistant(config=llm_config)
