@@ -262,22 +262,48 @@ class AutoSystemAgent:
             parts.append(f"{task.action} {task.target or ''}".strip())
         return "; ".join(parts)
 
-    def get_pending_confirmation_details(self) -> list[dict[str, str]]:
+    def task_risk_details(self, task: PlannedTask) -> dict:
+        """C1-derived risk for one task: level/score/verdict/canonical/reasons."""
+        command = (task.target or task.raw_input or "") if task.action == "run_command" else ""
+        if command.strip():
+            try:
+                from auto_system_agent.command_guard import assess_command
+
+                assessment = assess_command(command)
+            except Exception:
+                assessment = None
+            if assessment is not None:
+                level = {"ALLOW": "low", "CONFIRM": "medium", "DENY": "high"}[
+                    assessment["verdict"]
+                ]
+                return {
+                    "action": task.action,
+                    "target": task.target or "",
+                    "risk_level": level,
+                    "risk_score": assessment["score"],
+                    "verdict": assessment["verdict"],
+                    "canonical_form": assessment["canonical_form"],
+                    "reasons": list(assessment["reasons"]),
+                    "preview": assessment["canonical_form"] or self._preview_for_task(task),
+                }
+        level = ACTION_RISK_LEVELS.get(task.action, "low")
+        return {
+            "action": task.action,
+            "target": task.target or "",
+            "risk_level": level,
+            "risk_score": None,
+            "verdict": "ALLOW" if level == "low" else "CONFIRM",
+            "canonical_form": task.target or "",
+            "reasons": [],
+            "preview": self._preview_for_task(task),
+        }
+
+    def get_pending_confirmation_details(self) -> list[dict]:
         if not self._pending_confirmation:
             return []
 
         tasks: list[PlannedTask] = self._pending_confirmation.get("tasks", [])
-        details: list[dict[str, str]] = []
-        for task in tasks:
-            details.append(
-                {
-                    "action": task.action,
-                    "target": task.target or "",
-                    "risk_level": ACTION_RISK_LEVELS.get(task.action, "low"),
-                    "preview": self._preview_for_task(task),
-                }
-            )
-        return details
+        return [self.task_risk_details(task) for task in tasks]
 
     def confirm_pending(self, progress_callback: Callable[[str], None] | None = None) -> str | None:
         return self._handle_pending_confirmation("yes", progress_callback)
@@ -506,9 +532,23 @@ class AutoSystemAgent:
         summary = "; ".join(
             f"{task.action} {task.target or ''}".strip() for task in tasks
         )
+        risk_bits = []
+        for task in tasks:
+            try:
+                details = self.task_risk_details(task)
+            except Exception:
+                continue
+            score = details.get("risk_score")
+            score_text = f"{score}/100" if isinstance(score, int) else "n/a"
+            canonical = details.get("canonical_form") or (task.target or "")
+            reasons = "; ".join(details.get("reasons") or []) or "review requested"
+            risk_bits.append(
+                f"[{details.get('risk_level', 'low')} {score_text}] {canonical} ({reasons})"
+            )
+        risk_text = "; ".join(risk_bits)
         return (
             "Confirmation required for high-risk action(s): "
-            f"{summary}. Reply 'yes' to continue or 'no' to cancel."
+            f"{summary}. Risk: {risk_text}. Reply 'yes' to continue or 'no' to cancel."
         )
 
     def _preview_for_task(self, task: PlannedTask) -> str:
