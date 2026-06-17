@@ -599,11 +599,30 @@ class AgentChatGUI:
             lambda on_progress: self.agent.process(user_input, progress_callback=on_progress)
         )
 
+    def _has_pending_confirmation(self) -> bool:
+        try:
+            return bool(self.agent.has_pending_confirmation())
+        except Exception:
+            return False
+
     def _on_confirm(self) -> None:
-        # Confirmation UI removed – no-op kept for compatibility
-        return
+        if not self._has_pending_confirmation():
+            return
+        self._start_background_task(
+            lambda on_progress: self.agent.confirm_pending(progress_callback=on_progress)
+        )
 
     def _on_cancel(self) -> None:
+        if not self._is_busy and self._has_pending_confirmation():
+            try:
+                reply = self.agent.cancel_pending()
+            except Exception:
+                reply = None
+            if reply:
+                self._append_message("Agent", str(reply))
+            self._sync_confirmation_controls()
+            self._render_pending_confirmation_card()
+            return
         # Only handles cancelling a running request; confirmation removed
         if self._is_busy:
             if self._active_request_id is not None:
@@ -621,14 +640,74 @@ class AgentChatGUI:
             self._set_busy(False)
 
     def _sync_confirmation_controls(self) -> None:
-        # Removed confirmation UI – no controls to sync
-        return
+        pending = self._has_pending_confirmation()
+        try:
+            self.confirm_button.configure(state=tk.NORMAL if pending else tk.DISABLED)
+        except Exception:
+            pass
+        try:
+            self.copy_preview_button.configure(state=tk.NORMAL if pending else tk.DISABLED)
+        except Exception:
+            pass
 
     def _render_pending_confirmation_card(self) -> None:
-        return
+        """Show canonical command, risk and reasons for pending confirmation."""
+        try:
+            details = self.agent.get_pending_confirmation_details()
+        except Exception:
+            details = []
+        if not details:
+            for widget_name in ("confirmation_status_label", "confirmation_details_label", "risk_badges_label"):
+                try:
+                    getattr(self, widget_name).configure(text="")
+                except Exception:
+                    pass
+            try:
+                self.command_preview_var.set("")
+            except Exception:
+                pass
+            return
+        lines = []
+        badges = []
+        for item in details:
+            score = item.get("risk_score")
+            score_text = f"{score}/100" if isinstance(score, int) else "n/a"
+            level = str(item.get("risk_level", "low"))
+            canonical = str(item.get("canonical_form") or item.get("preview") or "")
+            reasons = "; ".join(item.get("reasons") or []) or "review requested"
+            lines.append(f"[{level} {score_text}] {canonical} — {reasons}")
+            badges.append(f"{level}:{score_text}")
+        try:
+            self.confirmation_status_label.configure(
+                text=f"Confirmation required ({len(details)} action(s)) — reply yes/no or use Confirm."
+            )
+        except Exception:
+            pass
+        try:
+            self.confirmation_details_label.configure(text="\n".join(lines))
+        except Exception:
+            pass
+        try:
+            self.risk_badges_label.configure(text=" | ".join(badges))
+        except Exception:
+            pass
+        try:
+            self.command_preview_var.set(str(details[0].get("canonical_form") or ""))
+        except Exception:
+            pass
 
     def _copy_preview_text(self) -> None:
-        return
+        try:
+            text = self.command_preview_var.get()
+        except Exception:
+            return
+        if not text:
+            return
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(text)
+        except Exception:
+            pass
 
     def _set_confirmation_status(self, status: str, details: str, color: str) -> None:
         return
@@ -746,6 +825,11 @@ class AgentChatGUI:
                         self._active_request_id = None
                         self._request_started_at = None
                         self._set_busy(False)
+                        try:
+                            self._sync_confirmation_controls()
+                            self._render_pending_confirmation_card()
+                        except Exception:
+                            pass
                         try:
                             self.entry.focus_set()
                             if not self.entry.get().strip():
