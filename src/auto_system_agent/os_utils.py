@@ -297,3 +297,49 @@ def detect_linux_package_manager(distro_id: str | None = None) -> str:
     if distro_id in {"arch", "manjaro", "endeavouros"}:
         return "pacman"
     return "unknown"
+
+
+@dataclass(frozen=True)
+class SystemSnapshot:
+    """Resolver input: os + distro + binaries present on PATH."""
+
+    os_name: str = "linux"
+    distro_id: str = "unknown"
+    available: frozenset[str] = frozenset()
+
+
+def snapshot_system(
+    *,
+    os_name: str | None = None,
+    distro_id: str | None = None,
+    available: frozenset[str] | set[str] | None = None,
+    system_config: dict | None = None,
+) -> SystemSnapshot:
+    """Build resolver input: explicit args win, then system_config, then live.
+
+    `system_config` is the dict form of system_info.detect_system_config()
+    (os_name/distro_id keys); availability always comes from an explicit
+    set or a live PATH probe.
+    """
+    cfg = system_config if isinstance(system_config, dict) else {}
+    resolved_os = (os_name or str(cfg.get("os_name") or "").strip().lower() or detect_os())
+    if distro_id is not None:
+        resolved_distro = distro_id
+    elif str(cfg.get("distro_id") or "").strip():
+        resolved_distro = str(cfg["distro_id"]).strip().lower()
+    elif resolved_os == "linux":
+        resolved_distro = detect_linux_distro()
+    else:
+        resolved_distro = resolved_os
+    resolved_available = frozenset(available) if available is not None else live_available_binaries()
+    return SystemSnapshot(os_name=resolved_os, distro_id=resolved_distro, available=resolved_available)
+
+
+def resolve_install_chain(
+    package: str,
+    snapshot: SystemSnapshot | None = None,
+    **overrides: object,
+) -> list[str]:
+    """Rewrite a package into a fallback chain from a snapshot (or live)."""
+    snap = snapshot if snapshot is not None else snapshot_system(**overrides)  # type: ignore[arg-type]
+    return rewrite_install(package, os_name=snap.os_name, distro_id=snap.distro_id, available=snap.available)
