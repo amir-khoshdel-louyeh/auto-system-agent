@@ -42,6 +42,19 @@ def extract_known_apps(text: str) -> list[str]:
     return known
 
 
+def resolve_os_package_name(text: str, os_name: str) -> str | None:
+    """Best library package token for an OS from free text, else None."""
+    apps = extract_known_apps(text or "")
+    if not apps:
+        return None
+    library = _load_app_library()
+    for app in apps:
+        package = library.get(app, {}).get(os_name)
+        if package:
+            return str(package)
+    return None
+
+
 def _tokenize(text: str) -> set[str]:
     return {token for token in text.lower().replace("-", " ").split() if token}
 

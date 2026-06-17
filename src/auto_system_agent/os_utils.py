@@ -26,6 +26,7 @@ class Provider:
     template: str = "sudo apt install -y {package}"
     needs_sudo: bool = True
     fidelity: float = 1.0  # 1.0 native manager, lower for universal fallbacks
+    fallback: bool = False  # universal fallbacks lose to present natives
 
 
 def _native(os_name: str, distros: set[str], binary: str, template: str) -> Provider:
@@ -93,6 +94,7 @@ CAPABILITIES: dict[str, list[Provider]] = {
             template="choco install -y {package}",
             needs_sudo=True,
             fidelity=0.6,
+            fallback=True,
         ),
         Provider(
             name="snap",
@@ -102,6 +104,7 @@ CAPABILITIES: dict[str, list[Provider]] = {
             template="sudo snap install {package}",
             needs_sudo=True,
             fidelity=0.6,
+            fallback=True,
         ),
         Provider(
             name="flatpak",
@@ -111,6 +114,7 @@ CAPABILITIES: dict[str, list[Provider]] = {
             template="flatpak install -y flathub {package}",
             needs_sudo=False,
             fidelity=0.6,
+            fallback=True,
         ),
     ]
 }
@@ -164,7 +168,15 @@ def resolve(
             if provider.name not in seen and provider.name in CAPABILITIES:
                 seen.add(provider.name)
                 frontier.append(provider.name)
-    found.sort(key=lambda provider: (provider_cost(provider, available), provider.name))
+    # Natives first, universal fallbacks only when natives lose on cost
+    # (e.g. native binary missing); cost then name for determinism.
+    found.sort(
+        key=lambda provider: (
+            1 if provider.fallback else 0,
+            provider_cost(provider, available),
+            provider.name,
+        )
+    )
     return found
 
 
@@ -182,6 +194,12 @@ def render_install(provider: Provider, package: str) -> str:
     return provider.template.format(package=package)
 
 
+def _provider_present(provider: Provider, available: frozenset[str] | set[str] | None) -> bool:
+    if available is None:
+        return True
+    return any(binary in available for binary in provider.binaries)
+
+
 def rewrite_install(
     package: str,
     *,
@@ -189,12 +207,16 @@ def rewrite_install(
     distro_id: str = "unknown",
     available: frozenset[str] | set[str] | None = None,
 ) -> list[str]:
-    """Ordered fallback chain of shell install commands, cheapest first."""
+    """Ordered fallback chain of installable shell commands, natives first."""
     package = (package or "").strip()
     if not package:
         return []
     chain = resolve("install_package", os_name=os_name, distro_id=distro_id, available=available)
-    return [render_install(provider, package) for provider in chain]
+    return [
+        render_install(provider, package)
+        for provider in chain
+        if _provider_present(provider, available)
+    ]
 
 
 def best_install_command(
