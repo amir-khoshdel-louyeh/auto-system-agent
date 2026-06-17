@@ -345,6 +345,46 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         # Direct execution occurred without confirmation gate
         self.assertTrue(any(speaker == "Agent" and "run_command:sudo apt install -y vlc" in text for speaker, text in messages))
 
+    def test_confirmation_card_shows_canonical_risk_and_reasons(self):
+        # Pending confirmation populates the risk card; Confirm executes it.
+        from auto_system_agent.models import PlannedTask
+
+        class InstallPlanner:
+            def plan_tasks(self, user_input):
+                return [PlannedTask(action="run_command", target="sudo apt install -y vlc", raw_input=user_input)]
+
+        agent = AutoSystemAgent(
+            planner=InstallPlanner(),
+            selector=SpySelector(),
+            executor=SpyExecutor(),
+            formatter=SpyFormatter(),
+            assistant=FakeAssistant(),
+            event_logger=InMemoryLogger(),
+        )
+        gui, messages, _progress = build_gui_harness(agent, "install vlc")
+
+        gui._on_send()
+        self.assertTrue(drain_until_idle(gui), "GUI worker did not finish in time")
+        self.assertTrue(agent.has_pending_confirmation())
+
+        self.assertEqual(gui.confirm_button["state"], tk.NORMAL)
+        self.assertIn("Confirmation required", gui.confirmation_status_label.text)
+        self.assertIn("sudo apt install -y vlc", gui.confirmation_details_label.text)
+        self.assertIn("sudo apt install -y vlc", gui.command_preview_var.get())
+        self.assertTrue(gui.risk_badges_label.text)
+        self.assertEqual(gui.copy_preview_button["state"], tk.NORMAL)
+
+        gui.root.clipboard_text = ""
+        gui._copy_preview_text()
+        self.assertIn("sudo apt install -y vlc", gui.root.clipboard_text)
+
+        gui._on_confirm()
+        self.assertTrue(drain_until_idle(gui), "GUI worker did not finish in time")
+        self.assertFalse(agent.has_pending_confirmation())
+        self.assertTrue(any(speaker == "Agent" and "run_command:sudo apt install -y vlc" in text for speaker, text in messages))
+        self.assertEqual(gui.confirm_button["state"], tk.DISABLED)
+        self.assertEqual(gui.confirmation_status_label.text, "")
+
     def test_cancel_stops_waiting_for_running_request(self):
         gui, messages, _progress = build_gui_harness(agent=DummyAgent(), user_text="")
 
