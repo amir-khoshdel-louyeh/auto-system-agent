@@ -123,3 +123,57 @@ class AuditRepository:
                 f"UPDATE execution SET {', '.join(fields)} WHERE id = ?",
                 values,
             )
+
+    def record_step(
+        self,
+        execution_id: int,
+        *,
+        seq: int = 0,
+        state: str = "",
+        stdout_ref: str = "",
+        stderr_ref: str = "",
+        retry_count: int = 0,
+    ) -> int:
+        """Insert one ordered step row; returns its id."""
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO step "
+                "(execution_id, seq, state, stdout_ref, stderr_ref, retry_count)"
+                " VALUES (?, ?, ?, ?, ?, ?)",
+                (execution_id, seq, state, stdout_ref, stderr_ref, retry_count),
+            )
+            return int(cursor.lastrowid)
+
+    def fetch_execution(self, execution_id: int) -> dict:
+        """One execution row plus its ordered steps."""
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM execution WHERE id = ?", (execution_id,)
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"unknown execution id: {execution_id}")
+            steps = connection.execute(
+                "SELECT * FROM step WHERE execution_id = ? ORDER BY seq, id",
+                (execution_id,),
+            ).fetchall()
+        payload = dict(row)
+        payload["steps"] = [dict(step) for step in steps]
+        return payload
+
+    def fetch_executions(self, *, verdict: str | None = None, limit: int = 50) -> list[dict]:
+        """Newest executions first, optionally filtered by verdict."""
+        query = "SELECT * FROM execution"
+        values: list[object] = []
+        if verdict is not None:
+            query += " WHERE verdict = ?"
+            values.append(verdict)
+        query += " ORDER BY id DESC LIMIT ?"
+        values.append(max(1, limit))
+        with self._connect() as connection:
+            rows = connection.execute(query, values).fetchall()
+        return [dict(row) for row in rows]
+
+    def count_executions(self) -> int:
+        with self._connect() as connection:
+            row = connection.execute("SELECT COUNT(*) AS n FROM execution").fetchone()
+        return int(row["n"])
