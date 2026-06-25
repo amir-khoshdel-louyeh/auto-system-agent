@@ -1,4 +1,7 @@
+import queue
 import shlex
+import threading
+from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
 from auto_system_agent.command_guard import assess_command, check_command
@@ -11,6 +14,10 @@ _VERDICT_TO_LEVEL = {"ALLOW": "low", "CONFIRM": "medium", "DENY": "high"}
 DEFAULT_STEP_TIMEOUT = 300
 PRIVILEGED_STEP_TIMEOUT = 120
 _PRIVILEGE_WRAPPERS = {"sudo", "su", "doas", "runas"}
+
+#: P3.2 concurrency bounds: 4 workers, 50 queued steps of back-pressure.
+STEP_MAX_WORKERS = 4
+STEP_QUEUE_SIZE = 50
 
 
 def step_timeout(command: str) -> int:
@@ -27,8 +34,42 @@ def step_timeout(command: str) -> int:
 class SafeExecutor:
     """Direct terminal executor - all requests run as bash commands."""
 
-    def __init__(self, terminal: TerminalSession | None = None) -> None:
+    def __init__(
+        self,
+        terminal: TerminalSession | None = None,
+        max_workers: int = STEP_MAX_WORKERS,
+        queue_size: int = STEP_QUEUE_SIZE,
+    ) -> None:
         self._terminal = terminal or TerminalSession()
+        self._pool = ThreadPoolExecutor(max_workers=max(1, max_workers), thread_name_prefix="safe-exec")
+        self._slots = threading.Semaphore(max(1, queue_size))
+        self._queue_size = max(1, queue_size)
+        self._depth = 0
+        self._depth_lock = threading.Lock()
+
+    def queue_full(self) -> bool:
+        """Back-pressure signal: True while 50 steps are already queued."""
+        with self._depth_lock:
+            return self._depth >= self._queue_size
+
+    def submit(self, tool_key: str, task: PlannedTask) -> Future:
+        """Queue one step; blocks when full so planners pause while we drain."""
+        self._slots.acquire()
+        with self._depth_lock:
+            self._depth += 1
+
+        def _release(future: Future) -> None:
+            with self._depth_lock:
+                self._depth -= 1
+            self._slots.release()
+
+        future = self._pool.submit(self.execute, tool_key, task)
+        future.add_done_callback(_release)
+        return future
+
+    def close(self) -> None:
+        """Drain queued steps and release pool threads."""
+        self._pool.shutdown(wait=True)
 
     @property
     def terminal(self) -> TerminalSession:
