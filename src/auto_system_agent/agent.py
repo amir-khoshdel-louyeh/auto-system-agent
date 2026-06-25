@@ -59,6 +59,41 @@ RUN_TRANSITIONS: dict[str, frozenset[str]] = {
 }
 
 
+class InvalidTransition(ValueError):
+    """Raised when the state machine is asked for an illegal jump."""
+
+
+class StateMachine:
+    """Guarded ReAct run states; illegal jumps raise InvalidTransition."""
+
+    def __init__(self, initial: str = RunState.IDLE) -> None:
+        self._current = initial
+        self._trail: list[str] = [initial]
+
+    @property
+    def current(self) -> str:
+        return self._current
+
+    @property
+    def trail(self) -> list[str]:
+        return list(self._trail)
+
+    def can(self, nxt: str) -> bool:
+        return nxt in RUN_TRANSITIONS.get(self._current, frozenset())
+
+    def advance(self, nxt: str) -> str:
+        if not self.can(nxt):
+            raise InvalidTransition(f"illegal jump {self._current} -> {nxt}")
+        self._current = nxt
+        self._trail.append(nxt)
+        return self._current
+
+    def reset(self) -> str:
+        self._current = RunState.IDLE
+        self._trail.append(RunState.IDLE)
+        return self._current
+
+
 class AutoSystemAgent:
     """End-to-end orchestration. All decisions and answers come from OLLAMA."""
 
