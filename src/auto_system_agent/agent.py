@@ -401,6 +401,9 @@ class AutoSystemAgent:
         scratchpad: list[ReActStep] = []
         step_payloads: list[dict] = []
         preselected_tools = dict(preselected_tools or {})
+        fsm = StateMachine()
+        self._last_run_state = fsm
+        fsm.advance(RunState.PLANNED)
 
         for _ in range(self._max_react_iters):
             repaired: list[PlannedTask] | None = None
@@ -410,6 +413,8 @@ class AutoSystemAgent:
                 tool_key = preselected_tools.pop(id(task), None) or self._selector.select(task)
                 step_no = len(scratchpad) + 1
                 self._notify(progress_callback, StepStatus(step=step_no, total=step_no, tool=tool_key, state="running"))
+                if fsm.can(RunState.GUARDED):
+                    fsm.advance(RunState.GUARDED)
 
                 if tool_key == "unknown":
                     unknown_result = ExecutionResult(
@@ -419,6 +424,8 @@ class AutoSystemAgent:
                     evaluation = self._evaluator.evaluate_with_llm(
                         user_input, task, tool_key, unknown_result, scratchpad
                     )
+                    fsm.advance(RunState.EXECUTING)
+                    fsm.advance(RunState.OBSERVING)
                     scratchpad.append(ReActStep(thought=evaluation.reason, task=task, tool=tool_key, result=unknown_result))
                     step_payloads.append(self._step_payload(tool_key, task, unknown_result))
                     self._notify(
@@ -430,11 +437,15 @@ class AutoSystemAgent:
                         reply = self._queue_confirmation(user_input, [task], source_mode="react_loop")
                         self._remember(user_input, reply)
                         self._log_event(user_input=user_input, mode="confirmation_requested", planned_tasks=[task], steps=step_payloads, reply=reply)
+                        if fsm.can(RunState.PLANNED):
+                            fsm.advance(RunState.PLANNED)
                         pending_results = [step.result for step in scratchpad]
                         return (f"{self._formatter.format_many(pending_results)}\n\n{reply}".strip() if pending_results else reply), step_payloads
 
+                    fsm.advance(RunState.EXECUTING)
                     result = self._executor.execute(tool_key, task)
                     self._update_context_from_task(task, result)
+                    fsm.advance(RunState.OBSERVING)
                     evaluation = self._evaluator.evaluate_with_llm(user_input, task, tool_key, result, scratchpad)
                     scratchpad.append(ReActStep(thought=evaluation.reason, task=task, tool=tool_key, result=result))
                     step_payloads.append(self._step_payload(tool_key, task, result))
@@ -455,15 +466,18 @@ class AutoSystemAgent:
                     aborted = evaluation
                     break
                 # retry / replan: ask planner for corrected tasks and start next iteration
+                fsm.advance(RunState.REPAIRING)
                 repaired = self._repair_tasks(user_input, scratchpad, evaluation)
                 break
 
             if aborted is not None:
+                fsm.advance(RunState.FAILED)
                 results = [step.result for step in scratchpad]
                 return f"{self._formatter.format_many(results)}\n\nStopped: {aborted.reason}".strip(), step_payloads
 
             if repaired is None:
                 # Either all steps done, or planner could not repair.
+                fsm.advance(RunState.DONE if fsm.can(RunState.DONE) else RunState.FAILED)
                 results = [step.result for step in scratchpad]
                 if len(results) == 1 and len(initial_tasks) == 1:
                     return self._formatter.format(results[0]), step_payloads
@@ -471,6 +485,7 @@ class AutoSystemAgent:
 
             tasks = repaired
 
+        fsm.advance(RunState.FAILED)
         results = [step.result for step in scratchpad]
         return f"{self._formatter.format_many(results)}\n\nStopped after {self._max_react_iters} attempts.".strip(), step_payloads
 
