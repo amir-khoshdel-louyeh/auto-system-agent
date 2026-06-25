@@ -112,6 +112,36 @@ class SafeExecutor:
         self._queue_size = max(1, queue_size)
         self._depth = 0
         self._depth_lock = threading.Lock()
+        # P3.3 WAL journal: {seq, cmd, compensation, success, exit_code}.
+        self._journal: list[dict] = []
+        self._journal_lock = threading.Lock()
+
+    @property
+    def journal(self) -> list[dict]:
+        """Copy of the transaction journal (oldest first)."""
+        with self._journal_lock:
+            return [dict(entry) for entry in self._journal]
+
+    def _journal_append(self, command: str) -> dict:
+        entry = {
+            "seq": len(self._journal),
+            "cmd": command,
+            "compensation": compensation_for(command),
+            "success": None,
+            "exit_code": None,
+        }
+        with self._journal_lock:
+            entry["seq"] = len(self._journal)
+            self._journal.append(entry)
+        return entry
+
+    @staticmethod
+    def _journal_close(entry: dict, result: ExecutionResult) -> None:
+        entry["success"] = bool(result.success)
+        try:
+            entry["exit_code"] = result.data.get("exit_code")
+        except Exception:
+            entry["exit_code"] = None
 
     def queue_full(self) -> bool:
         """Back-pressure signal: True while 50 steps are already queued."""
@@ -220,7 +250,9 @@ class SafeExecutor:
                         "canonical_form": assessment["canonical_form"],
                     },
                 )
+            entry = self._journal_append(command)
             result = self._terminal.run(command, timeout=step_timeout(command))
+            self._journal_close(entry, result)
             policy_data = {
                 "command": command,
                 "policy_decision": "approved",
