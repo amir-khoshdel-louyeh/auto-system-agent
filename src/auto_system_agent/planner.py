@@ -216,6 +216,15 @@ class Planner:
         return tasks
 
     def _rollback_hint(self, task: PlannedTask) -> str:
+        if task.action == "run_command" and task.target:
+            # P3.3: the hint only generates map entries from compensation_for.
+            try:
+                from auto_system_agent.safe_executor import compensation_for
+
+                generated = compensation_for(task.target)
+            except Exception:
+                generated = None
+            return generated or "no automatic rollback available"
         if task.action == "create_folder" and task.target:
             return f"delete_path {task.target}"
         if task.action == "move_path" and task.target:
