@@ -279,6 +279,19 @@ class SafeExecutor:
             entry = self._journal_append(command)
             result = self._terminal.run(command, timeout=step_timeout(command))
             self._journal_close(entry, result)
+            if entry["timed_out"]:
+                # Killed mid-work: undo partial journal before reporting.
+                already = {item["seq"] for item in self.journal if item["compensated"]}
+                self.compensate()
+                undone = [
+                    item["compensation"]
+                    for item in self.journal
+                    if item["compensated"] and item["seq"] not in already
+                ]
+                try:
+                    result.data["compensated"] = undone
+                except Exception:
+                    pass
             policy_data = {
                 "command": command,
                 "policy_decision": "approved",
