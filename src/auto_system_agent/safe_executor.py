@@ -19,6 +19,72 @@ _PRIVILEGE_WRAPPERS = {"sudo", "su", "doas", "runas"}
 STEP_MAX_WORKERS = 4
 STEP_QUEUE_SIZE = 50
 
+#: P3.3 compensation map: creating commands and their undo commands.
+#: mkdir X -> rmdir X, touch X -> rm X, apt install pkg -> apt remove -y pkg,
+#: zip archive -> rm archive (plus dnf/pacman/zypper/apk analogues).
+_INSTALL_REMOVE_PAIRS = (
+    ("apt", "install", "remove -y"),
+    ("dnf", "install", "remove -y"),
+    ("zypper", "install", "remove -y"),
+    ("apk", "add", "del"),
+    ("pacman", "-S", "-Rns"),
+)
+
+
+def compensation_for(command: str) -> str | None:
+    """Undo command for one simple creating/installing command, else None."""
+    from auto_system_agent.command_guard import CommandNode, parse_command
+
+    try:
+        node = parse_command((command or "").strip())
+    except Exception:
+        return None
+    # Unwrap one redirection layer; anything compound has no rollback.
+    target_node = node
+    seen_redir = False
+    while not isinstance(target_node, CommandNode):
+        inner = getattr(target_node, "cmd", None)
+        if inner is None or seen_redir:
+            return None
+        seen_redir = True
+        target_node = inner
+    argv = list(target_node.argv)
+    if not argv:
+        return None
+    sudo_prefix: list[str] = []
+    if Path(argv[0]).name.lower() in _PRIVILEGE_WRAPPERS and len(argv) > 1:
+        sudo_prefix = [argv[0]]
+        argv = argv[1:]
+    if not argv:
+        return None
+    prog = Path(argv[0]).name.lower()
+    args = argv[1:]
+
+    def _last_path(candidates: list[str]) -> str | None:
+        paths = [c for c in candidates if c and not c.startswith("-")]
+        return paths[-1] if paths else None
+
+    if prog == "mkdir":
+        target = _last_path(args)
+        return shlex.join(sudo_prefix + ["rmdir", target]) if target else None
+    if prog == "touch":
+        target = _last_path(args)
+        return shlex.join(sudo_prefix + ["rm", target]) if target else None
+    if prog == "zip":
+        paths = [c for c in args if c and not c.startswith("-")]
+        # The archive is the first path argument (`zip -r demo.zip demo`).
+        if paths:
+            return shlex.join(sudo_prefix + ["rm", paths[0]])
+        return None
+    for manager, install_verb, remove_verb in _INSTALL_REMOVE_PAIRS:
+        lowered = [a.lower() for a in args]
+        if prog == manager and install_verb.lower() in lowered:
+            pkgs = [a for a in args if a and not a.startswith("-") and a.lower() != install_verb.lower()]
+            if not pkgs:
+                return None
+            return shlex.join(sudo_prefix + [argv[0]] + remove_verb.split() + pkgs)
+    return None
+
 
 def step_timeout(command: str) -> int:
     """Timeout for one step: 120s behind sudo/su, 300s otherwise."""
