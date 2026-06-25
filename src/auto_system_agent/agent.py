@@ -24,6 +24,41 @@ ACTION_RISK_LEVELS = {
 }
 
 
+# ---------------------------------------------------------------------------
+# P3.1: recoverable orchestration states (C2). Guarded transitions reject
+# illegal jumps; the ReAct loop drives advance() instead of ad-hoc flags.
+# ---------------------------------------------------------------------------
+
+class RunState(str):
+    """ReAct execution states."""
+
+    IDLE = "IDLE"
+    PLANNED = "PLANNED"
+    GUARDED = "GUARDED"
+    EXECUTING = "EXECUTING"
+    OBSERVING = "OBSERVING"
+    REPAIRING = "REPAIRING"
+    COMPENSATING = "COMPENSATING"
+    DONE = "DONE"
+    FAILED = "FAILED"
+
+
+#: Guarded transition table: state -> allowed next states.
+RUN_TRANSITIONS: dict[str, frozenset[str]] = {
+    RunState.IDLE: frozenset({RunState.PLANNED}),
+    RunState.PLANNED: frozenset({RunState.GUARDED, RunState.FAILED}),
+    RunState.GUARDED: frozenset({RunState.EXECUTING, RunState.PLANNED, RunState.FAILED}),
+    RunState.EXECUTING: frozenset({RunState.OBSERVING, RunState.COMPENSATING, RunState.FAILED}),
+    RunState.OBSERVING: frozenset(
+        {RunState.EXECUTING, RunState.REPAIRING, RunState.DONE, RunState.FAILED}
+    ),
+    RunState.REPAIRING: frozenset({RunState.GUARDED, RunState.PLANNED, RunState.FAILED}),
+    RunState.COMPENSATING: frozenset({RunState.FAILED, RunState.DONE}),
+    RunState.DONE: frozenset({RunState.IDLE}),
+    RunState.FAILED: frozenset({RunState.IDLE}),
+}
+
+
 class AutoSystemAgent:
     """End-to-end orchestration. All decisions and answers come from OLLAMA."""
 
