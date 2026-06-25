@@ -1,8 +1,27 @@
+import shlex
+from pathlib import Path
+
 from auto_system_agent.command_guard import assess_command, check_command
 from auto_system_agent.models import ExecutionResult, PlannedTask
 from auto_system_agent.terminal import TerminalSession
 
 _VERDICT_TO_LEVEL = {"ALLOW": "low", "CONFIRM": "medium", "DENY": "high"}
+
+#: P3.2 per-step timeouts: default 300s, privilege wrappers 120s.
+DEFAULT_STEP_TIMEOUT = 300
+PRIVILEGED_STEP_TIMEOUT = 120
+_PRIVILEGE_WRAPPERS = {"sudo", "su", "doas", "runas"}
+
+
+def step_timeout(command: str) -> int:
+    """Timeout for one step: 120s behind sudo/su, 300s otherwise."""
+    try:
+        parts = shlex.split(command.strip())
+    except ValueError:
+        return DEFAULT_STEP_TIMEOUT
+    if parts and Path(parts[0]).name.lower() in _PRIVILEGE_WRAPPERS:
+        return PRIVILEGED_STEP_TIMEOUT
+    return DEFAULT_STEP_TIMEOUT
 
 
 class SafeExecutor:
@@ -94,7 +113,7 @@ class SafeExecutor:
                         "canonical_form": assessment["canonical_form"],
                     },
                 )
-            result = self._terminal.run(command)
+            result = self._terminal.run(command, timeout=step_timeout(command))
             policy_data = {
                 "command": command,
                 "policy_decision": "approved",
