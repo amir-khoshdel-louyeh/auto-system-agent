@@ -124,11 +124,13 @@ class SafeExecutor:
 
     def _journal_append(self, command: str) -> dict:
         entry = {
-            "seq": len(self._journal),
+            "seq": 0,
             "cmd": command,
             "compensation": compensation_for(command),
             "success": None,
             "exit_code": None,
+            "timed_out": False,
+            "compensated": False,
         }
         with self._journal_lock:
             entry["seq"] = len(self._journal)
@@ -142,6 +144,30 @@ class SafeExecutor:
             entry["exit_code"] = result.data.get("exit_code")
         except Exception:
             entry["exit_code"] = None
+        entry["timed_out"] = "timed out after" in (result.message or "")
+
+    def compensate(self, since: int = 0) -> list[ExecutionResult]:
+        """Undo journaled work in reverse: successful or timed-out entries."""
+        with self._journal_lock:
+            pending = [
+                entry
+                for entry in self._journal
+                if entry["seq"] >= since
+                and entry["compensation"]
+                and not entry["compensated"]
+                and (entry["success"] or entry["timed_out"])
+            ]
+        results: list[ExecutionResult] = []
+        for entry in reversed(pending):
+            try:
+                result = self._terminal.run(
+                    entry["compensation"], timeout=step_timeout(entry["compensation"])
+                )
+            except Exception as exc:
+                result = ExecutionResult(success=False, message=f"Compensation failed: {exc}")
+            entry["compensated"] = True
+            results.append(result)
+        return results
 
     def queue_full(self) -> bool:
         """Back-pressure signal: True while 50 steps are already queued."""
