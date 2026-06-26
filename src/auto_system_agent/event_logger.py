@@ -86,12 +86,16 @@ class EventLogger:
             result = item.get("result")
             succeeded = isinstance(result, dict) and bool(result.get("success"))
             message = result.get("message") if isinstance(result, dict) else ""
+            chain = item.get("chain") if isinstance(item.get("chain"), dict) else {}
+            prefix = ""
+            if chain.get("step_hash"):
+                prefix = f"chain:{chain.get('step_hash')} prev:{chain.get('prev_hash', '')} "
             repository.record_step(
                 execution_id,
                 seq=seq,
                 state="done" if succeeded else "failed",
-                stdout_ref=_shorten(message) if succeeded else "",
-                stderr_ref="" if succeeded else _shorten(message),
+                stdout_ref=(prefix + _shorten(message)) if succeeded else "",
+                stderr_ref="" if succeeded else (prefix + _shorten(message)),
                 retry_count=0,
             )
 
