@@ -49,3 +49,5 @@ class ReActStep:
     task: PlannedTask
     tool: str
     result: ExecutionResult
+    prev_hash: str = ""
+    step_hash: str = ""
