@@ -443,8 +443,10 @@ class AutoSystemAgent:
                     )
                     fsm.advance(RunState.EXECUTING)
                     fsm.advance(RunState.OBSERVING)
-                    self._append_chain_step(scratchpad, evaluation.reason, task, tool_key, unknown_result)
-                    step_payloads.append(self._step_payload(tool_key, task, unknown_result))
+                    chained = self._append_chain_step(scratchpad, evaluation.reason, task, tool_key, unknown_result)
+                    payload = self._step_payload(tool_key, task, unknown_result)
+                    payload["chain"] = {"prev_hash": chained.prev_hash, "step_hash": chained.step_hash}
+                    step_payloads.append(payload)
                     self._notify(
                         progress_callback,
                         StepStatus(step=step_no, total=step_no, tool=tool_key, state="failed", message=unknown_result.message),
@@ -464,8 +466,10 @@ class AutoSystemAgent:
                     self._update_context_from_task(task, result)
                     fsm.advance(RunState.OBSERVING)
                     evaluation = self._evaluator.evaluate_with_llm(user_input, task, tool_key, result, scratchpad)
-                    self._append_chain_step(scratchpad, evaluation.reason, task, tool_key, result)
-                    step_payloads.append(self._step_payload(tool_key, task, result))
+                    chained = self._append_chain_step(scratchpad, evaluation.reason, task, tool_key, result)
+                    payload = self._step_payload(tool_key, task, result)
+                    payload["chain"] = {"prev_hash": chained.prev_hash, "step_hash": chained.step_hash}
+                    step_payloads.append(payload)
                     self._notify(
                         progress_callback,
                         StepStatus(
