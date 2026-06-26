@@ -50,7 +50,7 @@ RUN_TRANSITIONS: dict[str, frozenset[str]] = {
     RunState.GUARDED: frozenset({RunState.EXECUTING, RunState.PLANNED, RunState.FAILED}),
     RunState.EXECUTING: frozenset({RunState.OBSERVING, RunState.COMPENSATING, RunState.FAILED}),
     RunState.OBSERVING: frozenset(
-        {RunState.EXECUTING, RunState.REPAIRING, RunState.DONE, RunState.FAILED}
+        {RunState.EXECUTING, RunState.REPAIRING, RunState.COMPENSATING, RunState.DONE, RunState.FAILED}
     ),
     RunState.REPAIRING: frozenset({RunState.GUARDED, RunState.PLANNED, RunState.FAILED}),
     RunState.COMPENSATING: frozenset({RunState.FAILED, RunState.DONE}),
@@ -127,6 +127,7 @@ class AutoSystemAgent:
         self._pending_confirmation: dict | None = None
         self._confirm_high_risk = confirm_high_risk
         self._llm_config = llm_config or {}
+        self._run_journal_start: int | None = None
 
     def process(
         self,
@@ -404,6 +405,11 @@ class AutoSystemAgent:
         fsm = StateMachine()
         self._last_run_state = fsm
         fsm.advance(RunState.PLANNED)
+        try:
+            journal = self._executor.journal
+            self._run_journal_start = len(journal) if isinstance(journal, list) else None
+        except Exception:
+            self._run_journal_start = None
 
         for _ in range(self._max_react_iters):
             repaired: list[PlannedTask] | None = None
@@ -471,9 +477,13 @@ class AutoSystemAgent:
                 break
 
             if aborted is not None:
+                compensated = self._compensate_aborted_run(fsm)
                 fsm.advance(RunState.FAILED)
                 results = [step.result for step in scratchpad]
-                return f"{self._formatter.format_many(results)}\n\nStopped: {aborted.reason}".strip(), step_payloads
+                reply = f"{self._formatter.format_many(results)}\n\nStopped: {aborted.reason}".strip()
+                if compensated:
+                    reply = f"{reply}\nCompensated {len(compensated)} action(s): {'; '.join(compensated)}"
+                return reply, step_payloads
 
             if repaired is None:
                 # Either all steps done, or planner could not repair.
@@ -488,6 +498,32 @@ class AutoSystemAgent:
         fsm.advance(RunState.FAILED)
         results = [step.result for step in scratchpad]
         return f"{self._formatter.format_many(results)}\n\nStopped after {self._max_react_iters} attempts.".strip(), step_payloads
+
+    def _compensate_aborted_run(self, fsm: StateMachine) -> list[str]:
+        """Undo this run's journaled work; returns the compensation commands."""
+        start = self._run_journal_start
+        compensate = getattr(self._executor, "compensate", None)
+        if start is None or not callable(compensate):
+            return []
+        if not fsm.can(RunState.COMPENSATING):
+            return []
+        fsm.advance(RunState.COMPENSATING)
+        try:
+            before = {
+                entry["seq"]
+                for entry in self._executor.journal
+                if entry.get("compensated")
+            }
+            compensate(since=start)
+            return [
+                str(entry["compensation"])
+                for entry in self._executor.journal
+                if entry.get("compensated")
+                and entry["seq"] not in before
+                and entry.get("compensation")
+            ]
+        except Exception:
+            return []
 
     def _repair_tasks(
         self,
