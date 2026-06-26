@@ -1,3 +1,4 @@
+import hashlib
 from dataclasses import replace
 from typing import Callable
 
@@ -61,6 +62,16 @@ RUN_TRANSITIONS: dict[str, frozenset[str]] = {
 
 class InvalidTransition(ValueError):
     """Raised when the state machine is asked for an illegal jump."""
+
+
+#: Genesis hash starting every audit chain (P3.4).
+CHAIN_GENESIS = "GENESIS"
+
+
+def chain_step_hash(prev_hash: str, command: str, exit_code: object) -> str:
+    """sha256(prev_hash + cmd + exit) audit link for one ReAct step."""
+    material = f"{prev_hash}\n{command}\n{exit_code}".encode("utf-8")
+    return hashlib.sha256(material).hexdigest()
 
 
 class StateMachine:
@@ -432,7 +443,7 @@ class AutoSystemAgent:
                     )
                     fsm.advance(RunState.EXECUTING)
                     fsm.advance(RunState.OBSERVING)
-                    scratchpad.append(ReActStep(thought=evaluation.reason, task=task, tool=tool_key, result=unknown_result))
+                    self._append_chain_step(scratchpad, evaluation.reason, task, tool_key, unknown_result)
                     step_payloads.append(self._step_payload(tool_key, task, unknown_result))
                     self._notify(
                         progress_callback,
@@ -453,7 +464,7 @@ class AutoSystemAgent:
                     self._update_context_from_task(task, result)
                     fsm.advance(RunState.OBSERVING)
                     evaluation = self._evaluator.evaluate_with_llm(user_input, task, tool_key, result, scratchpad)
-                    scratchpad.append(ReActStep(thought=evaluation.reason, task=task, tool=tool_key, result=result))
+                    self._append_chain_step(scratchpad, evaluation.reason, task, tool_key, result)
                     step_payloads.append(self._step_payload(tool_key, task, result))
                     self._notify(
                         progress_callback,
@@ -524,6 +535,32 @@ class AutoSystemAgent:
             ]
         except Exception:
             return []
+
+    def _append_chain_step(
+        self,
+        scratchpad: list[ReActStep],
+        thought: str,
+        task: PlannedTask,
+        tool: str,
+        result: ExecutionResult,
+    ) -> ReActStep:
+        """Append a ReAct step linked to the previous step hash."""
+        prev = scratchpad[-1].step_hash if scratchpad else CHAIN_GENESIS
+        try:
+            exit_code = result.data.get("exit_code", 0 if result.success else 1)
+        except Exception:
+            exit_code = 0 if result.success else 1
+        command = task.target or task.raw_input or ""
+        step = ReActStep(
+            thought=thought,
+            task=task,
+            tool=tool,
+            result=result,
+            prev_hash=prev,
+            step_hash=chain_step_hash(prev, command, exit_code),
+        )
+        scratchpad.append(step)
+        return step
 
     def _repair_tasks(
         self,
