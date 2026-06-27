@@ -160,6 +160,16 @@ class AuditRepository:
         payload["steps"] = [dict(step) for step in steps]
         return payload
 
+    def replay(self, execution_id: int) -> list[dict]:
+        """Re-observation records for one execution, in step order."""
+        with self._connect() as connection:
+            rows = connection.execute(
+                "SELECT seq, state, stdout_ref, stderr_ref, retry_count"
+                " FROM step WHERE execution_id = ? ORDER BY seq, id",
+                (execution_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
+
     def fetch_executions(self, *, verdict: str | None = None, limit: int = 50) -> list[dict]:
         """Newest executions first, optionally filtered by verdict."""
         query = "SELECT * FROM execution"
