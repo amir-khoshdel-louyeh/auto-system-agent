@@ -430,6 +430,13 @@ class AgentChatGUI:
         )
 
     def _append_message(self, speaker: str, message: str) -> None:
+        # P4.2 single consumer: chat Text is touched on the Tk thread only.
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.root.after(0, lambda: self._append_message(speaker, message))
+            except Exception:
+                pass
+            return
         # Only show user and agent; hide verbose System progress as requested,
         # but keep welcome/important system as subtle center note if needed.
         import time as _time
@@ -845,6 +852,13 @@ class AgentChatGUI:
         self._step_progress_rows.clear()
 
     def _append_explanation(self, title: str, body: str, is_error: bool = False) -> None:
+        # P4.2 single consumer: explanation Text is touched on the Tk thread only.
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.root.after(0, lambda: self._append_explanation(title, body, is_error))
+            except Exception:
+                pass
+            return
         try:
             self.explanation_text.configure(state=tk.NORMAL)
             ts = time.strftime("%H:%M:%S")
