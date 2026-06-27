@@ -443,6 +443,17 @@ class RealTerminalFrame(tk.Frame):
             self._schedule_display_drain()
 
     def _write_to_text(self, data: str, tag: str | None):
+        """Insert display text; only the after(50) consumer may call this.
+
+        Off-thread callers are re-scheduled onto the Tk loop instead of
+        touching the widget, so Text stays NORMAL in exactly one place.
+        """
+        if threading.current_thread() is not threading.main_thread():
+            try:
+                self.after(0, lambda: self._write_to_text(data, tag))
+            except Exception:
+                pass
+            return
         self._maybe_alert(data)
         try:
             # Suppress AI marker echo from display (keep it queued for run_command)
