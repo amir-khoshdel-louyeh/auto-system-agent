@@ -122,6 +122,9 @@ class EventCoalescer:
         self._window_start = None
         return merged
 
+    def pending(self) -> bool:
+        return bool(self._parts)
+
 
 # Alacritty-inspired palette approximation for 8 + bright colors
 _ALACRITTY_COLORS = {
@@ -215,6 +218,13 @@ class RealTerminalFrame(tk.Frame):
         self._abort_wait = threading.Event()
         self._last_bell_at = 0.0
         self._output_queue: queue.Queue[str] = queue.Queue()
+        # P4.1 display path: bounded queue + coalescer, drained by one
+        # after(50) consumer. The lossless _output_queue above stays the
+        # only source for run_command marker waits.
+        self._display_queue: queue.Queue[str] = queue.Queue(maxsize=DISPLAY_QUEUE_SIZE)
+        self._coalescer = EventCoalescer()
+        self._display_drops = 0
+        self._drain_scheduled = False
         self._cwd = (cwd or Path.home()).resolve() if (cwd or Path.home()).exists() else Path.cwd().resolve()
         if not self._cwd.exists():
             self._cwd = Path.cwd().resolve()
@@ -376,12 +386,61 @@ class RealTerminalFrame(tk.Frame):
                     self._output_queue.put(text, block=False)
                 except Exception:
                     pass
-                self.after(0, lambda t=text: self._write_to_text(t, None))
+                try:
+                    self._display_queue.put(text, block=False)
+                except queue.Full:
+                    self._display_drops += 1
+                except Exception:
+                    pass
+                self._schedule_display_drain()
             except OSError:
                 break
             except Exception:
                 time.sleep(0.05)
         self._alive = False
+
+    def _schedule_display_drain(self) -> None:
+        if self._drain_scheduled:
+            return
+        self._drain_scheduled = True
+        try:
+            self.after(50, self._drain_display_queue)
+        except Exception:
+            self._drain_scheduled = False
+
+    def _collect_display_chunk(self) -> str | None:
+        """Move bounded-queue output through the coalescer (no Tk here)."""
+        drained = 0
+        while True:
+            try:
+                text = self._display_queue.get_nowait()
+            except queue.Empty:
+                break
+            self._coalescer.push(text)
+            drained += 1
+            if drained >= 256:
+                break
+        if self._coalescer.ready():
+            return self._coalescer.pop()
+        return None
+
+    def _drain_display_queue(self) -> None:
+        self._drain_scheduled = False
+        try:
+            chunk = self._collect_display_chunk()
+        except Exception:
+            chunk = None
+        try:
+            more = not self._display_queue.empty() or self._coalescer.pending()
+        except Exception:
+            more = False
+        if chunk:
+            try:
+                self._write_to_text(chunk, None)
+            except Exception:
+                pass
+        if more and self._alive:
+            self._schedule_display_drain()
 
     def _write_to_text(self, data: str, tag: str | None):
         self._maybe_alert(data)
