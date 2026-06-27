@@ -36,6 +36,92 @@ _NEEDS_INPUT_RE = re.compile(
 # Minimum seconds between two alert bells.
 _BELL_DEBOUNCE_SECONDS = 5.0
 
+# P4.1 coalescer bounds: 50ms window or 4KB per flush, 1k queued chunks,
+# 256KB merged buffer (older bytes drop with a counter, order preserved).
+COALESCE_WINDOW_SECONDS = 0.05
+COALESCE_MAX_BYTES = 4096
+DISPLAY_QUEUE_SIZE = 1000
+COALESCE_BUFFER_LIMIT = 262144
+
+
+class EventCoalescer:
+    """Merge a burst of pty chunks into one display write.
+
+    Producer threads push raw text; the Tk consumer pops a merged chunk
+    when the 50ms window elapses or 4KB accumulates. OSC noise and
+    carriage returns are stripped on push (SGR colors survive for the
+    widget parser); line counts feed the "+N lines coalesced" note.
+    Bounded memory: past 256KB the oldest bytes drop and dropped_bytes
+    grows, delivery order otherwise preserved.
+    """
+
+    def __init__(
+        self,
+        window_seconds: float = COALESCE_WINDOW_SECONDS,
+        max_bytes: int = COALESCE_MAX_BYTES,
+        buffer_limit: int = COALESCE_BUFFER_LIMIT,
+    ) -> None:
+        self._window = max(0.001, window_seconds)
+        self._max_bytes = max(1, max_bytes)
+        self._limit = max(1024, buffer_limit)
+        self._parts: list[str] = []
+        self._bytes = 0
+        self._window_start: float | None = None
+        self.coalesced_lines = 0
+        self.dropped_bytes = 0
+
+    @staticmethod
+    def strip_noise(text: str) -> str:
+        cleaned = _ANSI_OSC_RE.sub("", text)
+        cleaned = _ANSI_EXTRA_RE.sub("", cleaned)
+        cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
+        return cleaned
+
+    def push(self, text: str, now: float | None = None) -> None:
+        cleaned = self.strip_noise(text)
+        if not cleaned:
+            return
+        if self._window_start is None:
+            import time as _time
+
+            self._window_start = now if now is not None else _time.monotonic()
+        size = len(cleaned.encode("utf-8", errors="replace"))
+        overflow = self._bytes + size - self._limit
+        while overflow > 0 and self._parts:
+            oldest = self._parts.pop(0)
+            freed = len(oldest.encode("utf-8", errors="replace"))
+            self._bytes -= freed
+            self.dropped_bytes += freed
+            overflow -= freed
+        if not self._parts and size > self._limit:
+            # Single hostile chunk: keep its tail, count the dropped head.
+            tail = cleaned.encode("utf-8", errors="replace")[-self._limit :].decode(
+                "utf-8", errors="replace"
+            )
+            self.dropped_bytes += size - len(tail.encode("utf-8", errors="replace"))
+            cleaned = tail
+            size = len(cleaned.encode("utf-8", errors="replace"))
+        self._parts.append(cleaned)
+        self._bytes += size
+        self.coalesced_lines += cleaned.count("\n")
+
+    def ready(self, now: float | None = None) -> bool:
+        if not self._parts or self._window_start is None:
+            return False
+        if self._bytes >= self._max_bytes:
+            return True
+        import time as _time
+
+        moment = now if now is not None else _time.monotonic()
+        return (moment - self._window_start) >= self._window
+
+    def pop(self) -> str:
+        merged = "".join(self._parts)
+        self._parts = []
+        self._bytes = 0
+        self._window_start = None
+        return merged
+
 
 # Alacritty-inspired palette approximation for 8 + bright colors
 _ALACRITTY_COLORS = {
