@@ -156,5 +156,230 @@ class CompensationMapTests(unittest.TestCase):
                 self.assertEqual(compensation_for(command), expected)
 
 
+class CompensateExecutorTests(unittest.TestCase):
+    def test_compensate_reverses_and_stays_idempotent(self):
+        import tempfile
+
+        from auto_system_agent.models import PlannedTask
+        from auto_system_agent.safe_executor import SafeExecutor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            executor = SafeExecutor()
+            try:
+                executor.terminal._cwd = Path(tmp).resolve()
+                executor.execute("run_command", PlannedTask(action="run_command", target="mkdir -p demo"))
+                executor.execute("run_command", PlannedTask(action="run_command", target="touch demo/a.txt"))
+                self.assertTrue((Path(tmp) / "demo" / "a.txt").exists())
+                results = executor.compensate()
+                self.assertEqual(len(results), 2)
+                self.assertTrue(all(item.success for item in results))
+                self.assertFalse((Path(tmp) / "demo").exists())
+                self.assertEqual(executor.compensate(), [])
+            finally:
+                executor.close()
+
+    def test_timeout_auto_undoes_journal(self):
+        from unittest.mock import patch
+
+        from auto_system_agent.models import ExecutionResult, PlannedTask
+        from auto_system_agent.safe_executor import SafeExecutor
+        from auto_system_agent.terminal import TerminalSession
+
+        executor = SafeExecutor()
+        try:
+            def fake_run(command, timeout=300):
+                if command == "sleep 600":
+                    return ExecutionResult(
+                        success=False,
+                        message=f"Command timed out after {timeout}s: {command}",
+                        data={"command": command},
+                    )
+                return ExecutionResult(success=True, message="ok", data={"exit_code": 0})
+
+            with patch.object(TerminalSession, "run", side_effect=fake_run):
+                executor.execute("run_command", PlannedTask(action="run_command", target="mkdir -p demo"))
+                result = executor.execute("run_command", PlannedTask(action="run_command", target="sleep 600"))
+            self.assertFalse(result.success)
+            self.assertEqual(result.data.get("compensated"), ["rmdir demo"])
+        finally:
+            executor.close()
+
+
+class AbortRunTests(unittest.TestCase):
+    def _agent(self, plans, verdicts, executor, log_path):
+        from auto_system_agent.agent import AutoSystemAgent
+        from auto_system_agent.models import Evaluation
+
+        class ListPlanner:
+            def plan_tasks(self, user_input):
+                from auto_system_agent.models import PlannedTask
+
+                return [PlannedTask(action="run_command", target=cmd, raw_input=user_input) for cmd in plans]
+
+        class ScriptedSelector:
+            SUPPORTED_ACTIONS = {"run_command", "help"}
+
+            def select(self, task):
+                return "run_command"
+
+        class ScriptedEvaluator:
+            def __init__(self):
+                self.calls = 0
+
+            def evaluate_with_llm(self, user_input, task, tool, result, scratchpad):
+                verdict = verdicts[min(self.calls, len(verdicts) - 1)]
+                self.calls += 1
+                return Evaluation(verdict=verdict, reason=f"scripted {verdict}")
+
+        class ScriptedFormatter:
+            def format(self, result):
+                return result.message
+
+            def format_many(self, results):
+                return "\n".join(item.message for item in results)
+
+        class QuietAssistant:
+            def resolve(self, *args):
+                return None
+
+        from auto_system_agent.event_logger import EventLogger
+
+        return AutoSystemAgent(
+            planner=ListPlanner(),
+            selector=ScriptedSelector(),
+            executor=executor,
+            formatter=ScriptedFormatter(),
+            assistant=QuietAssistant(),
+            event_logger=EventLogger(log_path=log_path),
+            evaluator=ScriptedEvaluator(),
+            confirm_high_risk=False,
+        )
+
+    def test_kill_mid_install_proves_compensating(self):
+        import tempfile
+        from unittest.mock import patch
+
+        from auto_system_agent.models import ExecutionResult
+        from auto_system_agent.safe_executor import SafeExecutor
+        from auto_system_agent.terminal import TerminalSession
+
+        with tempfile.TemporaryDirectory() as tmp:
+            executor = SafeExecutor()
+            try:
+                executor.terminal._cwd = Path(tmp).resolve()
+                real_run = TerminalSession.run.__get__(executor.terminal)
+
+                def flaky_run(command, timeout=300):
+                    if command == "sudo apt install -y vlc":
+                        return ExecutionResult(
+                            success=False,
+                            message=f"Command timed out after {timeout}s: {command}",
+                            data={"command": command},
+                        )
+                    return real_run(command, timeout=timeout)
+
+                with patch.object(TerminalSession, "run", side_effect=flaky_run):
+                    agent = self._agent(
+                        ["mkdir -p demo", "touch demo/a.txt", "sudo apt install -y vlc"],
+                        ["done", "done", "abort"],
+                        executor,
+                        Path(tmp) / "events.jsonl",
+                    )
+                    reply = agent.process("set up demo then install vlc")
+                trail = agent._last_run_state.trail
+                self.assertIn("COMPENSATING", trail)
+                self.assertEqual(agent._last_run_state.current, "FAILED")
+                self.assertIn("Stopped", reply)
+                self.assertFalse((Path(tmp) / "demo").exists())
+                compensated = [entry for entry in executor.journal if entry["compensated"]]
+                self.assertTrue(compensated, "timeout must undo journaled work")
+            finally:
+                executor.close()
+
+    def test_failed_exit_compensates_prior_work(self):
+        import tempfile
+
+        from auto_system_agent.safe_executor import SafeExecutor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            executor = SafeExecutor()
+            try:
+                executor.terminal._cwd = Path(tmp).resolve()
+                agent = self._agent(
+                    ["mkdir -p demo", "false"], ["done", "abort"], executor, Path(tmp) / "events.jsonl"
+                )
+                reply = agent.process("make demo then fail")
+                self.assertIn("COMPENSATING", agent._last_run_state.trail)
+                self.assertIn("Stopped", reply)
+                self.assertIn("Compensated 1 action(s): rmdir demo", reply)
+                self.assertFalse((Path(tmp) / "demo").exists())
+            finally:
+                executor.close()
+
+    def test_missing_binary_blocks_without_compensation(self):
+        import tempfile
+
+        from auto_system_agent.safe_executor import SafeExecutor
+
+        with tempfile.TemporaryDirectory() as tmp:
+            executor = SafeExecutor()
+            try:
+                agent = self._agent(
+                    ["definitely-not-a-real-binary-xyz"],
+                    ["abort"],
+                    executor,
+                    Path(tmp) / "events.jsonl",
+                )
+                reply = agent.process("run missing thing")
+                self.assertIn("COMPENSATING", agent._last_run_state.trail)
+                self.assertNotIn("Compensated", reply)
+                self.assertIn("Stopped", reply)
+            finally:
+                executor.close()
+
+    def test_retry_limit_escalates_to_replan(self):
+        from auto_system_agent.evaluator import Evaluator
+        from auto_system_agent.models import ExecutionResult, PlannedTask, ReActStep
+
+        evaluator = Evaluator()
+        failed = ExecutionResult(success=False, message="Command failed with code 1.")
+        scratchpad = [
+            ReActStep(thought="t", task=PlannedTask(action="run_command", target="ls /nope"), tool="run_command", result=failed),
+            ReActStep(thought="t", task=PlannedTask(action="run_command", target="ls /nope"), tool="run_command", result=failed),
+        ]
+        verdict = evaluator.evaluate(
+            "list nope", PlannedTask(action="run_command", target="ls /nope"), "run_command", failed, scratchpad
+        )
+        self.assertEqual(verdict.verdict, "replan")
+
+    def test_bounded_queue_applies_back_pressure(self):
+        import threading
+        import time
+
+        from auto_system_agent.models import ExecutionResult, PlannedTask
+        from auto_system_agent.safe_executor import SafeExecutor
+
+        executor = SafeExecutor(max_workers=1, queue_size=2)
+        try:
+            started = threading.Event()
+            original = executor.execute
+
+            def slow_execute(tool_key, task):
+                started.set()
+                time.sleep(0.5)
+                return ExecutionResult(success=True, message="ok")
+
+            executor.execute = slow_execute
+            first = executor.submit("run_command", PlannedTask(action="run_command", target="a"))
+            self.assertTrue(started.wait(2))
+            second = executor.submit("run_command", PlannedTask(action="run_command", target="b"))
+            self.assertTrue(executor.queue_full())
+            self.assertEqual([f.result(5).message for f in (first, second)], ["ok", "ok"])
+            self.assertFalse(executor.queue_full())
+        finally:
+            executor.execute = original
+            executor.close()
+
+
 if __name__ == "__main__":
     unittest.main()
