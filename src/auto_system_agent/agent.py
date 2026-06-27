@@ -64,6 +64,15 @@ class InvalidTransition(ValueError):
     """Raised when the state machine is asked for an illegal jump."""
 
 
+#: P3.4 evaluator verdicts hooked to FSM transitions (done stays put).
+VERDICT_TRANSITIONS: dict[str, str | None] = {
+    "done": None,
+    "retry": RunState.REPAIRING,
+    "replan": RunState.REPAIRING,
+    "abort": RunState.COMPENSATING,
+}
+
+
 #: Genesis hash starting every audit chain (P3.4).
 CHAIN_GENESIS = "GENESIS"
 
@@ -487,7 +496,8 @@ class AutoSystemAgent:
                     aborted = evaluation
                     break
                 # retry / replan: ask planner for corrected tasks and start next iteration
-                fsm.advance(RunState.REPAIRING)
+                nxt = self.transition_for_verdict(evaluation.verdict)
+                fsm.advance(nxt or RunState.REPAIRING)
                 repaired = self._repair_tasks(user_input, scratchpad, evaluation)
                 break
 
@@ -513,6 +523,11 @@ class AutoSystemAgent:
         fsm.advance(RunState.FAILED)
         results = [step.result for step in scratchpad]
         return f"{self._formatter.format_many(results)}\n\nStopped after {self._max_react_iters} attempts.".strip(), step_payloads
+
+    @staticmethod
+    def transition_for_verdict(verdict: str) -> str | None:
+        """Map an evaluator verdict to its FSM transition."""
+        return VERDICT_TRANSITIONS.get(verdict)
 
     def _compensate_aborted_run(self, fsm: StateMachine) -> list[str]:
         """Undo this run's journaled work; returns the compensation commands."""
