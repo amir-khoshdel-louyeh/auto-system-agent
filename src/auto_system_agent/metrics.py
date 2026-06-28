@@ -74,6 +74,39 @@ def read_disk_percent(path: str | Path = "/") -> float:
     return round(usage.used / usage.total * 100.0, 1)
 
 
+def avg_cpu(metrics: list[Metric], window_seconds: float = 60.0) -> float:
+    """Mean cpu over samples inside the trailing window (0.0 when empty)."""
+    if not metrics or window_seconds <= 0:
+        return 0.0
+    cutoff = metrics[-1].ts - window_seconds
+    values = [metric.cpu for metric in metrics if metric.ts >= cutoff]
+    if not values:
+        return 0.0
+    return round(sum(values) / len(values), 1)
+
+
+def success_rate(succeeded: int, total: int) -> float:
+    """ok/total as a 0-100 percent (100.0 when nothing ran)."""
+    if total <= 0:
+        return 100.0
+    return round(max(0.0, min(100.0, succeeded / total * 100.0)), 1)
+
+
+def mttr(outages: list[tuple[float, float]]) -> float:
+    """Mean time to recovery in seconds over (failed_at, recovered_at) pairs."""
+    durations = [max(0.0, end - start) for start, end in outages if end >= start]
+    if not durations:
+        return 0.0
+    return round(sum(durations) / len(durations), 1)
+
+
+def throughput(count: int, window_seconds: float) -> float:
+    """Events per second over a window (0.0 for empty windows)."""
+    if window_seconds <= 0 or count <= 0:
+        return 0.0
+    return round(count / window_seconds, 2)
+
+
 @dataclass
 class MetricSampler:
     """Stateful sampler: cpu deltas need the previous snapshot."""
