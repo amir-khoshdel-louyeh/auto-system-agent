@@ -40,6 +40,15 @@ CREATE TABLE IF NOT EXISTS step (
 CREATE INDEX IF NOT EXISTS idx_execution_ts_start ON execution(ts_start);
 CREATE INDEX IF NOT EXISTS idx_execution_exit_code ON execution(exit_code);
 CREATE INDEX IF NOT EXISTS idx_step_execution_id ON step(execution_id);
+CREATE TABLE IF NOT EXISTS metric (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts REAL NOT NULL,
+    cpu REAL NOT NULL DEFAULT 0,
+    mem REAL NOT NULL DEFAULT 0,
+    disk REAL NOT NULL DEFAULT 0,
+    queue INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_metric_ts ON metric(ts);
 """
 
 
@@ -187,3 +196,33 @@ class AuditRepository:
         with self._connect() as connection:
             row = connection.execute("SELECT COUNT(*) AS n FROM execution").fetchone()
         return int(row["n"])
+
+    def record_metric(
+        self,
+        *,
+        ts: float,
+        cpu: float = 0.0,
+        mem: float = 0.0,
+        disk: float = 0.0,
+        queue: int = 0,
+    ) -> int:
+        """Insert one system sample; returns its id."""
+        with self._connect() as connection:
+            cursor = connection.execute(
+                "INSERT INTO metric (ts, cpu, mem, disk, queue) VALUES (?, ?, ?, ?, ?)",
+                (float(ts), float(cpu), float(mem), float(disk), int(queue)),
+            )
+            return int(cursor.lastrowid)
+
+    def fetch_metrics(self, *, since: float | None = None, limit: int = 500) -> list[dict]:
+        """Samples in time order, optionally newer than `since`."""
+        query = "SELECT ts, cpu, mem, disk, queue FROM metric"
+        values: list[object] = []
+        if since is not None:
+            query += " WHERE ts >= ?"
+            values.append(float(since))
+        query += " ORDER BY ts ASC LIMIT ?"
+        values.append(max(1, limit))
+        with self._connect() as connection:
+            rows = connection.execute(query, values).fetchall()
+        return [dict(row) for row in rows]
