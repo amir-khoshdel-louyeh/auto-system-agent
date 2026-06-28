@@ -124,6 +124,36 @@ class NotificationTests(unittest.TestCase):
         cache.clear()
         self.assertEqual(len(cache), 0)
 
+    def test_backend_selection_with_mocked_platforms(self):
+        from unittest.mock import patch
+
+        from auto_system_agent import notifications
+
+        class Done:
+            returncode = 0
+
+        class Failed:
+            returncode = 1
+
+        with patch.object(notifications.shutil, "which", return_value=None):
+            self.assertFalse(notifications.notify("t", "m", os_name="linux"))
+            self.assertFalse(notifications.notify("t", "m", os_name="macos"))
+            self.assertFalse(notifications.notify("t", "m", os_name="windows"))
+        with patch.object(notifications.shutil, "which", return_value="/usr/bin/x"), patch.object(
+            notifications.subprocess, "run", return_value=Done()
+        ):
+            self.assertTrue(notifications.notify("t", "m", os_name="linux"))
+            self.assertTrue(notifications.notify("t", "m", os_name="macos"))
+            self.assertTrue(notifications.notify("t", "m", os_name="windows"))
+        with patch.object(notifications.shutil, "which", return_value="/usr/bin/x"), patch.object(
+            notifications.subprocess, "run", return_value=Failed()
+        ):
+            self.assertFalse(notifications.notify("t", "m", os_name="linux"))
+        with patch.object(
+            notifications.subprocess, "run", side_effect=OSError("no exec")
+        ), patch.object(notifications.shutil, "which", return_value="/usr/bin/x"):
+            self.assertFalse(notifications.notify("t", "m", os_name="linux"))
+
 
 class EvaluatorBranchTests(unittest.TestCase):
     def _evaluate(self, message, success=False, scratchpad=None):
