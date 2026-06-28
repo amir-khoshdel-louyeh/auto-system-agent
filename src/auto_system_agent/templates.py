@@ -157,3 +157,33 @@ class TemplateStore:
 
     def list_names(self) -> list[str]:
         return sorted(self._templates)
+
+    def replay(self, name: str, raw_input: str = "") -> list:
+        """Rebuild validated PlannedTasks for a saved template."""
+        from auto_system_agent.models import PlannedTask
+
+        template = self.get(name)
+        if template is None:
+            raise KeyError(f"unknown template: {name}")
+        tasks = [
+            PlannedTask(action=str(step["action"]), target=str(step.get("target") or ""), raw_input=raw_input)
+            for step in template.steps()
+        ]
+        ok, reason = validate_plan(
+            [{"action": task.action, "target": task.target or ""} for task in tasks]
+        )
+        if not ok:
+            raise ValueError(f"stored plan no longer validates: {reason}")
+        return tasks
+
+    def record_run(self, name: str, success: bool) -> Template:
+        """Fold one replay outcome into the running success rate."""
+        template = self.get(name)
+        if template is None:
+            raise KeyError(f"unknown template: {name}")
+        runs = template.runs + 1
+        previous = template.success_rate * template.runs
+        template.runs = runs
+        template.success_rate = round((previous + (100.0 if success else 0.0)) / runs, 1)
+        self._persist()
+        return template
