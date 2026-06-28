@@ -174,6 +174,11 @@ class SafeExecutor:
         with self._depth_lock:
             return self._depth >= self._queue_size
 
+    def pending_depth(self) -> int:
+        """Queued/in-flight step count for metrics sampling."""
+        with self._depth_lock:
+            return self._depth
+
     def submit(self, tool_key: str, task: PlannedTask) -> Future:
         """Queue one step; blocks when full so planners pause while we drain."""
         self._slots.acquire()
