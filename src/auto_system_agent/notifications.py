@@ -75,3 +75,36 @@ def notify(title: str, message: str, *, os_name: str | None = None) -> bool:
         return _notify_linux(heading, body)
     except Exception:
         return False
+
+
+class ResultCache:
+    """Bounded FIFO cache for formatted command results."""
+
+    def __init__(self, capacity: int = 200) -> None:
+        self._capacity = max(1, capacity)
+        self._items: dict[str, str] = {}
+
+    def __len__(self) -> int:
+        return len(self._items)
+
+    def __contains__(self, key: object) -> bool:
+        return key in self._items
+
+    def put(self, key: str, text: str) -> None:
+        if key in self._items:
+            del self._items[key]
+        while len(self._items) >= self._capacity:
+            oldest = next(iter(self._items))
+            del self._items[oldest]
+        self._items[key] = text
+
+    def get(self, key: str, default: str | None = None) -> str | None:
+        return self._items.get(key, default)
+
+    def clear(self) -> None:
+        self._items.clear()
+
+
+def result_key(command: str, exit_code: int | None) -> str:
+    """Stable cache key for one formatted command result."""
+    return f"{(command or '').strip()}\x00{exit_code}"
