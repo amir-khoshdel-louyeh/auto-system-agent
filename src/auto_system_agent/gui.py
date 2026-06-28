@@ -29,6 +29,19 @@ ERROR = "#dc2626"
 ERROR_BG = "#fee2e2"
 
 
+def format_metrics_dialog(sample, average_cpu: float, success_pct: float, samples_stored: int) -> str:
+    """Pure P4.3 formatter for the System Metrics dialog (Tk-free)."""
+    lines = [
+        f"CPU now: {sample.cpu:.1f}% (60s avg: {average_cpu:.1f}%)",
+        f"Memory used: {sample.mem:.1f}%",
+        f"Disk used: {sample.disk:.1f}%",
+        f"Executor queue depth: {sample.queue}",
+        f"Audit success rate: {success_pct:.1f}% (last runs with exit codes)",
+        f"Metric samples stored: {samples_stored}",
+    ]
+    return "\n".join(lines)
+
+
 class AgentChatGUI:
     """Minimal desktop chat interface for the Auto System Agent."""
 
@@ -96,6 +109,7 @@ class AgentChatGUI:
         # System menu for quick access
         system_menu = tk.Menu(menu_bar, tearoff=0)
         system_menu.add_command(label="System Architecture…", command=lambda: self._show_system_config_dialog(required=False))
+        system_menu.add_command(label="System Metrics…", command=self._show_metrics_dialog)
         menu_bar.add_cascade(label="System", menu=system_menu)
         self.root.config(menu=menu_bar)
 
@@ -1832,6 +1846,57 @@ class AgentChatGUI:
         tk.Button(button_frame, text="Save", command=save_and_close).pack(side=tk.RIGHT)
 
         self._fit_dialog_to_content(dialog, default_width=520, default_height=260)
+
+    def _show_metrics_dialog(self) -> None:
+        """P4.3 live sample plus trailing averages and audit success rate."""
+        try:
+            from auto_system_agent.metrics import Metric, MetricSampler, avg_cpu, success_rate
+            from auto_system_agent.repository import AuditRepository
+
+            sampler = MetricSampler()
+            sampler.sample()
+            time.sleep(0.06)
+            queue_depth = 0
+            try:
+                queue_depth = int(self.agent._executor.pending_depth())
+            except Exception:
+                queue_depth = 0
+            sample = sampler.sample(queue_depth=queue_depth)
+            try:
+                repo = AuditRepository()
+                repo.record_metric(
+                    ts=sample.ts, cpu=sample.cpu, mem=sample.mem, disk=sample.disk, queue=sample.queue
+                )
+                rows = repo.fetch_metrics(limit=120)
+                average = avg_cpu([Metric(**row) for row in rows], 60.0)
+                runs = repo.fetch_executions(limit=200)
+                decided = [run for run in runs if run.get("exit_code") is not None]
+                succeeded = sum(1 for run in decided if run.get("exit_code") == 0)
+                success = success_rate(succeeded, len(decided))
+                stored = len(rows)
+            except Exception:
+                average, success, stored = sample.cpu, 100.0, 0
+            body = format_metrics_dialog(sample, average, success, stored)
+        except Exception as exc:
+            body = f"Metrics unavailable: {exc}"
+        try:
+            dialog = tk.Toplevel(self.root)
+        except Exception:
+            return
+        dialog.title("System Metrics")
+        dialog.transient(self.root)
+        dialog.resizable(True, True)
+        tk.Label(dialog, text="System Metrics", font=("TkDefaultFont", 12, "bold"), fg=ACCENT).pack(
+            anchor="w", padx=12, pady=(12, 4)
+        )
+        text = scrolledtext.ScrolledText(dialog, width=64, height=12, wrap=tk.WORD)
+        text.pack(fill=tk.BOTH, expand=True, padx=12, pady=4)
+        try:
+            text.insert(tk.END, body)
+            text.configure(state=tk.DISABLED)
+        except Exception:
+            pass
+        tk.Button(dialog, text="Close", command=dialog.destroy).pack(anchor="e", padx=12, pady=12)
 
     def _set_step_status(self, step: int, total: int, state: str, tool: str) -> None:
         text = f"[{step}/{total}] {state.upper():<7} {tool}"
