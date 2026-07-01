@@ -24,12 +24,11 @@ class EventLogger:
     ) -> None:
         default_path = Path.home() / ".auto_system_agent" / "logs" / "events.jsonl"
         self._log_path = log_path or default_path
-        if repository is not None:
-            self._repository: AuditRepository | None = repository
-        elif db_path is not None:
-            self._repository = AuditRepository(db_path)
-        else:
-            self._repository = AuditRepository()
+        # Lazy repository: constructing a logger must not touch disk; the
+        # audit DB is created on the first mirrored write instead.
+        self._repository: AuditRepository | None = repository
+        self._db_path = Path(db_path) if db_path is not None else None
+        self._repository_failed = False
 
     def log(self, event: dict[str, Any]) -> None:
         payload = {
@@ -51,6 +50,14 @@ class EventLogger:
 
     def _mirror_to_db(self, payload: dict[str, Any]) -> None:
         repository = self._repository
+        if repository is None and not self._repository_failed:
+            try:
+                repository = self._repository = (
+                    AuditRepository(self._db_path) if self._db_path is not None else AuditRepository()
+                )
+            except Exception:
+                self._repository_failed = True
+                return
         if repository is None:
             return
         steps = payload.get("steps")
