@@ -1,12 +1,43 @@
 import json
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
+
+_TEST_HOME = None
+_OLD_HOME = None
+_DB_PATH_BLOCK = None
+
+
+def setUpModule():
+    """No writes outside a temp HOME in these tests."""
+    global _TEST_HOME, _OLD_HOME, _DB_PATH_BLOCK
+    _TEST_HOME = tempfile.TemporaryDirectory()
+    _OLD_HOME = os.environ.get("HOME")
+    os.environ["HOME"] = _TEST_HOME.name
+    _DB_PATH_BLOCK = patch(
+        "auto_system_agent.repository.DEFAULT_DB_PATH", Path(_TEST_HOME.name) / "audit.db"
+    )
+    _DB_PATH_BLOCK.start()
+
+
+def tearDownModule():
+    global _TEST_HOME, _OLD_HOME, _DB_PATH_BLOCK
+    if _DB_PATH_BLOCK is not None:
+        _DB_PATH_BLOCK.stop()
+    if _OLD_HOME is None:
+        os.environ.pop("HOME", None)
+    else:
+        os.environ["HOME"] = _OLD_HOME
+    if _TEST_HOME is not None:
+        _TEST_HOME.cleanup()
 
 from auto_system_agent.agent import AutoSystemAgent
 from auto_system_agent.event_logger import EventLogger
