@@ -49,6 +49,15 @@ CREATE TABLE IF NOT EXISTS metric (
     queue INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_metric_ts ON metric(ts);
+CREATE TABLE IF NOT EXISTS template (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    canonical_plan_json TEXT NOT NULL DEFAULT '[]',
+    success_rate REAL NOT NULL DEFAULT 100.0,
+    runs INTEGER NOT NULL DEFAULT 0,
+    created_ts REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_template_name ON template(name);
 """
 
 
@@ -213,6 +222,41 @@ class AuditRepository:
                 (float(ts), float(cpu), float(mem), float(disk), int(queue)),
             )
             return int(cursor.lastrowid)
+
+    def upsert_template(
+        self,
+        *,
+        name: str,
+        canonical_plan_json: str,
+        success_rate: float = 100.0,
+        runs: int = 0,
+        created_ts: float = 0.0,
+    ) -> int:
+        """Insert or replace one template row by name; returns its id."""
+        with self._connect() as connection:
+            connection.execute(
+                "INSERT INTO template (name, canonical_plan_json, success_rate, runs, created_ts)"
+                " VALUES (?, ?, ?, ?, ?)"
+                " ON CONFLICT(name) DO UPDATE SET"
+                " canonical_plan_json = excluded.canonical_plan_json,"
+                " success_rate = excluded.success_rate,"
+                " runs = excluded.runs",
+                (name, canonical_plan_json, float(success_rate), int(runs), float(created_ts)),
+            )
+            row = connection.execute("SELECT id FROM template WHERE name = ?", (name,)).fetchone()
+            return int(row["id"])
+
+    def get_template(self, name: str) -> dict | None:
+        """One template row by name, or None."""
+        with self._connect() as connection:
+            row = connection.execute("SELECT * FROM template WHERE name = ?", (name,)).fetchone()
+        return dict(row) if row is not None else None
+
+    def list_templates(self) -> list[dict]:
+        """All template rows ordered by name."""
+        with self._connect() as connection:
+            rows = connection.execute("SELECT * FROM template ORDER BY name").fetchall()
+        return [dict(row) for row in rows]
 
     def fetch_metrics(self, *, since: float | None = None, limit: int = 500) -> list[dict]:
         """Samples in time order, optionally newer than `since`."""
