@@ -49,9 +49,13 @@ class W1ScaffoldTests(unittest.TestCase):
                 executor.close()
 
     def test_traversal_rm_never_auto_runs(self):
-        # Traversal wipes land in CONFIRM (agent gate), root wipes in DENY.
-        self.assertEqual(assess_command("rm -rf ../")["verdict"], "CONFIRM")
-        self.assertGreaterEqual(assess_command("rm -rf ../")["score"], 55)
+        # Traversal wipes and system-path writes land in DENY.
+        denied_traversal = assess_command("rm -rf ../")
+        self.assertEqual(denied_traversal["verdict"], "DENY")
+        self.assertGreater(denied_traversal["score"], 80)
+        denied_system = assess_command("mkdir /root/x")
+        self.assertEqual(denied_system["verdict"], "DENY")
+        self.assertGreater(denied_system["score"], 80)
         denied = assess_command("rm -rf /")
         self.assertEqual(denied["verdict"], "DENY")
         self.assertGreater(denied["score"], 80)
