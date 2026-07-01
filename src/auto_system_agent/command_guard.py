@@ -525,6 +525,26 @@ _ALLOW_PROGS = {
 }
 
 
+#: System subtrees no command may create, write, or delete into (W1).
+_SENSITIVE_ROOTS = ("/root", "/etc", "/boot", "/sys", "/proc", "/dev")
+
+#: Programs whose side effects count as writes for sensitive-path denial.
+_WRITING_PROGS = {"mkdir", "touch", "cp", "mv", "ln", "install", "tee", "chmod", "chown"}
+
+
+def _clean_path(token: str) -> str:
+    return (token or "").strip().strip("'\"")
+
+
+def _under_sensitive_root(path: str) -> bool:
+    cleaned = _clean_path(path)
+    return any(cleaned == root or cleaned.startswith(root + "/") for root in _SENSITIVE_ROOTS)
+
+
+def _has_parent_traversal(path: str) -> bool:
+    return ".." in _clean_path(path).split("/")
+
+
 def _check_deny_list(node: ShellNode, leaves: list[CommandNode], raw_text: str) -> str | None:
     """Hard DENY patterns that bypass score thresholds (fork bomb, raw disk)."""
     flat = raw_text.replace(" ", "")
@@ -532,11 +552,22 @@ def _check_deny_list(node: ShellNode, leaves: list[CommandNode], raw_text: str) 
         return "deny-list: fork bomb pattern"
     if _has_pipe_to_shell(node):
         return "deny-list: pipe-to-shell 'curl|sh' pattern"
+    for _op, target in iter_redir_targets(node):
+        if _under_sensitive_root(target):
+            return f"deny-list: write to system path '{_clean_path(target)}'"
     for leaf in leaves:
         if not leaf.argv:
             continue
         prog, args = _effective_argv(leaf.argv)
         lowered = [a.lower() for a in args]
+        paths = [_clean_path(arg) for arg in args if arg and not arg.startswith("-")]
+        if any(_has_parent_traversal(path) for path in paths):
+            chmod_wipe = prog == "chmod" and ("777" in lowered or "7777" in lowered)
+            if prog in _DELETE_PROGS | _FORMAT_PROGS or chmod_wipe:
+                return f"deny-list: traversal '../' with destructive '{prog}'"
+        if any(_under_sensitive_root(path) for path in paths):
+            if prog in _WRITING_PROGS or prog in _DELETE_PROGS | _FORMAT_PROGS:
+                return f"deny-list: write to system path '{prog}'"
         if prog in _FORMAT_PROGS:
             if prog == "dd":
                 joined = " ".join(lowered)
