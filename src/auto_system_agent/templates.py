@@ -7,10 +7,8 @@ and no step carries a DENY verdict.
 
 import json
 import time
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
-
-DEFAULT_TEMPLATES_PATH = Path.home() / ".auto_system_agent" / "templates.json"
 
 _ALLOWED_ACTIONS = {"run_command", "help"}
 
@@ -64,67 +62,29 @@ def validate_plan(steps: list[dict]) -> tuple[bool, str]:
 
 @dataclass
 class TemplateStore:
-    """JSON-file template store with atomic saves."""
+    """SQLite-backed template store (audit database template table)."""
 
-    path: Path | str = DEFAULT_TEMPLATES_PATH
-    _templates: dict[str, Template] = field(default_factory=dict, repr=False)
-    _next_id: int = field(default=1, repr=False)
+    repository: object | None = None
+    db_path: Path | str | None = None
 
     def __post_init__(self) -> None:
-        self._load()
+        if self.repository is None:
+            from auto_system_agent.repository import AuditRepository
 
-    @property
-    def storage_path(self) -> Path:
-        return Path(self.path)
+            self.repository = (
+                AuditRepository(self.db_path) if self.db_path is not None else AuditRepository()
+            )
 
-    def _load(self) -> None:
-        try:
-            raw = self.storage_path.read_text(encoding="utf-8")
-        except OSError:
-            return
-        try:
-            data = json.loads(raw)
-        except ValueError:
-            return
-        if not isinstance(data, list):
-            return
-        for item in data:
-            if not isinstance(item, dict) or not str(item.get("name") or ""):
-                continue
-            try:
-                template = Template(
-                    id=int(item.get("id") or 0) or None,
-                    name=str(item["name"]),
-                    canonical_plan_json=json.dumps(item.get("steps", [])),
-                    success_rate=float(item.get("success_rate", 100.0)),
-                    runs=int(item.get("runs", 0)),
-                    created_ts=float(item.get("created_ts", 0.0)),
-                )
-            except (ValueError, TypeError):
-                continue
-            self._templates[template.name] = template
-            if template.id is not None:
-                self._next_id = max(self._next_id, template.id + 1)
-
-    def _persist(self) -> None:
-        payload = [
-            {
-                "id": template.id,
-                "name": template.name,
-                "steps": template.steps(),
-                "success_rate": template.success_rate,
-                "runs": template.runs,
-                "created_ts": template.created_ts,
-            }
-            for template in self._templates.values()
-        ]
-        try:
-            self.storage_path.parent.mkdir(parents=True, exist_ok=True)
-            tmp_path = self.storage_path.with_suffix(".tmp")
-            tmp_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-            tmp_path.replace(self.storage_path)
-        except OSError:
-            return
+    @staticmethod
+    def _row_to_template(row: dict) -> Template:
+        return Template(
+            id=row.get("id"),
+            name=str(row.get("name") or ""),
+            canonical_plan_json=str(row.get("canonical_plan_json") or "[]"),
+            success_rate=float(row.get("success_rate", 100.0)),
+            runs=int(row.get("runs", 0)),
+            created_ts=float(row.get("created_ts", 0.0)),
+        )
 
     def save(self, name: str, steps: list[dict]) -> Template:
         """Validate and store a plan; raises ValueError when invalid."""
@@ -137,26 +97,29 @@ class TemplateStore:
         canonical = json.dumps(
             [{"action": str(step["action"]), "target": str(step.get("target") or "")} for step in steps]
         )
-        existing = self._templates.get(clean_name)
-        template = Template(
-            id=existing.id if existing else self._next_id,
+        existing = self.get(clean_name)
+        template_id = self.repository.upsert_template(
+            name=clean_name,
+            canonical_plan_json=canonical,
+            success_rate=existing.success_rate if existing else 100.0,
+            runs=existing.runs if existing else 0,
+            created_ts=existing.created_ts if existing and existing.created_ts else time.time(),
+        )
+        return Template(
+            id=template_id,
             name=clean_name,
             canonical_plan_json=canonical,
             success_rate=existing.success_rate if existing else 100.0,
             runs=existing.runs if existing else 0,
             created_ts=existing.created_ts if existing else time.time(),
         )
-        if existing is None:
-            self._next_id += 1
-        self._templates[clean_name] = template
-        self._persist()
-        return template
 
     def get(self, name: str) -> Template | None:
-        return self._templates.get((name or "").strip())
+        row = self.repository.get_template((name or "").strip())
+        return self._row_to_template(row) if row is not None else None
 
     def list_names(self) -> list[str]:
-        return sorted(self._templates)
+        return [str(row["name"]) for row in self.repository.list_templates()]
 
     def replay(self, name: str, raw_input: str = "") -> list:
         """Rebuild validated PlannedTasks for a saved template."""
@@ -183,7 +146,14 @@ class TemplateStore:
             raise KeyError(f"unknown template: {name}")
         runs = template.runs + 1
         previous = template.success_rate * template.runs
+        rate = round((previous + (100.0 if success else 0.0)) / runs, 1)
+        self.repository.upsert_template(
+            name=template.name,
+            canonical_plan_json=template.canonical_plan_json,
+            success_rate=rate,
+            runs=runs,
+            created_ts=template.created_ts,
+        )
         template.runs = runs
-        template.success_rate = round((previous + (100.0 if success else 0.0)) / runs, 1)
-        self._persist()
+        template.success_rate = rate
         return template

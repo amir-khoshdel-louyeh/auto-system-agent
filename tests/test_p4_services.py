@@ -63,7 +63,7 @@ class TemplateTests(unittest.TestCase):
         from auto_system_agent.templates import TemplateStore, validate_plan
 
         with tempfile.TemporaryDirectory() as tmp:
-            store = TemplateStore(Path(tmp) / "templates.json")
+            store = TemplateStore(db_path=Path(tmp) / "audit.db")
             template = store.save(
                 "demo",
                 [
@@ -84,7 +84,7 @@ class TemplateTests(unittest.TestCase):
         import tempfile
 
         with tempfile.TemporaryDirectory() as tmp:
-            store = TemplateStore(Path(tmp) / "templates.json")
+            store = TemplateStore(db_path=Path(tmp) / "audit.db")
             for steps in (
                 [],
                 [{"action": "run_command", "target": "rm -rf /"}],
