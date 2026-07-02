@@ -40,6 +40,13 @@ class Evaluator:
         if result.success:
             return Evaluation(verdict="done", reason="Command reported success.")
 
+        # Policy blocks are final: retrying a DENY burns loop iterations.
+        if "blocked by safety policy" in message:
+            return Evaluation(
+                verdict="abort",
+                reason=f"Blocked by safety policy; will not retry: {result.message[:300]}",
+            )
+
         # User-cancelled waits must stop the loop, not retry.
         if "cancelled by user" in message:
             return Evaluation(verdict="abort", reason="Cancelled by user.")
