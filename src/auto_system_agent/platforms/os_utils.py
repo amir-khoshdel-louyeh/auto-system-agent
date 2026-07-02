@@ -27,9 +27,12 @@ class Provider:
     needs_sudo: bool = True
     fidelity: float = 1.0  # 1.0 native manager, lower for universal fallbacks
     fallback: bool = False  # universal fallbacks lose to present natives
+    remove_template: str = "sudo apt remove -y {package}"
 
 
-def _native(os_name: str, distros: set[str], binary: str, template: str) -> Provider:
+def _native(
+    os_name: str, distros: set[str], binary: str, template: str, remove_template: str
+) -> Provider:
     return Provider(
         name=binary,
         os_names=frozenset({os_name}),
@@ -38,6 +41,7 @@ def _native(os_name: str, distros: set[str], binary: str, template: str) -> Prov
         template=template,
         needs_sudo=True,
         fidelity=1.0,
+        remove_template=remove_template,
     )
 
 
@@ -48,26 +52,36 @@ CAPABILITIES: dict[str, list[Provider]] = {
             {"ubuntu", "debian", "linuxmint", "pop", "elementary"},
             "apt",
             "sudo apt install -y {package}",
+            "sudo apt remove -y {package}",
         ),
         _native(
             "linux",
             {"fedora", "rhel", "centos", "rocky", "almalinux"},
             "dnf",
             "sudo dnf install -y {package}",
+            "sudo dnf remove -y {package}",
         ),
         _native(
             "linux",
             {"arch", "manjaro", "endeavouros"},
             "pacman",
             "sudo pacman -S --noconfirm {package}",
+            "sudo pacman -Rns {package}",
         ),
         _native(
             "linux",
             {"opensuse-leap", "opensuse-tumbleweed", "sles"},
             "zypper",
             "sudo zypper install -y {package}",
+            "sudo zypper remove -y {package}",
         ),
-        _native("linux", {"alpine"}, "apk", "sudo apk add {package}"),
+        _native(
+            "linux",
+            {"alpine"},
+            "apk",
+            "sudo apk add {package}",
+            "sudo apk del {package}",
+        ),
         Provider(
             name="brew",
             os_names=frozenset({"macos"}),
@@ -76,6 +90,7 @@ CAPABILITIES: dict[str, list[Provider]] = {
             template="brew install --cask {package}",
             needs_sudo=False,
             fidelity=1.0,
+            remove_template="brew uninstall {package}",
         ),
         Provider(
             name="winget",
@@ -85,6 +100,7 @@ CAPABILITIES: dict[str, list[Provider]] = {
             template="winget install {package}",
             needs_sudo=False,
             fidelity=1.0,
+            remove_template="winget uninstall --id {package}",
         ),
         Provider(
             name="choco",
@@ -95,6 +111,7 @@ CAPABILITIES: dict[str, list[Provider]] = {
             needs_sudo=True,
             fidelity=0.6,
             fallback=True,
+            remove_template="choco uninstall -y {package}",
         ),
         Provider(
             name="snap",
@@ -105,6 +122,7 @@ CAPABILITIES: dict[str, list[Provider]] = {
             needs_sudo=True,
             fidelity=0.6,
             fallback=True,
+            remove_template="sudo snap remove {package}",
         ),
         Provider(
             name="flatpak",
@@ -115,6 +133,8 @@ CAPABILITIES: dict[str, list[Provider]] = {
             needs_sudo=False,
             fidelity=0.6,
             fallback=True,
+            # Canonical form drops --delete-data: data wipes are never implicit.
+            remove_template="flatpak uninstall -y {package}",
         ),
     ]
 }
@@ -276,6 +296,84 @@ def rewrite_install_command(
     if not package:
         return []
     return rewrite_install(package, os_name=os_name, distro_id=distro_id, available=available)
+
+
+#: Verbs that mark a command as a package removal (mirrors install).
+#: Compared against lowercased tokens, so pacman -Rns matches -rns.
+REMOVE_VERBS = ("remove", "uninstall", "erase", "purge", "del", "-rns", "-r", "-rs")
+
+
+def render_remove(provider: Provider, package: str) -> str:
+    """Render one provider remove template for a package name."""
+    return provider.remove_template.format(package=package)
+
+
+def rewrite_remove(
+    package: str,
+    *,
+    os_name: str,
+    distro_id: str = "unknown",
+    available: frozenset[str] | set[str] | None = None,
+) -> list[str]:
+    """Ordered fallback chain of removable shell commands, natives first."""
+    package = (package or "").strip()
+    if not package:
+        return []
+    chain = resolve("install_package", os_name=os_name, distro_id=distro_id, available=available)
+    return [
+        render_remove(provider, package)
+        for provider in chain
+        if _provider_present(provider, available)
+    ]
+
+
+def best_remove_command(
+    package: str,
+    *,
+    os_name: str,
+    distro_id: str = "unknown",
+    available: frozenset[str] | set[str] | None = None,
+) -> str | None:
+    """Head of the remove fallback chain, or None when nothing can remove."""
+    chain = rewrite_remove(package, os_name=os_name, distro_id=distro_id, available=available)
+    return chain[0] if chain else None
+
+
+def extract_uninstall_package(command_text: str) -> str | None:
+    """Pull the package name out of remove-like commands.
+
+    Handles `uninstall vlc`, `sudo dnf remove -y vlc`,
+    `sudo pacman -Rns vlc`, `flatpak uninstall --delete-data <ref>`,
+    `brew uninstall vlc`. Data-wipe flags are skipped, never kept.
+    Returns None when no remove verb with a package is found.
+    """
+    import shlex
+
+    try:
+        parts = shlex.split(command_text.strip())
+    except ValueError:
+        return None
+    if not parts:
+        return None
+    lowered = [part.lower() for part in parts]
+    verb_at: int | None = None
+    for index, token in enumerate(lowered):
+        if token in REMOVE_VERBS:
+            verb_at = index
+            break
+    if verb_at is None:
+        return None
+    skip_flags = {
+        "-y", "--yes", "-e", "--exact", "--noconfirm", "--id",
+        "--silent", "-q", "--quiet", "--delete-data", "--all",
+    }
+    for token in parts[verb_at + 1 :]:
+        if not token or token in skip_flags or token.startswith("-"):
+            continue
+        if token.lower() == "flathub":
+            continue
+        return token
+    return None
 
 
 def detect_os() -> str:
