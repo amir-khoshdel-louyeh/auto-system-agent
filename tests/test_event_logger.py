@@ -23,7 +23,7 @@ def setUpModule():
     _OLD_HOME = os.environ.get("HOME")
     os.environ["HOME"] = _TEST_HOME.name
     _DB_PATH_BLOCK = patch(
-        "auto_system_agent.repository.DEFAULT_DB_PATH", Path(_TEST_HOME.name) / "audit.db"
+        "auto_system_agent.storage.repository.DEFAULT_DB_PATH", Path(_TEST_HOME.name) / "audit.db"
     )
     _DB_PATH_BLOCK.start()
 
@@ -39,8 +39,8 @@ def tearDownModule():
     if _TEST_HOME is not None:
         _TEST_HOME.cleanup()
 
-from auto_system_agent.agent import AutoSystemAgent
-from auto_system_agent.event_logger import EventLogger
+from auto_system_agent.orchestration.agent import AutoSystemAgent
+from auto_system_agent.storage.event_logger import EventLogger
 from auto_system_agent.models import PlannedTask
 
 

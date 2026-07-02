@@ -26,10 +26,10 @@ def setUpModule():
     _TEST_HOME = tempfile.TemporaryDirectory()
     _OLD_HOME = os.environ.get("HOME")
     os.environ["HOME"] = _TEST_HOME.name
-    _LLM_BLOCK = patch("auto_system_agent.llm_ollama_client.ollama_chat", return_value=None)
+    _LLM_BLOCK = patch("auto_system_agent.services.llm_ollama_client.ollama_chat", return_value=None)
     _LLM_BLOCK.start()
     _DB_PATH_BLOCK = patch(
-        "auto_system_agent.repository.DEFAULT_DB_PATH", Path(_TEST_HOME.name) / "audit.db"
+        "auto_system_agent.storage.repository.DEFAULT_DB_PATH", Path(_TEST_HOME.name) / "audit.db"
     )
     _DB_PATH_BLOCK.start()
 
@@ -47,8 +47,8 @@ def tearDownModule():
     if _TEST_HOME is not None:
         _TEST_HOME.cleanup()
 
-from auto_system_agent.agent import AutoSystemAgent
-from auto_system_agent.gui import AgentChatGUI
+from auto_system_agent.orchestration.agent import AutoSystemAgent
+from auto_system_agent.ui.gui import AgentChatGUI
 from auto_system_agent.models import ExecutionResult, PlannedTask, StepStatus
 
 

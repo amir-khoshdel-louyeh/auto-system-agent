@@ -9,7 +9,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from auto_system_agent.planner import Planner
+from auto_system_agent.orchestration.planner import Planner
 
 
 def _mock_ollama_response(tasks):
@@ -26,7 +26,7 @@ class PlannerVariedPhrasingTests(unittest.TestCase):
     def test_ollama_install_is_parsed(self):
         planner = Planner(config={"url": "http://localhost:11434/v1/chat/completions", "model": "llama3.1", "timeout": 5})
         mock_resp = _mock_ollama_response([{"action": "run_command", "target": "sudo apt install -y vlc", "options": {}}])
-        with patch("auto_system_agent.planner.request.urlopen", return_value=mock_resp):
+        with patch("auto_system_agent.orchestration.planner.request.urlopen", return_value=mock_resp):
             task = planner.plan("install vlc")
             self.assertEqual(task.action, "run_command")
             self.assertEqual(task.target, "sudo apt install -y vlc")
@@ -37,7 +37,7 @@ class PlannerVariedPhrasingTests(unittest.TestCase):
             {"action": "run_command", "target": "mkdir -p ~/Downloads/demo", "options": {}},
             {"action": "run_command", "target": "ls -la ~/Downloads/demo", "options": {}},
         ])
-        with patch("auto_system_agent.planner.request.urlopen", return_value=mock_resp):
+        with patch("auto_system_agent.orchestration.planner.request.urlopen", return_value=mock_resp):
             tasks = planner.plan_tasks("create folder demo then list files in demo")
             self.assertEqual(len(tasks), 2)
             self.assertEqual(tasks[0].action, "run_command")
@@ -45,21 +45,21 @@ class PlannerVariedPhrasingTests(unittest.TestCase):
 
     def test_ollama_unavailable_returns_unknown(self):
         planner = Planner(config={"url": "http://localhost:11434/v1/chat/completions", "model": "llama3.1", "timeout": 1})
-        with patch("auto_system_agent.planner.request.urlopen", side_effect=Exception("no ollama")):
+        with patch("auto_system_agent.orchestration.planner.request.urlopen", side_effect=Exception("no ollama")):
             task = planner.plan("install vlc")
             self.assertEqual(task.action, "unknown")
 
     def test_help_via_ollama(self):
         planner = Planner(config={"url": "http://localhost:11434/v1/chat/completions", "model": "llama3.1", "timeout": 5})
         mock_resp = _mock_ollama_response([{"action": "help", "target": "", "options": {}}])
-        with patch("auto_system_agent.planner.request.urlopen", return_value=mock_resp):
+        with patch("auto_system_agent.orchestration.planner.request.urlopen", return_value=mock_resp):
             task = planner.plan("help")
             self.assertEqual(task.action, "help")
 
     def test_ollama_unknown_for_chat(self):
         planner = Planner(config={"url": "http://localhost:11434/v1/chat/completions", "model": "llama3.1", "timeout": 5})
         mock_resp = _mock_ollama_response([{"action": "unknown", "target": "", "options": {}}])
-        with patch("auto_system_agent.planner.request.urlopen", return_value=mock_resp):
+        with patch("auto_system_agent.orchestration.planner.request.urlopen", return_value=mock_resp):
             task = planner.plan("what is the weather?")
             self.assertEqual(task.action, "unknown")
 

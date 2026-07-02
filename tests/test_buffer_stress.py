@@ -17,7 +17,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from auto_system_agent.real_terminal import (
+from auto_system_agent.ui.real_terminal import (
     DISPLAY_QUEUE_SIZE,
     EventCoalescer,
 )

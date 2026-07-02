@@ -7,7 +7,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from auto_system_agent.real_terminal import RealTerminalFrame
+from auto_system_agent.ui.real_terminal import RealTerminalFrame
 
 
 def _frame_without_display():
@@ -50,7 +50,7 @@ class InputAlertTests(unittest.TestCase):
         import time
 
         frame, calls = _frame_without_display()
-        from auto_system_agent import real_terminal
+        from auto_system_agent.ui import real_terminal
 
         frame._maybe_alert("[sudo] password for amir: ")
         frame._last_bell_at = time.monotonic() - real_terminal._BELL_DEBOUNCE_SECONDS - 1

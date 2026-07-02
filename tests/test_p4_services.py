@@ -9,7 +9,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from auto_system_agent.metrics import (
+from auto_system_agent.storage.metrics import (
     Metric,
     MetricSampler,
     avg_cpu,
@@ -60,7 +60,7 @@ class TemplateTests(unittest.TestCase):
     def test_save_replay_and_rates(self):
         import tempfile
 
-        from auto_system_agent.templates import TemplateStore, validate_plan
+        from auto_system_agent.storage.templates import TemplateStore, validate_plan
 
         with tempfile.TemporaryDirectory() as tmp:
             store = TemplateStore(db_path=Path(tmp) / "audit.db")
@@ -79,7 +79,7 @@ class TemplateTests(unittest.TestCase):
             self.assertEqual(store.list_names(), ["demo"])
 
     def test_invalid_plans_rejected(self):
-        from auto_system_agent.templates import TemplateStore
+        from auto_system_agent.storage.templates import TemplateStore
 
         import tempfile
 
@@ -104,14 +104,14 @@ class TemplateTests(unittest.TestCase):
 
 class NotificationTests(unittest.TestCase):
     def test_notify_never_raises(self):
-        from auto_system_agent.notifications import ResultCache, notify, result_key
+        from auto_system_agent.storage.notifications import ResultCache, notify, result_key
 
         self.assertFalse(notify("t", ""))
         self.assertIsInstance(notify("hello", "world", os_name="linux"), bool)
         self.assertIsInstance(notify("hello", "world", os_name="plan9"), bool)
 
     def test_result_cache_bounds(self):
-        from auto_system_agent.notifications import ResultCache, result_key
+        from auto_system_agent.storage.notifications import ResultCache, result_key
 
         cache = ResultCache(capacity=2)
         cache.put(result_key("ls", 0), "a")
@@ -127,7 +127,7 @@ class NotificationTests(unittest.TestCase):
     def test_backend_selection_with_mocked_platforms(self):
         from unittest.mock import patch
 
-        from auto_system_agent import notifications
+        from auto_system_agent.storage import notifications
 
         class Done:
             returncode = 0
@@ -157,7 +157,7 @@ class NotificationTests(unittest.TestCase):
 
 class EvaluatorBranchTests(unittest.TestCase):
     def _evaluate(self, message, success=False, scratchpad=None):
-        from auto_system_agent.evaluator import Evaluator
+        from auto_system_agent.orchestration.evaluator import Evaluator
         from auto_system_agent.models import ExecutionResult, PlannedTask
 
         return Evaluator().evaluate(
@@ -175,7 +175,7 @@ class EvaluatorBranchTests(unittest.TestCase):
         self.assertEqual(self._evaluate("Cancelled by user.").verdict, "abort")
 
     def test_llm_verdict_parsing(self):
-        from auto_system_agent.evaluator import Evaluator
+        from auto_system_agent.orchestration.evaluator import Evaluator
 
         parsed = Evaluator._parse_llm_verdict('{"verdict": "retry", "reason": "typo", "fixed_command": "ls"}')
         self.assertIsNotNone(parsed)
@@ -185,7 +185,7 @@ class EvaluatorBranchTests(unittest.TestCase):
         self.assertIsNone(Evaluator._parse_llm_verdict(""))
 
     def test_empty_command_never_repeats(self):
-        from auto_system_agent.evaluator import Evaluator
+        from auto_system_agent.orchestration.evaluator import Evaluator
 
         self.assertFalse(Evaluator()._repeated_failures("", []))
 

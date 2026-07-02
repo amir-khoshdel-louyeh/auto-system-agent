@@ -13,8 +13,8 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from auto_system_agent.models import ExecutionResult, PlannedTask
-from auto_system_agent.safe_executor import SafeExecutor
-from auto_system_agent.terminal import TerminalSession
+from auto_system_agent.orchestration.safe_executor import SafeExecutor
+from auto_system_agent.orchestration.terminal import TerminalSession
 from auto_system_agent.tools.file_tool import compress_path, create_folder, delete_path
 
 

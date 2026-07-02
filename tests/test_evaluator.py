@@ -7,7 +7,7 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from auto_system_agent.evaluator import Evaluator
+from auto_system_agent.orchestration.evaluator import Evaluator
 from auto_system_agent.models import ExecutionResult, PlannedTask, ReActStep
 
 

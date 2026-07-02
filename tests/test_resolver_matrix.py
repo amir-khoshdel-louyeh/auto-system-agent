@@ -10,9 +10,9 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from auto_system_agent import os_utils as resolver
+from auto_system_agent.platforms import os_utils as resolver
 from auto_system_agent.models import PlannedTask
-from auto_system_agent.tool_selector import ToolSelector
+from auto_system_agent.platforms.tool_selector import ToolSelector
 
 
 class StrictMapper:

@@ -11,8 +11,8 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from auto_system_agent.event_logger import EventLogger
-from auto_system_agent.repository import AuditRepository
+from auto_system_agent.storage.event_logger import EventLogger
+from auto_system_agent.storage.repository import AuditRepository
 
 
 class RepositoryCrudTests(unittest.TestCase):

@@ -24,7 +24,7 @@ def setUpModule():
     _OLD_HOME = os.environ.get("HOME")
     os.environ["HOME"] = _TEST_HOME.name
     _DB_PATH_BLOCK = patch(
-        "auto_system_agent.repository.DEFAULT_DB_PATH", Path(_TEST_HOME.name) / "audit.db"
+        "auto_system_agent.storage.repository.DEFAULT_DB_PATH", Path(_TEST_HOME.name) / "audit.db"
     )
     _DB_PATH_BLOCK.start()
 
@@ -40,7 +40,7 @@ def tearDownModule():
     if _TEST_HOME is not None:
         _TEST_HOME.cleanup()
 
-from auto_system_agent.agent import (
+from auto_system_agent.orchestration.agent import (
     CHAIN_GENESIS,
     RUN_TRANSITIONS,
     InvalidTransition,
@@ -115,7 +115,7 @@ class TransitionTableTests(unittest.TestCase):
         self.assertTrue(fsm.can("PLANNED"))
 
     def test_verdict_hook_mapping(self):
-        from auto_system_agent.agent import AutoSystemAgent, VERDICT_TRANSITIONS
+        from auto_system_agent.orchestration.agent import AutoSystemAgent, VERDICT_TRANSITIONS
 
         self.assertEqual(
             VERDICT_TRANSITIONS,
@@ -149,7 +149,7 @@ class ChainHashTests(unittest.TestCase):
 
 class StepTimeoutTests(unittest.TestCase):
     def test_timeout_selection(self):
-        from auto_system_agent.safe_executor import step_timeout
+        from auto_system_agent.orchestration.safe_executor import step_timeout
 
         cases = [
             ("ls -la /tmp", 300),
@@ -167,7 +167,7 @@ class StepTimeoutTests(unittest.TestCase):
 
 class CompensationMapTests(unittest.TestCase):
     def test_compensation_commands(self):
-        from auto_system_agent.safe_executor import compensation_for
+        from auto_system_agent.orchestration.safe_executor import compensation_for
 
         cases = [
             ("mkdir -p demo", "rmdir demo"),
@@ -192,7 +192,7 @@ class CompensateExecutorTests(unittest.TestCase):
         import tempfile
 
         from auto_system_agent.models import PlannedTask
-        from auto_system_agent.safe_executor import SafeExecutor
+        from auto_system_agent.orchestration.safe_executor import SafeExecutor
 
         with tempfile.TemporaryDirectory() as tmp:
             executor = SafeExecutor()
@@ -213,8 +213,8 @@ class CompensateExecutorTests(unittest.TestCase):
         from unittest.mock import patch
 
         from auto_system_agent.models import ExecutionResult, PlannedTask
-        from auto_system_agent.safe_executor import SafeExecutor
-        from auto_system_agent.terminal import TerminalSession
+        from auto_system_agent.orchestration.safe_executor import SafeExecutor
+        from auto_system_agent.orchestration.terminal import TerminalSession
 
         executor = SafeExecutor()
         try:
@@ -238,7 +238,7 @@ class CompensateExecutorTests(unittest.TestCase):
 
 class AbortRunTests(unittest.TestCase):
     def _agent(self, plans, verdicts, executor, log_path):
-        from auto_system_agent.agent import AutoSystemAgent
+        from auto_system_agent.orchestration.agent import AutoSystemAgent
         from auto_system_agent.models import Evaluation
 
         class ListPlanner:
@@ -273,7 +273,7 @@ class AbortRunTests(unittest.TestCase):
             def resolve(self, *args):
                 return None
 
-        from auto_system_agent.event_logger import EventLogger
+        from auto_system_agent.storage.event_logger import EventLogger
 
         return AutoSystemAgent(
             planner=ListPlanner(),
@@ -291,8 +291,8 @@ class AbortRunTests(unittest.TestCase):
         from unittest.mock import patch
 
         from auto_system_agent.models import ExecutionResult
-        from auto_system_agent.safe_executor import SafeExecutor
-        from auto_system_agent.terminal import TerminalSession
+        from auto_system_agent.orchestration.safe_executor import SafeExecutor
+        from auto_system_agent.orchestration.terminal import TerminalSession
 
         with tempfile.TemporaryDirectory() as tmp:
             executor = SafeExecutor()
@@ -330,7 +330,7 @@ class AbortRunTests(unittest.TestCase):
     def test_failed_exit_compensates_prior_work(self):
         import tempfile
 
-        from auto_system_agent.safe_executor import SafeExecutor
+        from auto_system_agent.orchestration.safe_executor import SafeExecutor
 
         with tempfile.TemporaryDirectory() as tmp:
             executor = SafeExecutor()
@@ -350,7 +350,7 @@ class AbortRunTests(unittest.TestCase):
     def test_missing_binary_blocks_without_compensation(self):
         import tempfile
 
-        from auto_system_agent.safe_executor import SafeExecutor
+        from auto_system_agent.orchestration.safe_executor import SafeExecutor
 
         with tempfile.TemporaryDirectory() as tmp:
             executor = SafeExecutor()
@@ -369,7 +369,7 @@ class AbortRunTests(unittest.TestCase):
                 executor.close()
 
     def test_retry_limit_escalates_to_replan(self):
-        from auto_system_agent.evaluator import Evaluator
+        from auto_system_agent.orchestration.evaluator import Evaluator
         from auto_system_agent.models import ExecutionResult, PlannedTask, ReActStep
 
         evaluator = Evaluator()
@@ -388,7 +388,7 @@ class AbortRunTests(unittest.TestCase):
         import time
 
         from auto_system_agent.models import ExecutionResult, PlannedTask
-        from auto_system_agent.safe_executor import SafeExecutor
+        from auto_system_agent.orchestration.safe_executor import SafeExecutor
 
         executor = SafeExecutor(max_workers=1, queue_size=2)
         try:

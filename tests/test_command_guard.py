@@ -7,9 +7,9 @@ SRC_DIR = PROJECT_ROOT / "src"
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
-from auto_system_agent.command_guard import assess_command, check_command, find_desktop_matches
+from auto_system_agent.safety.command_guard import assess_command, check_command, find_desktop_matches
 from auto_system_agent.models import PlannedTask
-from auto_system_agent.safe_executor import SafeExecutor
+from auto_system_agent.orchestration.safe_executor import SafeExecutor
 
 
 def _run(cmd: str) -> str | None:
@@ -69,7 +69,7 @@ class CommandGuardTests(unittest.TestCase):
     def test_executor_blocks_missing_binary_without_terminal(self):
         from unittest.mock import patch
 
-        from auto_system_agent.terminal import TerminalSession
+        from auto_system_agent.orchestration.terminal import TerminalSession
 
         executor = SafeExecutor()
         with patch.object(TerminalSession, "run") as mocked:
@@ -195,7 +195,7 @@ class ParsingAndFeatureTests(unittest.TestCase):
     """P1.4: AST shape, syntax errors, expansion/glob, canonical, PATH."""
 
     def test_chain_pipe_redir_subshell_shapes(self):
-        from auto_system_agent.command_guard import (
+        from auto_system_agent.safety.command_guard import (
             ChainNode,
             CommandNode,
             PipeNode,
@@ -221,7 +221,7 @@ class ParsingAndFeatureTests(unittest.TestCase):
         self.assertEqual(node.argv, ["ls", "/tmp"])
 
     def test_substitution_stays_one_token(self):
-        from auto_system_agent.command_guard import parse_command, tokenize_shell
+        from auto_system_agent.safety.command_guard import parse_command, tokenize_shell
 
         self.assertIn("$(whoami)", tokenize_shell("echo $(whoami)"))
         node = parse_command("echo $(whoami)")
@@ -263,7 +263,7 @@ class ParsingAndFeatureTests(unittest.TestCase):
     ]
 
     def test_expansion_detection(self):
-        from auto_system_agent.command_guard import detect_expansions
+        from auto_system_agent.safety.command_guard import detect_expansions
 
         for command, expected in self.EXPANSION_CASES:
             with self.subTest(command=command):
@@ -286,21 +286,21 @@ class ParsingAndFeatureTests(unittest.TestCase):
     ]
 
     def test_glob_detection(self):
-        from auto_system_agent.command_guard import detect_globs
+        from auto_system_agent.safety.command_guard import detect_globs
 
         for command, expected in self.GLOB_CASES:
             with self.subTest(command=command):
                 self.assertEqual(bool(detect_globs(command)), expected, command)
 
     def test_canonical_round_trip(self):
-        from auto_system_agent.command_guard import canonical_command, parse_command
+        from auto_system_agent.safety.command_guard import canonical_command, parse_command
 
         for command in ("ls -la /tmp", "cd /tmp && ls", "ls | grep foo", "echo hi > out.txt"):
             with self.subTest(command=command):
                 self.assertEqual(canonical_command(parse_command(command)), command)
 
     def test_path_check_unwraps_sudo(self):
-        from auto_system_agent.command_guard import _check_path, iter_command_nodes, parse_command
+        from auto_system_agent.safety.command_guard import _check_path, iter_command_nodes, parse_command
 
         missing = _check_path(iter_command_nodes(parse_command("definitely-not-a-real-binary-xyz")))
         self.assertEqual(missing, "definitely-not-a-real-binary-xyz")
