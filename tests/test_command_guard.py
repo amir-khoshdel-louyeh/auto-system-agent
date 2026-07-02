@@ -175,6 +175,39 @@ class RiskVerdictTests(unittest.TestCase):
                 self.assertGreaterEqual(result["score"], 0, command)
                 self.assertTrue(result["canonical_form"], command)
 
+    def test_uninstall_known_state_matrix(self):
+        from unittest.mock import patch
+
+        cases = [
+            # (installed lookup, command, expected verdict fragment)
+            (True, "sudo dnf remove -y vlc", "ALLOW"),
+            (False, "sudo dnf remove -y vlc", "DENY"),
+            (False, "flatpak uninstall --delete-data com.spotify.Client", "DENY"),
+            (None, "sudo dnf remove -y definitely-not-a-thing-xyz", "DENY"),
+            (None, "sudo dnf remove -y vlc", "ALLOW"),
+        ]
+        for installed, command, expected in cases:
+            with self.subTest(command=command, installed=installed):
+                with patch(
+                    "auto_system_agent.safety.command_guard.is_package_installed",
+                    return_value=installed,
+                ):
+                    result = assess_command(command)
+                    self.assertEqual(result["verdict"], expected, result)
+                    if expected == "DENY":
+                        self.assertTrue(
+                            any("unknown application" in reason for reason in result["reasons"]),
+                            result["reasons"],
+                        )
+
+    def test_uninstall_skips_non_managers(self):
+        for command in ("zip -r demo.zip demo", "rm -r ./demo", "ls -r /tmp"):
+            with self.subTest(command=command):
+                result = assess_command(command)
+                self.assertFalse(
+                    any("unknown application" in reason for reason in result["reasons"]), command
+                )
+
     def test_fork_bomb_is_deny(self):
         result = assess_command(":(){ :|:& };:")
         self.assertEqual(result["verdict"], "DENY")

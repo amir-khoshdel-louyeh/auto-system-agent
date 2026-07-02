@@ -39,6 +39,12 @@ class EvaluatorTests(unittest.TestCase):
         ev = Evaluator().evaluate("x", _task("sleep 60"), "run_command", result)
         self.assertEqual(ev.verdict, "abort")
 
+    def test_policy_block_aborts_without_retry(self):
+        result = ExecutionResult(False, "Blocked by safety policy (85/100): deny-list.")
+        ev = Evaluator().evaluate("x", _task("rm -rf /"), "run_command", result)
+        self.assertEqual(ev.verdict, "abort")
+        self.assertIn("will not retry", ev.reason)
+
     def test_generic_failure_retries(self):
         result = ExecutionResult(False, "something broke")
         ev = Evaluator().evaluate("x", _task("false"), "run_command", result)

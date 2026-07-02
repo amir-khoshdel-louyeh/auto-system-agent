@@ -58,6 +58,38 @@ class ResolverMatrixTests(unittest.TestCase):
                 )
                 self.assertEqual(best, expected)
 
+    REMOVE_MATRIX = [
+        # (os, distro, available, package, expected head command)
+        ("linux", "fedora", {"dnf"}, "vlc", "sudo dnf remove -y vlc"),
+        ("linux", "ubuntu", {"apt"}, "vlc", "sudo apt remove -y vlc"),
+        ("linux", "arch", {"pacman"}, "vlc", "sudo pacman -Rns vlc"),
+        ("linux", "opensuse-tumbleweed", {"zypper"}, "vlc", "sudo zypper remove -y vlc"),
+        ("macos", "macos", {"brew"}, "vlc", "brew uninstall vlc"),
+        ("windows", "windows", {"winget"}, "vlc", "winget uninstall --id vlc"),
+        ("linux", "fedora", {"flatpak"}, "vlc", "flatpak uninstall -y vlc"),
+        ("linux", "fedora", set(), "vlc", None),
+    ]
+
+    def test_remove_matrix_heads(self):
+        for os_name, distro, available, package, expected in self.REMOVE_MATRIX:
+            with self.subTest(os=os_name, distro=distro, available=sorted(available)):
+                best = resolver.best_remove_command(
+                    package, os_name=os_name, distro_id=distro, available=frozenset(available)
+                )
+                self.assertEqual(best, expected)
+
+    def test_uninstall_extraction_skips_wipe_flags(self):
+        cases = [
+            ("flatpak uninstall --delete-data com.spotify.Client", "com.spotify.Client"),
+            ("sudo pacman -Rns vlc", "vlc"),
+            ("sudo dnf remove -y vlc", "vlc"),
+            ("uninstall vlc", "vlc"),
+            ("ls -la /tmp", None),
+        ]
+        for command, expected in cases:
+            with self.subTest(command=command):
+                self.assertEqual(resolver.extract_uninstall_package(command), expected)
+
     def test_rewrite_chain_orders_native_before_fallback(self):
         chain = resolver.rewrite_install(
             "vlc", os_name="linux", distro_id="fedora", available=frozenset({"dnf", "flatpak", "snap"})
@@ -127,6 +159,26 @@ class SelectorDeterminismTests(unittest.TestCase):
         )
         self.assertEqual(tool, "run_command")
         self.assertEqual(task.target, "sudo apt install -y vlc")
+        self.assertEqual(mapper.calls, [])
+
+    def test_uninstall_rewrites_to_native_remove(self):
+        tool, task, mapper = self._select(
+            "flatpak uninstall --delete-data org.videolan.VLC",
+            {"os_name": "linux", "distro_id": "fedora"},
+            {"dnf", "flatpak"},
+        )
+        self.assertEqual(tool, "run_command")
+        self.assertEqual(task.target, "sudo dnf remove -y vlc")
+        self.assertEqual(mapper.calls, [])
+
+    def test_unknown_ref_left_for_guard(self):
+        tool, task, mapper = self._select(
+            "flatpak uninstall --delete-data com.spotify.Client",
+            {"os_name": "linux", "distro_id": "fedora"},
+            {"dnf", "flatpak"},
+        )
+        self.assertEqual(tool, "run_command")
+        self.assertEqual(task.target, "flatpak uninstall --delete-data com.spotify.Client")
         self.assertEqual(mapper.calls, [])
 
     def test_non_install_commands_untouched(self):
