@@ -33,6 +33,7 @@ class ToolSelector:
         if task.action in self.SUPPORTED_ACTIONS:
             if task.action == "run_command":
                 self._normalize_install_command(task)
+                self._normalize_uninstall_command(task)
             return task.action
 
         # Otherwise ask OLLAMA to map the raw intent to a tool.
@@ -65,6 +66,43 @@ class ToolSelector:
         try:
             best = _resolver.best_install_command(
                 library_package or package,
+                os_name=snapshot.os_name,
+                distro_id=snapshot.distro_id,
+                available=snapshot.available,
+            )
+        except Exception:
+            return False
+        if not best or best == text:
+            return False
+        task.target = best
+        return True
+
+    def _normalize_uninstall_command(self, task: PlannedTask) -> bool:
+        """Rewrite uninstall targets to the local provider chain head.
+
+        Only library-known apps are rewritten (unknown refs stay untouched
+        for the guard to deny); data-wipe flags never survive normalization.
+        Returns True when the task target was rewritten.
+        """
+        text = (task.target or task.raw_input or "").strip()
+        if not text:
+            return False
+        package = _resolver.extract_uninstall_package(text)
+        if not package:
+            return False
+        try:
+            snapshot = _resolver.snapshot_system(system_config=self._system_config)
+        except Exception:
+            return False
+        try:
+            library_package = install_tool.resolve_os_package_name(text, snapshot.os_name)
+        except Exception:
+            library_package = None
+        if not library_package:
+            return False
+        try:
+            best = _resolver.best_remove_command(
+                library_package,
                 os_name=snapshot.os_name,
                 distro_id=snapshot.distro_id,
                 available=snapshot.available,
