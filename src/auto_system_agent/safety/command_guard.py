@@ -12,9 +12,11 @@ enforce verdicts without a direct `bash -lc` bypass.
 from dataclasses import dataclass, field
 import shlex
 import shutil
+import subprocess
+import time
 from pathlib import Path
 
-from auto_system_agent.platforms.os_utils import detect_os
+from auto_system_agent.platforms.os_utils import REMOVE_VERBS, detect_os
 
 
 # ---------------------------------------------------------------------------
@@ -568,6 +570,10 @@ def _check_deny_list(node: ShellNode, leaves: list[CommandNode], raw_text: str) 
         if any(_under_sensitive_root(path) for path in paths):
             if prog in _WRITING_PROGS or prog in _DELETE_PROGS | _FORMAT_PROGS:
                 return f"deny-list: write to system path '{prog}'"
+        if prog in _REMOVE_MANAGERS and any(verb in lowered for verb in REMOVE_VERBS):
+            uninstall_reason = _check_uninstall_known(prog, args)
+            if uninstall_reason:
+                return f"deny-list: {uninstall_reason}"
         if prog in _FORMAT_PROGS:
             if prog == "dd":
                 joined = " ".join(lowered)
@@ -596,6 +602,125 @@ def _check_deny_list(node: ShellNode, leaves: list[CommandNode], raw_text: str) 
 def _prog_name(argv0: str) -> str:
     """Basename of the executable, lowercased (`/usr/bin/sudo` -> `sudo`)."""
     return Path(argv0).name.lower() if argv0 else ""
+
+
+#: Installed-state cache for uninstall checks: (manager, pkg) -> (ts, known).
+_INSTALLED_CACHE: dict[tuple[str, str], tuple[float, bool | None]] = {}
+_INSTALLED_CACHE_TTL = 60.0
+
+#: Programs whose remove verbs trigger the installed-state check.
+#: Short flags (-r) only count for pacman; rm/zip/ls never enter this path.
+_REMOVE_MANAGERS = {
+    "apt", "dnf", "pacman", "zypper", "apk", "brew", "winget",
+    "snap", "choco", "flatpak", "uninstall",
+}
+
+
+def _installed_query_argv(prog: str, package: str) -> list[list[str]] | None:
+    """Manager-native installed queries (tried in order), or None."""
+    if prog == "flatpak":
+        return [["flatpak", "info", package]]
+    if prog in ("dnf", "zypper"):
+        return [["rpm", "-q", package]]
+    if prog == "apt":
+        return [["dpkg-query", "-W", "-f=${Status}", package]]
+    if prog == "pacman":
+        return [["pacman", "-Q", package]]
+    if prog == "apk":
+        return [["apk", "info", "-e", package]]
+    if prog == "snap":
+        return [["snap", "list", package]]
+    if prog == "brew":
+        return [["brew", "list", package], ["brew", "list", "--cask", package]]
+    return None
+
+
+def is_package_installed(prog: str, package: str) -> bool | None:
+    """True/False whether a manager owns a package; None when unverifiable."""
+    key = (prog, package)
+    now = time.monotonic()
+    hit = _INSTALLED_CACHE.get(key)
+    if hit is not None and now - hit[0] < _INSTALLED_CACHE_TTL:
+        return hit[1]
+    result: bool | None = None
+    queries = _installed_query_argv(prog, package)
+    if queries is not None:
+        for argv in queries:
+            if shutil.which(argv[0]) is None:
+                continue
+            try:
+                completed = subprocess.run(argv, capture_output=True, text=True, timeout=10)
+            except (OSError, subprocess.SubprocessError):
+                continue
+            if prog == "apt":
+                result = "install ok installed" in (completed.stdout or "")
+            else:
+                result = completed.returncode == 0
+            if result:
+                break
+    if len(_INSTALLED_CACHE) > 512:
+        _INSTALLED_CACHE.clear()
+    _INSTALLED_CACHE[key] = (now, result)
+    return result
+
+
+def _leaf_remove_package(argv: list[str]) -> str | None:
+    """Package token after the remove verb in one effective argv, else None."""
+    lowered = [token.lower() for token in argv]
+    verb_at: int | None = None
+    for index, token in enumerate(lowered):
+        if token in REMOVE_VERBS:
+            verb_at = index
+            break
+    if verb_at is None:
+        return None
+    skip = {
+        "-y", "--yes", "-e", "--exact", "--noconfirm", "--id",
+        "--silent", "-q", "--quiet", "--delete-data", "--all",
+    }
+    for token in argv[verb_at + 1 :]:
+        if not token or token in skip or token.startswith("-"):
+            continue
+        if token.lower() == "flathub":
+            continue
+        return token
+    return None
+
+
+def _check_uninstall_known(prog: str, args: list[str]) -> str | None:
+    """Deny uninstalls of apps that are neither installed nor known."""
+    package = _leaf_remove_package([prog] + list(args))
+    if not package:
+        return None
+    try:
+        installed = is_package_installed(prog, package)
+    except Exception:
+        installed = None
+    if installed:
+        return None
+    if installed is None:
+        try:
+            from auto_system_agent.tools import install_tool
+
+            library = install_tool._load_app_library()
+            known = any(
+                package == value
+                for entry in library.values()
+                if isinstance(entry, dict)
+                for value in entry.values()
+            )
+        except Exception:
+            known = False
+        try:
+            known = known or shutil.which(package) is not None
+        except Exception:
+            pass
+        if known:
+            return None
+    return (
+        f"unknown application '{package}': no {prog} install record. "
+        "List installed apps first (e.g. flatpak list, rpm -qa, dpkg -l)."
+    )
 
 
 def _score_privilege(leaves: list[CommandNode]) -> tuple[int, list[str]]:
