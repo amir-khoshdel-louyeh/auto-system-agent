@@ -6,11 +6,11 @@ import threading
 import time
 from typing import Callable
 
-from auto_system_agent.agent import AutoSystemAgent
+from auto_system_agent.orchestration.agent import AutoSystemAgent
 from auto_system_agent.models import ExecutionResult, StepStatus
-from auto_system_agent.real_terminal import RealTerminalFrame
-from auto_system_agent.settings import LLMSettings, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL, SettingsStore
-from auto_system_agent.system_info import SystemConfig, detect_system_config, system_config_from_dict, system_config_to_dict
+from auto_system_agent.ui.real_terminal import RealTerminalFrame
+from auto_system_agent.storage.settings import LLMSettings, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL, SettingsStore
+from auto_system_agent.platforms.system_info import SystemConfig, detect_system_config, system_config_from_dict, system_config_to_dict
 
 
 BG_APP = "#eef2f7"
@@ -1136,7 +1136,7 @@ class AgentChatGUI:
         """
         # Load persisted or freshly detected
         try:
-            from auto_system_agent.system_info import detect_system_config
+            from auto_system_agent.platforms.system_info import detect_system_config
 
             persisted = self._settings.system_config if isinstance(self._settings.system_config, dict) else None
             detected = detect_system_config()
@@ -1850,8 +1850,8 @@ class AgentChatGUI:
     def _show_metrics_dialog(self) -> None:
         """P4.3 live sample plus trailing averages and audit success rate."""
         try:
-            from auto_system_agent.metrics import Metric, MetricSampler, avg_cpu, success_rate
-            from auto_system_agent.repository import AuditRepository
+            from auto_system_agent.storage.metrics import Metric, MetricSampler, avg_cpu, success_rate
+            from auto_system_agent.storage.repository import AuditRepository
 
             sampler = MetricSampler()
             sampler.sample()
@@ -1934,7 +1934,7 @@ class AgentChatGUI:
                 system_cfg = self._settings.system_config
             else:
                 # Fallback to detection (should have been set via system window)
-                from auto_system_agent.system_info import system_config_to_dict, detect_system_config
+                from auto_system_agent.platforms.system_info import system_config_to_dict, detect_system_config
                 system_cfg = system_config_to_dict(detect_system_config())
         except Exception:
             system_cfg = None

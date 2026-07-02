@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from auto_system_agent.repository import AuditRepository
+from auto_system_agent.storage.repository import AuditRepository
 
 _SUMMARY_REF_LIMIT = 2000
 
@@ -73,7 +73,7 @@ class EventLogger:
         )
         verdict, risk_score, exit_code = self._summarize_outcome(payload, steps)
         try:
-            from auto_system_agent.os_utils import detect_os
+            from auto_system_agent.platforms.os_utils import detect_os
 
             os_name = detect_os()
         except Exception:

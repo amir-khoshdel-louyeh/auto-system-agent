@@ -106,7 +106,7 @@ class SettingsStore:
 
     def get_system_config(self, settings: LLMSettings):
         """Return SystemConfig from settings or freshly detected if missing."""
-        from auto_system_agent.system_info import SystemConfig, detect_system_config, system_config_from_dict
+        from auto_system_agent.platforms.system_info import SystemConfig, detect_system_config, system_config_from_dict
 
         if isinstance(settings.system_config, dict) and settings.system_config:
             return system_config_from_dict(settings.system_config)

@@ -58,7 +58,7 @@ def notify(title: str, message: str, *, os_name: str | None = None) -> bool:
     """Show one desktop toast; True when a backend accepted it."""
     if os_name is None:
         try:
-            from auto_system_agent.os_utils import detect_os
+            from auto_system_agent.platforms.os_utils import detect_os
 
             os_name = detect_os()
         except Exception:

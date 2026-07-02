@@ -2,19 +2,19 @@ import hashlib
 from dataclasses import replace
 from typing import Callable
 
-from auto_system_agent.event_logger import EventLogger
-from auto_system_agent.evaluator import Evaluator
-from auto_system_agent.llm_conversation_assistant import LLMConversationAssistant
-from auto_system_agent.llm_tool_mapper import LLMToolMapper
+from auto_system_agent.storage.event_logger import EventLogger
+from auto_system_agent.orchestration.evaluator import Evaluator
+from auto_system_agent.services.llm_conversation_assistant import LLMConversationAssistant
+from auto_system_agent.services.llm_tool_mapper import LLMToolMapper
 from auto_system_agent.models import Evaluation
 from auto_system_agent.models import ExecutionResult
 from auto_system_agent.models import PlannedTask
 from auto_system_agent.models import ReActStep
 from auto_system_agent.models import StepStatus
-from auto_system_agent.planner import Planner
-from auto_system_agent.result_formatter import ResultFormatter
-from auto_system_agent.safe_executor import SafeExecutor
-from auto_system_agent.tool_selector import ToolSelector
+from auto_system_agent.orchestration.planner import Planner
+from auto_system_agent.ui.result_formatter import ResultFormatter
+from auto_system_agent.orchestration.safe_executor import SafeExecutor
+from auto_system_agent.platforms.tool_selector import ToolSelector
 CONFIRMATION_YES_WORDS = {"yes", "y", "confirm", "ok", "proceed"}
 CONFIRMATION_NO_WORDS = {"no", "n", "cancel", "stop"}
 HIGH_RISK_ACTIONS = {"run_command"}
@@ -358,7 +358,7 @@ class AutoSystemAgent:
         command = (task.target or task.raw_input or "") if task.action == "run_command" else ""
         if command.strip():
             try:
-                from auto_system_agent.command_guard import assess_command
+                from auto_system_agent.safety.command_guard import assess_command
 
                 assessment = assess_command(command)
             except Exception:
@@ -741,7 +741,7 @@ class AutoSystemAgent:
         # P1.3: verdict CONFIRM/DENY from assess_command triggers confirmation;
         # legacy substring patterns stay as a safety net so sudo installs keep
         # prompting while verdict coverage grows (P1.5 refines the UI card).
-        from auto_system_agent.command_guard import assess_command
+        from auto_system_agent.safety.command_guard import assess_command
 
         for task in tasks:
             if task.action not in HIGH_RISK_ACTIONS:

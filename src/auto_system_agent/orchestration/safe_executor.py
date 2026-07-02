@@ -4,9 +4,9 @@ import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
-from auto_system_agent.command_guard import assess_command, check_command
+from auto_system_agent.safety.command_guard import assess_command, check_command
 from auto_system_agent.models import ExecutionResult, PlannedTask
-from auto_system_agent.terminal import TerminalSession
+from auto_system_agent.orchestration.terminal import TerminalSession
 
 _VERDICT_TO_LEVEL = {"ALLOW": "low", "CONFIRM": "medium", "DENY": "high"}
 
@@ -33,7 +33,7 @@ _INSTALL_REMOVE_PAIRS = (
 
 def compensation_for(command: str) -> str | None:
     """Undo command for one simple creating/installing command, else None."""
-    from auto_system_agent.command_guard import CommandNode, parse_command
+    from auto_system_agent.safety.command_guard import CommandNode, parse_command
 
     try:
         node = parse_command((command or "").strip())

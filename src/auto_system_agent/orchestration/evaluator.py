@@ -107,7 +107,7 @@ class Evaluator:
         scratchpad: list[ReActStep],
     ) -> Evaluation | None:
         try:
-            from auto_system_agent.llm_ollama_client import ollama_chat
+            from auto_system_agent.services.llm_ollama_client import ollama_chat
         except ImportError:
             return None
 

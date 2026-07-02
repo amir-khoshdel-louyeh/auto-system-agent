@@ -32,7 +32,7 @@ class Template:
 
 def validate_plan(steps: list[dict]) -> tuple[bool, str]:
     """Check steps are allow-listed, parseable and never DENY."""
-    from auto_system_agent.command_guard import assess_command, parse_command
+    from auto_system_agent.safety.command_guard import assess_command, parse_command
 
     if not steps:
         return False, "plan is empty"
@@ -69,7 +69,7 @@ class TemplateStore:
 
     def __post_init__(self) -> None:
         if self.repository is None:
-            from auto_system_agent.repository import AuditRepository
+            from auto_system_agent.storage.repository import AuditRepository
 
             self.repository = (
                 AuditRepository(self.db_path) if self.db_path is not None else AuditRepository()

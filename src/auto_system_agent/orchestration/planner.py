@@ -4,7 +4,7 @@ import re
 from urllib import error, request
 
 from auto_system_agent.models import PlannedTask
-from auto_system_agent.task_schema import IntermediateTask
+from auto_system_agent.orchestration.task_schema import IntermediateTask
 
 
 SUPPORTED_ACTIONS = {
@@ -113,7 +113,7 @@ class Planner:
         system_fragment = ""
         if isinstance(self._system_config, dict) and self._system_config:
             try:
-                from auto_system_agent.system_info import system_config_from_dict
+                from auto_system_agent.platforms.system_info import system_config_from_dict
                 cfg = system_config_from_dict(self._system_config)
                 system_fragment = cfg.to_prompt_fragment()
             except Exception:
@@ -219,7 +219,7 @@ class Planner:
         if task.action == "run_command" and task.target:
             # P3.3: the hint only generates map entries from compensation_for.
             try:
-                from auto_system_agent.safe_executor import compensation_for
+                from auto_system_agent.orchestration.safe_executor import compensation_for
 
                 generated = compensation_for(task.target)
             except Exception:

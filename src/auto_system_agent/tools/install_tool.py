@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List
 
 from auto_system_agent.models import ExecutionResult
-from auto_system_agent.os_utils import detect_linux_package_manager, detect_os
+from auto_system_agent.platforms.os_utils import detect_linux_package_manager, detect_os
 
 
 APP_ALIASES = {

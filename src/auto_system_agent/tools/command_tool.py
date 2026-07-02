@@ -1,7 +1,7 @@
 import shlex
 import subprocess
 
-from auto_system_agent.command_guard import (
+from auto_system_agent.safety.command_guard import (
     ALLOW_MAX,
     CONFIRM_MAX,
     assess_command,
