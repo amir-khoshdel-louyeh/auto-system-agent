@@ -54,7 +54,7 @@ class AgentChatGUI:
         self._active_request_id: int | None = None
         self._cancelled_request_ids: set[int] = set()
         self._request_started_at: float | None = None
-        self._task_timeout_seconds = float(os.getenv("AUTO_AGENT_GUI_TASK_TIMEOUT", "0") or "0")
+        self._task_timeout_seconds = float(os.getenv("AUTO_AGENT_GUI_TASK_TIMEOUT", "300") or "300")
         self._geometry_save_after_id: str | None = None
         self._pending_geometry: str | None = None
         self._tools_window: tk.Toplevel | None = None
