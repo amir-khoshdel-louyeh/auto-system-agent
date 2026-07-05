@@ -276,6 +276,78 @@ class ExecutorPolicyTests(unittest.TestCase):
                     self.assertIn("verdict", result.data, command)
                     self.assertIn("canonical_form", result.data, command)
 
+    def test_unresolvable_uninstall_is_honest_refusal(self):
+        from unittest.mock import patch
+
+        executor = SafeExecutor()
+        try:
+            with patch.object(TerminalSession, "run") as mocked, patch(
+                "auto_system_agent.platforms.app_resolver.resolve_app", return_value=[]
+            ):
+                result = executor.execute(
+                    "run_command",
+                    PlannedTask(
+                        action="run_command",
+                        target="flatpak uninstall --delete-data com.spotify.Client",
+                    ),
+                )
+                self.assertFalse(result.success)
+                mocked.assert_not_called()
+                self.assertIn("couldn't find any installed app", result.message)
+                self.assertIn("Nothing was executed", result.message)
+                self.assertEqual(result.data.get("policy_reason"), "unresolved_app")
+        finally:
+            executor.close()
+
+    def test_ambiguous_uninstall_lists_options(self):
+        from unittest.mock import patch
+
+        from auto_system_agent.platforms.app_resolver import AppCandidate
+
+        executor = SafeExecutor()
+        try:
+            options = [
+                AppCandidate(display="VLC", identifier="org.videolan.VLC", source="flatpak", exact=False),
+                AppCandidate(display="vlc-libs", identifier="vlc-libs", source="system", exact=False),
+            ]
+            with patch.object(TerminalSession, "run") as mocked, patch(
+                "auto_system_agent.platforms.app_resolver.resolve_app", return_value=options
+            ):
+                result = executor.execute(
+                    "run_command", PlannedTask(action="run_command", target="sudo dnf remove -y vlc")
+                )
+                self.assertFalse(result.success)
+                mocked.assert_not_called()
+                self.assertIn("couldn't tell which app", result.message)
+                self.assertIn("VLC (flatpak)", result.message)
+        finally:
+            executor.close()
+
+    def test_exact_match_falls_through_to_guard(self):
+        from unittest.mock import patch
+
+        from auto_system_agent.platforms.app_resolver import AppCandidate
+
+        executor = SafeExecutor()
+        try:
+            exact = [
+                AppCandidate(display="Brave", identifier="com.brave.Browser", source="flatpak", exact=True)
+            ]
+            with patch.object(TerminalSession, "run") as mocked, patch(
+                "auto_system_agent.platforms.app_resolver.resolve_app", return_value=exact
+            ), patch(
+                "auto_system_agent.safety.command_guard.is_package_installed", return_value=True
+            ):
+                mocked.return_value = ExecutionResult(success=True, message="removed")
+                result = executor.execute(
+                    "run_command",
+                    PlannedTask(action="run_command", target="flatpak uninstall -y com.brave.Browser"),
+                )
+                self.assertTrue(result.success)
+                mocked.assert_called_once()
+        finally:
+            executor.close()
+
     def test_legacy_and_unknown_tools_are_blocked(self):
         executor = SafeExecutor()
         for tool_key in ("create_folder", "delete_path", "install_app", "bogus-tool"):

@@ -199,5 +199,60 @@ class SelectorDeterminismTests(unittest.TestCase):
         self.assertEqual(mapper.calls, ["show help"])
 
 
+class AppDiscoveryTests(unittest.TestCase):
+    """Dynamic discovery: icon labels, flatpak refs, system packages."""
+
+    def test_desktop_label_matches_without_hard_codes(self):
+        import tempfile
+
+        from auto_system_agent.platforms import app_resolver
+
+        with tempfile.TemporaryDirectory() as tmp:
+            entry = Path(tmp) / "spotify.desktop"
+            entry.write_text("[Desktop Entry]\nName=Spotify Music\nExec=spotify\n", encoding="utf-8")
+            found = app_resolver.desktop_candidates("spotify music", dirs=[Path(tmp)])
+            self.assertEqual(len(found), 1)
+            self.assertEqual(found[0].display, "Spotify Music")
+            self.assertTrue(found[0].exact)
+            self.assertEqual(app_resolver.desktop_candidates("nope", dirs=[Path(tmp)]), [])
+
+    def test_flatpak_table_parsing(self):
+        from auto_system_agent.platforms import app_resolver
+
+        table = [("com.brave.Browser", "Brave"), ("org.videolan.VLC", "VLC")]
+        found = app_resolver.flatpak_candidates("brave", table=table)
+        self.assertEqual([(item.identifier, item.exact) for item in found], [("com.brave.Browser", True)])
+        self.assertEqual(app_resolver.flatpak_candidates("", table=table), [])
+
+    def test_system_package_matching(self):
+        from auto_system_agent.platforms import app_resolver
+
+        packages = ["firefox", "firefox-langpacks", "vim-minimal"]
+        found = app_resolver.system_package_candidates("firefox", packages=packages)
+        self.assertEqual([item.identifier for item in found], ["firefox", "firefox-langpacks"])
+        self.assertTrue(found[0].exact)
+        self.assertFalse(found[1].exact)
+        self.assertEqual(app_resolver.system_package_candidates("", packages=packages), [])
+
+    def test_resolve_ranks_exact_first(self):
+        from auto_system_agent.platforms import app_resolver
+
+        with unittest.mock.patch.object(
+            app_resolver, "flatpak_candidates", return_value=[]
+        ), unittest.mock.patch.object(
+            app_resolver, "system_package_candidates", return_value=[]
+        ), unittest.mock.patch.object(
+            app_resolver,
+            "desktop_candidates",
+            return_value=[
+                app_resolver.AppCandidate(display="VLC thing", identifier="x", source="desktop", exact=False)
+            ],
+        ):
+            ranked = app_resolver.resolve_app("vlc")
+            self.assertEqual(len(ranked), 1)
+            self.assertFalse(ranked[0].exact)
+        self.assertEqual(app_resolver.resolve_app("   "), [])
+
+
 if __name__ == "__main__":
     unittest.main()
