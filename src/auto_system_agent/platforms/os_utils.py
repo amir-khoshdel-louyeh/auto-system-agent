@@ -302,6 +302,13 @@ def rewrite_install_command(
 #: Compared against lowercased tokens, so pacman -Rns matches -rns.
 REMOVE_VERBS = ("remove", "uninstall", "erase", "purge", "del", "-rns", "-r", "-rs")
 
+#: Programs whose remove verbs trigger uninstall handling (short flags
+#: like -r only count for these managers; rm/zip/ls never enter).
+UNINSTALL_MANAGERS = {
+    "apt", "dnf", "pacman", "zypper", "apk", "brew", "winget",
+    "snap", "choco", "flatpak", "uninstall",
+}
+
 
 def render_remove(provider: Provider, package: str) -> str:
     """Render one provider remove template for a package name."""

@@ -16,7 +16,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from auto_system_agent.platforms.os_utils import REMOVE_VERBS, detect_os
+from auto_system_agent.platforms.os_utils import REMOVE_VERBS, UNINSTALL_MANAGERS, detect_os
 
 
 # ---------------------------------------------------------------------------
@@ -610,10 +610,7 @@ _INSTALLED_CACHE_TTL = 60.0
 
 #: Programs whose remove verbs trigger the installed-state check.
 #: Short flags (-r) only count for pacman; rm/zip/ls never enter this path.
-_REMOVE_MANAGERS = {
-    "apt", "dnf", "pacman", "zypper", "apk", "brew", "winget",
-    "snap", "choco", "flatpak", "uninstall",
-}
+_REMOVE_MANAGERS = UNINSTALL_MANAGERS
 
 
 def _installed_query_argv(prog: str, package: str) -> list[list[str]] | None:
