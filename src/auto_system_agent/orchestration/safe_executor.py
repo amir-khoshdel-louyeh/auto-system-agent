@@ -218,6 +218,79 @@ class SafeExecutor:
         except Exception:
             pass
 
+    @staticmethod
+    def _honest_uninstall_check(command: str) -> ExecutionResult | None:
+        """Refuse uninstalls no installed app matches, with honest wording.
+
+        Zero terminal contact: unknown packages produce words, ambiguous
+        ones produce a pick-list, exact hits fall through to the guard.
+        """
+        from auto_system_agent.platforms import app_resolver
+        from auto_system_agent.platforms.os_utils import UNINSTALL_MANAGERS, extract_uninstall_package
+
+        try:
+            parts = shlex.split(command.strip())
+        except ValueError:
+            return None
+        if not parts:
+            return None
+        prog = Path(parts[0]).name.lower()
+        if prog in _PRIVILEGE_WRAPPERS:
+            unwrapped: list[str] = []
+            skip_next = False
+            for token in parts[1:]:
+                if skip_next:
+                    skip_next = False
+                    continue
+                if token in ("-u", "--user", "-g", "--group", "-p", "--prompt"):
+                    skip_next = True
+                    continue
+                unwrapped.append(token)
+            while unwrapped and unwrapped[0].startswith("-") and unwrapped[0] not in ("-", "--"):
+                unwrapped.pop(0)
+            if not unwrapped:
+                return None
+            prog = Path(unwrapped[0]).name.lower()
+        if prog not in UNINSTALL_MANAGERS:
+            return None
+        package = extract_uninstall_package(command)
+        if not package:
+            return None
+        try:
+            candidates = app_resolver.resolve_app(package)
+        except Exception:
+            return None
+        base_data = {
+            "command": command,
+            "guard": "honesty",
+            "policy_decision": "blocked",
+            "policy_reason": "unresolved_app",
+        }
+        exact = [item for item in candidates if item.exact]
+        if exact:
+            return None
+        if candidates:
+            options = "; ".join(f"{item.display} ({item.source})" for item in candidates[:5])
+            return ExecutionResult(
+                success=False,
+                message=(
+                    f"I couldn't tell which app you mean by '{package}'. "
+                    f"Did you mean one of these: {options}? "
+                    "Please name the exact app and I'll remove it. Nothing was executed."
+                ),
+                data=base_data,
+            )
+        return ExecutionResult(
+            success=False,
+            message=(
+                f"I couldn't find any installed app matching '{package}', "
+                "so I won't run this. Name the exact app (or list installed "
+                "apps with flatpak list / rpm -qa) and I'll remove it. "
+                "Nothing was executed."
+            ),
+            data=base_data,
+        )
+
     def execute(self, tool_key: str, task: PlannedTask) -> ExecutionResult:
         if tool_key == "help":
             return ExecutionResult(
@@ -261,6 +334,9 @@ class SafeExecutor:
                         }
                     )
                 return ExecutionResult(success=False, message=guard_message, data=data)
+            honest_refusal = self._honest_uninstall_check(command)
+            if honest_refusal is not None:
+                return honest_refusal
             assessment = assess_command(command)
             if assessment["verdict"] == "DENY":
                 reasons = "; ".join(assessment["reasons"]) or "deny-list"
