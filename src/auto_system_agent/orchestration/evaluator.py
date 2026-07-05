@@ -47,6 +47,15 @@ class Evaluator:
                 reason=f"Blocked by safety policy; will not retry: {result.message[:300]}",
             )
 
+        # Honest refusals are final too: no other wording will resolve them.
+        if message.startswith("i couldn't find any installed app") or message.startswith(
+            "i couldn't tell which app"
+        ):
+            return Evaluation(
+                verdict="abort",
+                reason=f"Unresolvable request; will not retry: {result.message[:300]}",
+            )
+
         # User-cancelled waits must stop the loop, not retry.
         if "cancelled by user" in message:
             return Evaluation(verdict="abort", reason="Cancelled by user.")
