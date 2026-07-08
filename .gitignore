@@ -57,3 +57,8 @@ desktop.ini
 *.log
 *.sqlite3
 *.db
+
+
+
+*tmp
+source_MIT
