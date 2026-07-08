@@ -61,4 +61,5 @@ desktop.ini
 
 
 *tmp
+!plan.tmp
 source_MIT
