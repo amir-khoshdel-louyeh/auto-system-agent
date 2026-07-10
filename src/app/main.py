@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from .auth import router as auth_router
 from .settings import Settings, get_settings
 
 
@@ -17,12 +18,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     application = FastAPI(title=settings.app_name, version=settings.app_version)
     application.state.settings = settings
+    # Route dependencies (e.g. login) must see the same Settings object
+    # the factory was built with, not a fresh env read.
+    application.dependency_overrides[get_settings] = lambda: settings
 
     @application.get("/health", tags=["System"])
     def health_check() -> dict[str, str]:
         """Health probe for compose/docker and load balancers."""
         return {"status": "healthy", "version": settings.app_version}
 
+    application.include_router(auth_router)
     return application
 
 
