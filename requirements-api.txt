@@ -1,0 +1,6 @@
+# Phase 0 API extras (Docker image + local `pip install -r requirements-api.txt`).
+# Base requirements.txt stays stdlib-only so the Tkinter client ships dependency-free.
+fastapi>=0.115
+uvicorn[standard]>=0.30
+httpx>=0.28
+asyncpg>=0.30  # reserved for the upcoming SQLAlchemy phase (DATABASE_URL target)

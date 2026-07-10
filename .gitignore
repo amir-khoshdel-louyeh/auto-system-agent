@@ -54,6 +54,7 @@ desktop.ini
 # Local env / secrets
 .env
 .env.*
+!.env.example
 *.log
 *.sqlite3
 *.db
