@@ -1,14 +1,14 @@
 import shlex
 import subprocess
 
-from auto_system_agent.safety.command_guard import (
+from safety.command_guard import (
     ALLOW_MAX,
     CONFIRM_MAX,
     assess_command,
     check_command,
     score_command,
 )
-from auto_system_agent.models import ExecutionResult
+from models import ExecutionResult
 
 # Kept for import compatibility; decisions now come from command_guard
 # (assess_command), which is the single source of safety truth.

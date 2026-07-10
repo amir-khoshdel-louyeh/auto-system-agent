@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal
 
-from auto_system_agent.models import PlannedTask
+from models import PlannedTask
 
 
 TaskAction = Literal[

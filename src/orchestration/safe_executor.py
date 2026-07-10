@@ -4,9 +4,9 @@ import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
-from auto_system_agent.safety.command_guard import assess_command, check_command
-from auto_system_agent.models import ExecutionResult, PlannedTask
-from auto_system_agent.orchestration.terminal import TerminalSession
+from safety.command_guard import assess_command, check_command
+from models import ExecutionResult, PlannedTask
+from orchestration.terminal import TerminalSession
 
 _VERDICT_TO_LEVEL = {"ALLOW": "low", "CONFIRM": "medium", "DENY": "high"}
 
@@ -33,7 +33,7 @@ _INSTALL_REMOVE_PAIRS = (
 
 def compensation_for(command: str) -> str | None:
     """Undo command for one simple creating/installing command, else None."""
-    from auto_system_agent.safety.command_guard import CommandNode, parse_command
+    from safety.command_guard import CommandNode, parse_command
 
     try:
         node = parse_command((command or "").strip())
@@ -225,8 +225,8 @@ class SafeExecutor:
         Zero terminal contact: unknown packages produce words, ambiguous
         ones produce a pick-list, exact hits fall through to the guard.
         """
-        from auto_system_agent.platforms import app_resolver
-        from auto_system_agent.platforms.os_utils import UNINSTALL_MANAGERS, extract_uninstall_package
+        from platforms import app_resolver
+        from platforms.os_utils import UNINSTALL_MANAGERS, extract_uninstall_package
 
         try:
             parts = shlex.split(command.strip())

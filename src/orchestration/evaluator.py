@@ -6,7 +6,7 @@ Combines fast deterministic rules with an optional LLM second opinion.
 import json
 import re
 
-from auto_system_agent.models import Evaluation, ExecutionResult, PlannedTask, ReActStep
+from models import Evaluation, ExecutionResult, PlannedTask, ReActStep
 
 _VALID_VERDICTS = {"done", "retry", "replan", "abort"}
 
@@ -123,7 +123,7 @@ class Evaluator:
         scratchpad: list[ReActStep],
     ) -> Evaluation | None:
         try:
-            from auto_system_agent.services.llm_ollama_client import ollama_chat
+            from services.llm_ollama_client import ollama_chat
         except ImportError:
             return None
 

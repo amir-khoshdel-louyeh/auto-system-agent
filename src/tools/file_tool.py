@@ -4,7 +4,7 @@ import stat
 from pathlib import Path
 import zipfile
 
-from auto_system_agent.models import ExecutionResult
+from models import ExecutionResult
 
 
 SYSTEM_PROTECTED_ROOTS = {

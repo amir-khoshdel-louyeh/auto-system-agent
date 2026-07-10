@@ -1,7 +1,7 @@
-from auto_system_agent.platforms import os_utils as _resolver
-from auto_system_agent.models import PlannedTask
-from auto_system_agent.services.llm_tool_mapper import LLMToolMapper
-from auto_system_agent.tools import install_tool
+from platforms import os_utils as _resolver
+from models import PlannedTask
+from services.llm_tool_mapper import LLMToolMapper
+from tools import install_tool
 
 
 class ToolSelector:

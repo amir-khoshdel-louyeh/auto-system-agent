@@ -16,7 +16,7 @@ import subprocess
 import time
 from pathlib import Path
 
-from auto_system_agent.platforms.os_utils import REMOVE_VERBS, UNINSTALL_MANAGERS, detect_os
+from platforms.os_utils import REMOVE_VERBS, UNINSTALL_MANAGERS, detect_os
 
 
 # ---------------------------------------------------------------------------
@@ -697,7 +697,7 @@ def _check_uninstall_known(prog: str, args: list[str]) -> str | None:
         return None
     if installed is None:
         try:
-            from auto_system_agent.tools import install_tool
+            from tools import install_tool
 
             library = install_tool._load_app_library()
             known = any(
@@ -917,7 +917,7 @@ def _effective_prog(leaf: CommandNode) -> str:
 
 def _check_path(leaves: list[CommandNode]) -> str | None:
     """PATH check via shutil.which; skips builtins and empty/redir-only leaves."""
-    from auto_system_agent.platforms.os_utils import detect_os  # local import: cheap, no cycle
+    from platforms.os_utils import detect_os  # local import: cheap, no cycle
     _ = detect_os
     for leaf in leaves:
         if not leaf.argv:

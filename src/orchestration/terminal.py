@@ -6,7 +6,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from auto_system_agent.models import ExecutionResult
+from models import ExecutionResult
 
 
 class TerminalSession:

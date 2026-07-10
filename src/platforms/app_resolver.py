@@ -54,7 +54,7 @@ def _normalize(text: str) -> str:
 
 def desktop_candidates(text: str, dirs: list[Path] | None = None) -> list[AppCandidate]:
     """Apps whose .desktop Name or file id matches (the icon label)."""
-    from auto_system_agent.safety.command_guard import find_desktop_matches
+    from safety.command_guard import find_desktop_matches
 
     needle = _normalize(text)
     if not needle:
