@@ -1,0 +1,65 @@
+PLAN — اتصال پروژه‌های source_MIT به پروژه نهایی (Team Automation Hub v3.1 MVP)
+اصل: monolith-first واقعی + src-only. همه کد نهایی فقط در src/ زندگی می‌کند. هیچ پوشه hub/ ساخته نمی‌شود. یک API، یک Postgres (+pgvector)، یک Redis، یک Docker Compose. بدون Web جدا، بدون Qdrant/minio واقعی (mock/defer). فقط Ubuntu X11 + Windows. source_MIT فقط مرجع read-only است؛ در طول فازها دستی کپی/پورت می‌شود و در پایان کامل حذف می‌شود. طبق plan.tmp جلو برو، هر فاز Done داشته باشد.
+
+قانون src-only (الزامی):
+1. هیچ کد production نباید از source_MIT ایمپورت کند (فقط نگاه + کپی دستی + adapt). هیچ فایل جدید در source_MIT نساز.
+2. هیچ پوشه hub/ نساز. مقصد همه پورت‌ها زیر src/ است.
+3. تا فاز ۸ هیچ فایلی از source_MIT پاک/جابه‌جا نمی‌شود (فقط copy). حذف فقط در فاز ۸ و یکجا.
+
+فاز ۰ — اسکلت و قفل اینفرا (S0)
+1. کپی پایه: source_MIT/FastAPI-boilerplate/backend -> src/app/ (auth، مدل User، Alembic، health، CI). Tkinter فعلی (src/ui/) می‌ماند فقط یک کلاینت.
+2. Compose واحد بساز: api + postgres:16 (+pgvector) + redis:7. Qdrant/minio/Prometheus واقعی نیاور؛ در compose فقط mock/stub بگذار.
+3. تعریف Done: docker compose up سبز + POST /auth/login + GET /health + migration تمیز.
+4. defer صریح: OAuth گوگل، Web client، K8s/Kafka — در plan بنویس Stretch نه MVP.
+
+فاز ۱ — DSL + Validator یا همان C9-core (S1)
+1. از source_MIT/llm-flow-engine فقط dsl_loader.py (+ تست‌هایش) را با adapt به src/engine/dsl/ کپی کن (نه import مستقیم).
+2. گرامر خودمان را فریز کن: ۵ نود (shell, gui_click, gui_type, approval, custom) + ۳ تریگر (cron, webhook, file.arrived). نمونه YAML onboarding-demo (طبق پروپوزال §۶ C9) را بگذار src/workflows/examples/.
+3. ولیدیتور خودمان در src/engine/validator/: schema → node-type → edge/ref → cycle (Kahn) → policy-check (گره خطرناک بدون approval رد شود). ارور با line/col.
+4. flow-forge را فقط به‌عنوان مرجع validator ببین (backend/main.py → /pipelines/parse)؛ کپی کامل نکن.
+5. Done: ۱۰ فیکسچر (valid/invalid/cyclic/policy-violation) سبز + W4-novalidate پاس.
+
+فاز ۲ — DAG + Policy + Audit یا همان C5/C6/A3 (S1)
+1. از source_MIT/optiflow فقط execution_service.py (scheduler: topo-sort، parallel، retry، timeout) را به src/engine/executor/ پورت کن؛ profiler/AI-suggest را نیاور. تابع exec() ناامن optiflow را نیاور؛ custom فقط via SDK.
+2. Policy خودمان (src/safety/command_guard.py فعلی) را نگه دار و به‌عنوان گیت قبل از هر نود صدا بزن: ALLOW / NEED_APPROVAL (=CONFIRM فعلی) / DENY + anomaly سبک. این C است، از هیچ پروژه‌ای کپی نکن.
+3. Audit: هر run + approval + hash-chain در Postgres (جداول WORKFLOWS/VERSIONS/EXECUTIONS/APPROVALS طبق ER پروپوزال). کد در src/storage/ + src/app/models.
+4. Done: DAG سه‌نوده موازی + kill وسط نصب → compensate + تست chaos سبز.
+
+فاز ۳ — Event Bus یا همان B8 (S2)
+1. از source_MIT/EventFlow فقط core/broker.py + consumers/ (consumer group، retry، DLQ، replay) را به src/bus/ بیاور.
+2. ایونت‌های فریز: plan.created, approval.requested, step.failed, file.arrived, schedule.tick. همه با idempotency-key.
+3. ورکرها در src/bus/workers/ بر اساس node.type subscribe کنند: shell-worker، approval-worker. vision-worker و custom-worker فعلا stub.
+4. Done: trigger دستی file.arrived → run کامل → replay همان run نتیجه یکسان + تست ordering روی Redis ephemeral.
+
+فاز ۴ — NLP آفلاین یا همان C4 (S1-S2، بدون کپی Rasa)
+1. هیچ پروژه NLP را کپی نکن (همه یا GPL یا overkill). کد خودمان در src/nlp/: normalize → rule (افعال خطرناک) → TF-IDF+LogReg روی دیتاست ۶۰۰تایی خودمان (۱۲ intent) → slot-regex → canonicalize → gate ۰.۷۵ → fallback به LLM.
+2. Done: macro-F1 ≥۰.۸۵ روی held-out + latency محلی <۲۰ms + fallback-rate <۲۵٪ + confusion matrix در ریپورت.
+
+فاز ۵ — Memory + Reputation ساده‌شده یا همان C7b/C8 (S3، فقط اگر فاز ۲ سبز بود)
+1. از source_MIT/pgvector-rag فقط store/ + chunking.py + eval/run_eval.py را به src/memory/ بیاور؛ Celery/Mongo/Gradio را نیاور.
+2. فلوی خودمان: canonicalize → PII-scrub → embed (fake/local اول، OpenAI اختیاری) → cosine در pgvector (نه Qdrant) → فیلتر risk/ rep/OS → LLM-supervisor فقط verify.
+3. Reputation MVP (ساده‌شده): rep = 0.7*success_rate + 0.3*rating، شروع ۲۰، بدون longevity/EigenTrust. قرنطینه با ۱ ران sandbox (نه ۳).
+4. Done: W3 پاس (run دوم reuse-hit، سریع‌تر، بدون generation) + eval hit-rate لاگ + تست scrub و erasure سبز.
+
+فاز ۶ — Sandbox + Approval یا همان گیت‌های اجرایی (S3)
+1. از source_MIT/pybox به‌عنوان سرویس جدا (POST /run) استفاده کن ولی کلاینت/قرارداد در src/sandbox/: network=none، read-only FS جز /tmp/workspace، cap-drop، timeout ۶۰s. کد pybox در src کپی نمی‌شود، فقط کلاینت + تست قرارداد. پلن قرنطینه و custom-node اول اینجا، بعد worker.
+2. از source_MIT/sre-autonomous-agent فقط منطق slack approval را به src/notify/ بردار: send_approval + POST /slack/interactions + ذخیره decision در Redis با کلید approval:{run_id}. بات کامل نساز؛ برای تلگرام همان الگو کفایت می‌کند.
+3. قانون فریز C7a: OS Accessibility Tree اول (UIA/AT-SPI)، VLM فقط fallback برای canvas. اگر VLM نشد → فقط ۵ اپ accessible؛ اگر OS-tree روی پلتفرمی نشد → همان پلتفرم VLM-only با SAFE_ABORT خشک. اسکرین‌شات فقط برای audit، نه تصمیم (طبق تصمیم کاربر: بدون screenshot-vision).
+4. Done: poisoned-plan → quarantine می‌ماند + approval دوحالته (LOW→NEEDS_HELP، MED/HIGH→SAFE_ABORT) + تست timeout.
+
+فاز ۷ — IDE MVP + Export یا همان اثبات event-driven (S3-S4، مهم: W4 را نگه دار)
+1. IDE: از source_MIT/optiflow یا flow-forge فقط کانواس (palette ۵ نوده، connect، Validate، dry-run، Deploy) را به src/ide/ بردار؛ ادیتور کد آزاد نده (custom فقط via SDK: def run(ctx)->dict). src/ui/ (Tkinter) سر جاش می‌ماند.
+2. Export: در src/ide/exporter/ از روی workflow version فریز شده، یک FastAPI مستقل (POST /run، GET /health) + Dockerfile + requirements پین‌شده generate کن؛ Policy-guard read-only داخلش بماند.
+3. Done نهایی W4: تعریف دستی در IDE → تریگر file.arrived/cron → مصرف از bus → Export و اجرای standalone بدون IDE + audit با version-pin + ویدیو ۳ دقیقه‌ای بکاپ.
+
+فاز ۸ — Cleanup نهایی: حذف source_MIT (اجباری)
+1. پیش‌شرط: همه Doneهای فاز ۰ تا ۷ سبز باشند.
+2. بررسی: grep -r "source_MIT" و grep -r "hub/" در کل ریپو باید صفر باشد (به‌جز همین plan.tmp و داک). هیچ import از source_MIT نباید مانده باشد.
+3. اجرای تست کامل فقط روی src/: pytest + compose up + migration تمیز.
+4. بعد از سبز شدن: rm -rf source_MIT/ + پاک کردن mockهای موقت + آپدیت README (ساختار نهایی src/).
+5. Done: ریشه ریپو فقط main.py + src/ + tests/ + compose + README دارد؛ source_MIT وجود ندارد.
+
+نقشه فایل نهایی (خلاصه src-only):
+src/app/ ← boilerplate | src/engine/dsl/ ← llm-flow-engine (adapt) | src/engine/validator/ ← خودمان | src/engine/executor/ ← optiflow (فقط scheduler، بدون exec) | src/bus/ ← EventFlow (فقط broker/consumers) | src/memory/ ← pgvector-rag (فقط store/eval) | src/sandbox/ ← pybox (فقط کلاینت/قرارداد) | src/notify/ ← sre-agent (فقط slack approval) | src/ide/ ← optiflow/flow-forge (فقط canvas) | src/nlp/ ← خودمان | src/workflows/examples/ ← دموها | src/safety/ + src/ui/ + src/tools/ + src/platforms/ + src/orchestration/ + src/services/ + src/storage/ ← فعلی (حفظ).
+
+قانون توقف: اگر فازی سبز نشد، فاز بعد شروع نشود. Stretchها (OAuth، Qdrant جدا، minio واقعی، Grafana واقعی، macOS، VLM روی canvas) فقط S4 اگر وقت بود. فاز ۸ بدون سبز بودن ۰ تا ۷ اجرا نشود.
