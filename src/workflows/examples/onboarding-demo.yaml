@@ -1,0 +1,22 @@
+# Frozen MVP example (proposal §6 C9): onboarding-demo.
+# 5 node types only; 3 trigger kinds (cron / file.arrived / webhook).
+workflow: onboarding-demo
+version: 3
+triggers:
+  - cron: "0 9 * * *"
+  - event: file.arrived
+  - webhook: /hooks/onboarding
+nodes:
+  - id: setup
+    type: shell
+    run: setup.sh
+  - id: darkmode
+    type: gui_click
+    target: "Settings > Appearance > Dark"
+  - id: gate
+    type: approval
+    quorum: 1
+edges:
+  - [setup, gate]
+  - [gate, darkmode]
+policy: { max_retries: 2, on_ground_fail: needs_help_if_low_else_abort }
