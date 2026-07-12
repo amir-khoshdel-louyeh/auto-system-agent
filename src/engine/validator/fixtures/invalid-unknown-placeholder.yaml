@@ -1,0 +1,8 @@
+# Fixture 08/10 (invalid/edge): placeholder references an unknown node.
+workflow: unknown-ref
+version: 3
+nodes:
+  - id: a
+    type: shell
+    run: "echo ${ghost.output}"
+edges: []

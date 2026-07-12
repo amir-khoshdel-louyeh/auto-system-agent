@@ -1,0 +1,7 @@
+# Fixture 04/10 (invalid/schema): missing 'workflow' name.
+version: 3
+nodes:
+  - id: a
+    type: shell
+    run: a.sh
+edges: []

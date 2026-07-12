@@ -1,0 +1,8 @@
+# Fixture 10/10 (invalid/policy): dangerous shell with no approval gate.
+workflow: dangerous
+version: 3
+nodes:
+  - id: wipe
+    type: shell
+    run: rm -rf /tmp/workspace
+edges: []

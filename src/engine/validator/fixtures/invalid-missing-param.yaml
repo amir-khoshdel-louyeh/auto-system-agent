@@ -1,0 +1,7 @@
+# Fixture 06/10 (invalid/type): shell node missing required param 'run'.
+workflow: missing-param
+version: 3
+nodes:
+  - id: a
+    type: shell
+edges: []

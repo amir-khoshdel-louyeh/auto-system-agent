@@ -1,0 +1,21 @@
+# Fixture 02/10 (valid): onboarding demo (== workflows/examples/onboarding-demo.yaml).
+workflow: onboarding-demo
+version: 3
+triggers:
+  - cron: "0 9 * * *"
+  - event: file.arrived
+  - webhook: /hooks/onboarding
+nodes:
+  - id: setup
+    type: shell
+    run: setup.sh
+  - id: darkmode
+    type: gui_click
+    target: "Settings > Appearance > Dark"
+  - id: gate
+    type: approval
+    quorum: 1
+edges:
+  - [setup, gate]
+  - [gate, darkmode]
+policy: { max_retries: 2, on_ground_fail: needs_help_if_low_else_abort }

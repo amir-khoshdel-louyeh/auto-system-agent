@@ -1,0 +1,9 @@
+# Fixture 07/10 (invalid/edge): edge targets an unknown node.
+workflow: unknown-edge
+version: 3
+nodes:
+  - id: a
+    type: shell
+    run: a.sh
+edges:
+  - [a, ghost]

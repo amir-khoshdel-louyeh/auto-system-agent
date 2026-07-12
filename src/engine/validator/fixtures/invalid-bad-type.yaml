@@ -1,0 +1,7 @@
+# Fixture 05/10 (invalid/type): unknown node type.
+workflow: bad-type
+version: 3
+nodes:
+  - id: a
+    type: robot_arm
+edges: []

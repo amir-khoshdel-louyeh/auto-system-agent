@@ -1,0 +1,20 @@
+# Fixture 03/10 (valid): custom node gated by an approval ancestor + ${ref}.
+workflow: gated-custom
+version: 3
+triggers:
+  - webhook: /hooks/rename
+nodes:
+  - id: fetch
+    type: shell
+    run: fetch.sh
+  - id: gate
+    type: approval
+    quorum: 2
+  - id: rename
+    type: custom
+    func: rename_by_date
+    path: "${fetch.output}"
+edges:
+  - [fetch, gate]
+  - [gate, rename]
+policy: {}

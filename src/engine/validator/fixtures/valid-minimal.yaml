@@ -1,0 +1,11 @@
+# Fixture 01/10 (valid): minimal single shell node.
+workflow: minimal
+version: 3
+triggers:
+  - event: file.arrived
+nodes:
+  - id: only
+    type: shell
+    run: echo-hi.sh
+edges: []
+policy: {}

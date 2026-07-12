@@ -1,0 +1,13 @@
+# Fixture 09/10 (invalid/cycle): two nodes depend on each other.
+workflow: cyclic
+version: 3
+nodes:
+  - id: a
+    type: shell
+    run: a.sh
+  - id: b
+    type: shell
+    run: b.sh
+edges:
+  - [a, b]
+  - [b, a]
