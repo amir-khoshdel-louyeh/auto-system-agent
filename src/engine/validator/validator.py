@@ -141,13 +141,117 @@ def check_edges(workflow: Workflow) -> list[ValidationError]:
     return errors
 
 
+def topological_order(workflow: Workflow) -> list[str] | None:
+    """Kahn's algorithm; returns None when a cycle exists.
+
+    Same shape as source_MIT/flow-forge `backend/main.py::topological_order`.
+    """
+    nodes = {node.id for node in workflow.nodes if node.id}
+    adj: dict[str, list[str]] = {nid: [] for nid in nodes}
+    for src, dst in normalize_edges(workflow):
+        if src in adj and dst in nodes:
+            adj[src].append(dst)
+    in_degree = {nid: 0 for nid in nodes}
+    for targets in adj.values():
+        for tgt in targets:
+            in_degree[tgt] += 1
+    queue = sorted(nid for nid, deg in in_degree.items() if deg == 0)
+    order: list[str] = []
+    while queue:
+        current = queue.pop(0)
+        order.append(current)
+        for nxt in adj.get(current, []):
+            in_degree[nxt] -= 1
+            if in_degree[nxt] == 0:
+                queue.append(nxt)
+    return order if len(order) == len(nodes) else None
+
+
+def check_cycle(workflow: Workflow) -> list[ValidationError]:
+    """Cycle stage: the edge graph must be a DAG."""
+    if topological_order(workflow) is None:
+        guilty = next((n.id for n in workflow.nodes if n.id), "nodes")
+        return [
+            ValidationError(
+                "cycle", "workflow contains a cycle; cannot execute", *_loc(workflow, guilty)
+            )
+        ]
+    return []
+
+
+#: Shell fragments that make a node dangerous (policy gate via C6).
+DANGEROUS_SHELL_PATTERNS: tuple[str, ...] = (
+    "rm -rf",
+    "mkfs",
+    "dd if=",
+    "dd of=",
+    ":(){:|:&};:",
+    "shutdown",
+    "reboot",
+    "format ",
+    "sudo rm",
+    "chmod -R 777 /",
+    "del /f",
+)
+
+
+def _is_dangerous(node_type: str, params: dict) -> bool:
+    if node_type == "custom":
+        return True
+    if node_type == "shell":
+        run = str(params.get("run", "")).lower()
+        return any(pat in run for pat in DANGEROUS_SHELL_PATTERNS)
+    return False
+
+
+def _ancestors(workflow: Workflow, target: str) -> set[str]:
+    parents: dict[str, list[str]] = {}
+    for src, dst in normalize_edges(workflow):
+        parents.setdefault(dst, []).append(src)
+    seen: set[str] = set()
+    stack = list(parents.get(target, []))
+    while stack:
+        current = stack.pop()
+        if current in seen:
+            continue
+        seen.add(current)
+        stack.extend(parents.get(current, []))
+    return seen
+
+
+def check_policy(workflow: Workflow) -> list[ValidationError]:
+    """Policy stage: dangerous nodes need an approval ancestor (C6 gate)."""
+    errors: list[ValidationError] = []
+    approvals = {n.id for n in workflow.nodes if n.type == "approval"}
+    for node in workflow.nodes:
+        if _is_dangerous(node.type, node.params):
+            if not approvals:
+                errors.append(
+                    ValidationError(
+                        "policy",
+                        f"node '{node.id}' is dangerous but the workflow has no approval node",
+                        *_loc(workflow, node.id),
+                    )
+                )
+            elif not (_ancestors(workflow, node.id) & approvals):
+                errors.append(
+                    ValidationError(
+                        "policy",
+                        f"node '{node.id}' is dangerous without an approval gate on its path",
+                        *_loc(workflow, node.id),
+                    )
+                )
+    return errors
+
+
 def validate(workflow: Workflow) -> list[ValidationError]:
     """Run all stages in order; empty list means the workflow is valid."""
     errors: list[ValidationError] = []
     errors.extend(check_schema(workflow))
     errors.extend(check_node_types(workflow))
     errors.extend(check_edges(workflow))
-    # Next commit appends: check_cycle, check_policy.
+    errors.extend(check_cycle(workflow))
+    errors.extend(check_policy(workflow))
     return errors
 
 
