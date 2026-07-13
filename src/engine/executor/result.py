@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -38,3 +39,11 @@ class RunResult:
     nodes: dict[str, NodeResult] = field(default_factory=dict)
     order: list[str] = field(default_factory=list)
     error: str = ""
+
+
+class RunCancelled(asyncio.CancelledError):
+    """Cancellation carrying the partial run (kill mid-run → compensate)."""
+
+    def __init__(self, run: RunResult) -> None:
+        super().__init__("run cancelled")
+        self.run = run

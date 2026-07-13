@@ -35,6 +35,7 @@ from .result import (
     RUN_FAILED,
     SKIPPED,
     NodeResult,
+    RunCancelled,
     RunResult,
 )
 
@@ -165,7 +166,7 @@ async def run_dag(
         run.status = RUN_CANCELLED
         run.error = "run cancelled"
         emit("run.finished", {"status": RUN_CANCELLED})
-        raise
+        raise RunCancelled(run) from None
 
     if all(run.nodes[nid].status == OK for nid in nodes):
         run.status = COMPLETED
