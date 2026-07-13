@@ -1,9 +1,9 @@
-"""Phase 0 database init: apply migrations/001_init.sql via stdlib sqlite3.
+"""Phase 0-2 database init: apply migrations/*.sql in order via stdlib sqlite3.
 
 No SQLAlchemy/Alembic dependency yet (not installed, deferred with the
-driver). `init_db` is idempotent (CREATE TABLE IF NOT EXISTS) and is the
-"migration تمیز" probe for Phase 0 Done; Postgres execution of the same
-SQL file happens on the compose host.
+driver). `init_db` is idempotent (CREATE TABLE IF NOT EXISTS) and applies
+every `NNN_*.sql` file sorted by name, so 001 (users) then 002 (audit).
+Postgres execution of the same SQL files happens on the compose host.
 """
 
 from __future__ import annotations
@@ -13,7 +13,11 @@ import sqlite3
 from pathlib import Path
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
-INIT_SQL = MIGRATIONS_DIR / "001_init.sql"
+
+
+def migration_files() -> list[Path]:
+    """Sorted `NNN_*.sql` files under migrations/."""
+    return sorted(MIGRATIONS_DIR.glob("[0-9]*_*.sql"))
 
 
 def hash_password(password: str, salt: str = "phase0-salt") -> str:
@@ -24,10 +28,10 @@ def hash_password(password: str, salt: str = "phase0-salt") -> str:
 
 
 def init_db(path: str | Path) -> Path:
-    """Create parent dirs and apply 001_init.sql; returns the db path."""
+    """Create parent dirs and apply all migrations in order; returns db path."""
     target = Path(path)
     target.parent.mkdir(parents=True, exist_ok=True)
-    sql = INIT_SQL.read_text(encoding="utf-8")
     with sqlite3.connect(target) as conn:
-        conn.executescript(sql)
+        for sql_file in migration_files():
+            conn.executescript(sql_file.read_text(encoding="utf-8"))
     return target
