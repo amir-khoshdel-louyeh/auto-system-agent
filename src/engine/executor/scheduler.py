@@ -100,7 +100,7 @@ async def run_dag(
         if on_event is not None:
             on_event(name, {"run_id": run.run_id, **payload})
 
-    async def run_one(nid: str) -> None:
+    async def _run_single(nid: str) -> None:
         spec = nodes[nid]
         dep_states = {dep: run.nodes[dep].status for dep in parents[nid]}
         if any(status != OK for status in dep_states.values()):
@@ -157,11 +157,19 @@ async def run_dag(
         )
         emit("node.finished", {"node_id": nid, "status": FAILED})
 
+    async def run_one(nid: str) -> None:
+        try:
+            await _run_single(nid)
+        finally:
+            # Completion order (not level order) so a mid-level kill keeps
+            # every finished node for compensate().
+            if nid not in run.order:
+                run.order.append(nid)
+
     emit("run.started", {"nodes": sorted(nodes)})
     try:
         for level in levels:
             await asyncio.gather(*(run_one(nid) for nid in level))
-            run.order.extend(level)
     except asyncio.CancelledError:
         run.status = RUN_CANCELLED
         run.error = "run cancelled"
