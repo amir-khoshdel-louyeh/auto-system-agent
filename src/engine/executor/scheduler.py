@@ -80,6 +80,7 @@ async def run_dag(
     handler: Handler,
     *,
     timeout_s: float = 60.0,
+    max_retries: int = 0,
     gate: Gate | None = None,
     on_event: OnEvent | None = None,
     run_id: str | None = None,
@@ -122,38 +123,38 @@ async def run_dag(
                 return
         emit("node.started", {"node_id": nid})
         started = time.monotonic()
-        try:
-            output = await asyncio.wait_for(handler(nid, spec), timeout_s)
-            run.nodes[nid] = NodeResult(
-                node_id=nid,
-                status=OK,
-                output=output if isinstance(output, dict) else {"output": output},
-                attempts=1,
-                duration_ms=(time.monotonic() - started) * 1000.0,
-            )
-            emit("node.finished", {"node_id": nid, "status": OK})
-        except asyncio.TimeoutError:
-            run.nodes[nid] = NodeResult(
-                node_id=nid,
-                status=FAILED,
-                error=f"timeout after {timeout_s:g}s",
-                attempts=1,
-                duration_ms=(time.monotonic() - started) * 1000.0,
-            )
-            emit("node.finished", {"node_id": nid, "status": FAILED})
-        except asyncio.CancelledError:
-            run.nodes[nid] = NodeResult(node_id=nid, status=CANCELLED, error="run cancelled")
-            emit("node.finished", {"node_id": nid, "status": CANCELLED})
-            raise
-        except Exception as exc:  # noqa: BLE001 - node failure is data, not a crash
-            run.nodes[nid] = NodeResult(
-                node_id=nid,
-                status=FAILED,
-                error=str(exc)[:2000],
-                attempts=1,
-                duration_ms=(time.monotonic() - started) * 1000.0,
-            )
-            emit("node.finished", {"node_id": nid, "status": FAILED})
+        attempts = 0
+        last_error = ""
+        while attempts <= max_retries:
+            attempts += 1
+            try:
+                output = await asyncio.wait_for(handler(nid, spec), timeout_s)
+                run.nodes[nid] = NodeResult(
+                    node_id=nid,
+                    status=OK,
+                    output=output if isinstance(output, dict) else {"output": output},
+                    attempts=attempts,
+                    duration_ms=(time.monotonic() - started) * 1000.0,
+                )
+                emit("node.finished", {"node_id": nid, "status": OK})
+                return
+            except asyncio.CancelledError:
+                run.nodes[nid] = NodeResult(node_id=nid, status=CANCELLED, error="run cancelled")
+                emit("node.finished", {"node_id": nid, "status": CANCELLED})
+                raise
+            except asyncio.TimeoutError:
+                last_error = f"timeout after {timeout_s:g}s (attempt {attempts})"
+            except Exception as exc:  # noqa: BLE001 - node failure is data, not a crash
+                last_error = str(exc)[:2000]
+            emit("node.retry", {"node_id": nid, "attempt": attempts, "error": last_error})
+        run.nodes[nid] = NodeResult(
+            node_id=nid,
+            status=FAILED,
+            error=last_error,
+            attempts=attempts,
+            duration_ms=(time.monotonic() - started) * 1000.0,
+        )
+        emit("node.finished", {"node_id": nid, "status": FAILED})
 
     emit("run.started", {"nodes": sorted(nodes)})
     try:
