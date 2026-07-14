@@ -33,7 +33,7 @@ async def execute_approval(node_id: str, node: dict[str, Any], ctx: dict[str, An
                   idempotency_key=f"{run_id}:{node_id}:approval"),
     )
     recorder = ctx.get("recorder")
-    execution_id = ctx.get("execution_id", "")
+    execution_id = ctx.get("data", {}).get("execution_id", "") if isinstance(ctx.get("data"), dict) else ""
     if quorum == 1:
         if recorder is not None and execution_id:
             recorder.add_approval(execution_id, node_id, "approved",

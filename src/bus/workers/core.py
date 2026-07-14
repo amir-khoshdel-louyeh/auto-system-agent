@@ -49,7 +49,7 @@ def make_step_worker(
         node = event.data.get("node", {})
         if not isinstance(node, dict) or node.get("type") != node_type:
             return  # not ours; ack and leave for the right worker
-        ctx = {"backend": backend, "run_id": run_id}
+        ctx = {"backend": backend, "run_id": run_id, "data": event.data}
         try:
             output = await exec_fn(node_id, node, ctx)
             if not isinstance(output, dict):
