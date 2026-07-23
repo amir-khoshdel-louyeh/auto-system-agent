@@ -1,0 +1,89 @@
+# Phase 0 item [7]: CI quality gates, proposal §13 order —
+#   format/lint -> type check -> unit+integration tests -> coverage
+#   -> Bandit -> pip-audit -> Docker build
+#
+# The workflow is local-only for now (work is committed, not pushed, per
+# docs/CONVENTIONS.md §2); it activates on the first push to the remote.
+
+name: CI
+
+on:
+  push:
+    branches: [main, local_commit]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: format / lint / types / tests + coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-api.txt -r requirements-dev.txt
+
+      - name: Format check
+        run: ruff format --check .
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Type check
+        run: mypy src
+
+      - name: Tests with coverage gate
+        run: python -m pytest tests --cov=src --cov-report=term --cov-report=xml
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  security:
+    name: bandit / pip-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-api.txt -r requirements-dev.txt
+
+      # Medium+ severity gate: findings must be zero (audited `# nosec`
+      # annotations are documented in docs/THIRD_PARTY_NOTICES.md and
+      # re-reviewed in Phase 9 [82]).
+      - name: Bandit (medium+ severity)
+        run: bandit -r src -ll -ii
+
+      - name: Dependency vulnerability audit
+        run: pip-audit -r requirements-api.txt
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -f Dockerfile.api -t auto-system-agent-api:ci .

@@ -105,6 +105,10 @@ class LLMToolMapper:
         return bool(re.search(r'"action"\s*:\s*"[a-z_]+"', text))
 
     def _post_json(self, payload: dict) -> Optional[dict]:
+        # Scheme allow-list: only operator-configured http(s) endpoints are
+        # contacted; file:// and other schemes are rejected up front.
+        if not str(self._url).startswith(("http://", "https://")):
+            return None
         body = json.dumps(payload).encode("utf-8")
         headers = {"Content-Type": "application/json"}
         if self._api_key:
@@ -112,7 +116,7 @@ class LLMToolMapper:
 
         req = request.Request(self._url, data=body, headers=headers, method="POST")
         try:
-            with request.urlopen(req, timeout=self._timeout) as response:
+            with request.urlopen(req, timeout=self._timeout) as response:  # nosec B310
                 return json.loads(response.read().decode("utf-8"))
         except (error.URLError, error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
             # Fallback to native Ollama /api/chat
@@ -128,7 +132,7 @@ class LLMToolMapper:
                     native_url, data=native_body, headers=headers, method="POST"
                 )
                 try:
-                    with request.urlopen(native_req, timeout=self._timeout) as resp:
+                    with request.urlopen(native_req, timeout=self._timeout) as resp:  # nosec B310
                         native_raw = json.loads(resp.read().decode("utf-8"))
                         content = native_raw.get("message", {}).get("content", "")
                         if content:

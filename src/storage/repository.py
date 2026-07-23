@@ -137,8 +137,10 @@ class AuditRepository:
             values.append(compensation)
         values.append(execution_id)
         with self._connect() as connection:
+            # Column fragments are literal strings from this method only;
+            # every value stays a bound `?` parameter.
             connection.execute(
-                f"UPDATE execution SET {', '.join(fields)} WHERE id = ?",
+                f"UPDATE execution SET {', '.join(fields)} WHERE id = ?",  # nosec B608
                 values,
             )
 

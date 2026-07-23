@@ -55,6 +55,9 @@ def ollama_chat(messages: list[dict[str, str]], config: dict | None = None) -> s
     model: str = cfg["model"]
     timeout: float = cfg["timeout"]
     api_key: str = cfg["api_key"]
+    # Scheme allow-list: only operator-configured http(s) endpoints are contacted.
+    if not url.startswith(("http://", "https://")):
+        return None
 
     payload = {"model": model, "messages": messages, "temperature": 0.2, "stream": False}
     body = json.dumps(payload).encode("utf-8")
@@ -65,7 +68,7 @@ def ollama_chat(messages: list[dict[str, str]], config: dict | None = None) -> s
     # Try OpenAI-compatible first
     try:
         req = request.Request(url, data=body, headers=headers, method="POST")
-        with request.urlopen(req, timeout=timeout) as resp:
+        with request.urlopen(req, timeout=timeout) as resp:  # nosec B310
             data = json.loads(resp.read().decode("utf-8"))
             content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
             if isinstance(content, str) and content.strip():
@@ -86,7 +89,7 @@ def ollama_chat(messages: list[dict[str, str]], config: dict | None = None) -> s
             native_req = request.Request(
                 native_url, data=native_body, headers=headers, method="POST"
             )
-            with request.urlopen(native_req, timeout=timeout) as resp:
+            with request.urlopen(native_req, timeout=timeout) as resp:  # nosec B310
                 data = json.loads(resp.read().decode("utf-8"))
                 content = data.get("message", {}).get("content", "")
                 if isinstance(content, str) and content.strip():
