@@ -1,68 +1,137 @@
-# Auto System Agent
+# Team Automation Hub
 
-**Auto System Agent** is a simple cross-platform Agentic AI designed to automate operating system tasks using natural language commands.
+**A governed, event-driven platform for safe OS automation** — built as the
+Software Engineering project of Amir Khoshdel Louyeh (557530) and Alireza
+Refahifard (557192), Prof. Distefano, October 2026.
 
-The system allows users to type instructions such as installing applications, creating folders, running terminal commands, or managing files. An AI agent interprets these instructions and selects the appropriate system tools to execute the requested task.
+> **The AI proposes; deterministic project-owned logic disposes; the
+> repository remembers.**
 
-The project is designed to work across **Windows, Linux, and macOS** by detecting the operating system and using the correct commands or package managers for each platform.
+The platform converts a natural-language request or a versioned YAML workflow
+into a validated, policy-controlled and auditable execution plan: schema/DAG
+validation → risk and authorization policy → approval when risky →
+event-driven workers on Redis Streams → verification, hash-chain audit and
+replay. An LLM is an *optional* planner fallback — never the authority for
+authorization, risk, execution or audit.
 
-The goal of this project is to demonstrate how **agent-based AI systems can automate everyday system operations** in a practical and controlled way while maintaining safety through restricted command execution.
+Proposal: `SE_Proposal_v4.tmp` (v4.0) · Approval & frozen scope:
+[`docs/PROPOSAL_APPROVAL.md`](docs/PROPOSAL_APPROVAL.md) · Progress:
+[`docs/IMPLEMENTATION_STATUS.md`](docs/IMPLEMENTATION_STATUS.md)
 
-## Key Features
+## Quickstart (clean machine, < 10 minutes)
 
-- Natural language command interface
-- AI agent for task interpretation
-- Modular tool-based architecture
-- Cross-platform OS support
-- File and folder management
-- Application installation via system package managers
-- Safe command execution
+```bash
+# 0. prerequisites: Python >= 3.10 (3.12 in Docker), Docker + Compose v2 optional
+git clone <repo> && cd auto-system-agent
 
-## Example Commands
+# 1. install dependencies (stdlib-only client + API + dev toolchain)
+pip install -r requirements.txt -r requirements-api.txt -r requirements-dev.txt
 
+# 2. run the test suite (215 tests, hermetic — no services needed)
+python -m pytest tests -q
 
-install vlc
-create folder test
-open firefox
-list files in downloads
+# 3. start the API locally
+PYTHONPATH=src uvicorn app.main:app --host 127.0.0.1 --port 8000
+curl http://127.0.0.1:8000/health          # -> {"status":"healthy",...}
+curl -X POST http://127.0.0.1:8000/auth/login \
+     -H 'content-type: application/json' \
+     -d '{"username":"admin","password":"admin"}'   # dev defaults
+```
 
+Full stack (API + PostgreSQL + Redis):
 
-## Goal of the Project
+```bash
+cp .env.example .env        # change SECRET_KEY / passwords for anything real
+docker compose up --build   # api :8000, db :5432, redis :6379 (healthchecked)
+```
 
-This project focuses on **simplicity and practical functionality**, providing a basic framework for building AI agents that interact with operating systems.
+Desktop client (Tkinter, stdlib-only):
 
-Future improvements may include a graphical interface, more tools, multi-step task planning, and expanded application libraries.
+```bash
+python main.py --gui
+```
 
-## LLM Token Setup
+## Architecture
 
-The app supports two modes so installers can ship a ready-to-use setup while advanced users can override with their own token.
+```text
+Tkinter/API Client
+        |
+        v
+FastAPI application (src/app)
+  Auth/RBAC | Workflow API | Run API | Approval API | Audit API
+        |
+        +--> Planner and DSL validator   (src/orchestration, src/engine)
+        +--> Policy engine               (src/safety)
+        +--> DAG executor                (src/engine/executor)
+        +--> Memory/reputation services  (src/storage, src/memory)
+        |
+        +--> PostgreSQL: users, workflows, runs, approvals, audit
+        +--> Redis Streams: typed events, retries, DLQ, replay  (src/bus)
+        +--> Workers: shell, approval, GUI contract, custom sandbox
+```
 
-### 1) Bundled mode (preconfigured)
+The implementation is a **service-oriented monolith first**: explicit Python
+modules and typed contracts that can be extracted into services later without
+changing the API or event schemas.
 
-Set these environment variables before launching the app:
+### Repository layout
 
-- `AUTO_AGENT_DEFAULT_LLM_URL`
-- `AUTO_AGENT_DEFAULT_LLM_API_KEY`
-- `AUTO_AGENT_DEFAULT_LLM_MODEL` (optional, default is `gpt-4o-mini`)
-- `AUTO_AGENT_DEFAULT_LLM_TIMEOUT` (optional, default is `8`)
+```text
+src/
+  app/            FastAPI factory, settings, auth, models, migrations/
+  engine/
+    dsl/          YAML loader, grammar, compiler, placeholder resolution
+    validator/    schema, edges, Kahn cycle detection, policy checks (+ fixtures/)
+    executor/     DAG scheduler, gate, retry/timeout, compensation
+  safety/         command guard: allow-list, risk scoring, path boundaries
+  bus/            event contracts, Redis Streams backend, consumers, workers/
+  storage/        repositories, audit hash chain, metrics, settings, templates
+  orchestration/  planner, agent, safe executor, evaluator
+  services/       optional LLM adapters (offline planner is first)
+  tools/          workspace, file and install adapters
+  ui/             Tkinter client
+  workflows/      versioned example workflows (YAML)
+tests/
+  unit/  integration/  acceptance/
+docs/             approval, conventions, issue backlog, traceability, notices
+```
 
-Then open the GUI and keep **Settings -> LLM Settings -> Provider Mode = Bundled**.
+### Frozen contracts (MVP)
 
-### 2) Custom mode (user token)
+- **5 node types:** `shell`, `gui_click`, `gui_type`, `approval`, `custom`
+- **3 triggers:** manual API, `file.arrived`, cron/schedule
+- **4 roles:** `OWNER`, `OPERATOR`, `APPROVER`, `VIEWER` (JWT-protected API)
+- **Events:** `plan.created`, `approval.requested`, `step.failed`,
+  `file.arrived`, `schedule.tick`, `step.dispatched`, `step.finished` —
+  every event carries `correlation_id` and `idempotency_key`
+- Deferred features are labelled **STRETCH** and never gate a demo.
 
-Each user can configure their own provider values:
+## Quality gates (run before every commit)
 
-1. Open **Settings -> LLM Settings**.
-2. Select **Provider Mode = Custom**.
-3. Fill in URL, API key, model, and timeout.
-4. Save.
+```bash
+ruff format --check . && ruff check .   # format + lint
+mypy src                                # types
+python -m pytest tests --cov=src        # tests + coverage floor
+bandit -r src -ll -ii                    # security (medium+)
+pip-audit -r requirements-api.txt       # dependency audit
+```
 
-The values are stored locally at `~/.auto_system_agent/settings.json` and are used by the GUI.
+CI (`.github/workflows/ci.yml`) runs exactly this chain plus the Docker
+image build. Conventions: [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) ·
+Traceability: [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md) ·
+Third-party licenses: [`docs/THIRD_PARTY_NOTICES.md`](docs/THIRD_PARTY_NOTICES.md)
 
-## Author
+## Implementation phases
 
-Amir Khoshdel Louyeh
+The work is broken into 11 gated phases (proposal §15, 98 numbered items
+mirrored as issues in [`docs/issues/BACKLOG.md`](docs/issues/BACKLOG.md)):
+scope/quality baseline → API/auth/DB → DSL validator → DAG/policy/approvals →
+Redis bus/workers → audit/metrics/replay → planner → memory/reputation →
+sandbox/UI → hardening → final SE package. A phase is only marked **OK**
+when its gate passes; see `docs/IMPLEMENTATION_STATUS.md`.
 
-## License
+## Authors & license
 
-MIT
+Amir Khoshdel Louyeh, Alireza Refahifard — MIT (see `README` history for the
+original Auto System Agent client, which this platform now hosts as its
+Tkinter client).
