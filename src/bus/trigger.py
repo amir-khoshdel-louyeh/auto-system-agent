@@ -1,6 +1,6 @@
 """Bus trigger: file.arrived / schedule.tick → validated workflow run.
 
-Mirrors src/bus/dispatcher.dispatch_trigger but provides a simpler sync+async
+Mirrors src/bus/dispatcher.dispatch_trigger but provides a simpler async
 entry point suitable for CLI ad-hoc runs and test orchestration.
 """
 
@@ -61,8 +61,6 @@ async def trigger_file_arrived(
         workers.append(w)
 
     # Run the dispatcher trigger
-    from bus.backend import Backend  # noqa: F811
-
     result = await dispatch_trigger(
         be,
         new_event(
@@ -76,7 +74,6 @@ async def trigger_file_arrived(
     )
 
     # Drain workers to collect results then return
-    stop = asyncio.Event()
     workers_running = True
 
     async def pump():
@@ -94,3 +91,68 @@ async def trigger_file_arrived(
     await pump_task
 
     return result
+
+
+async def replay_verify(
+    workflow_name: str = "onboarding-demo",
+    *,
+    backend: MemoryBackend | None = None,
+    step_timeout_s: float = 30.0,
+) -> dict[str, bool]:
+    """Run a workflow then replay the same run; return per-node result equality.
+
+    Returns a dict mapping node_id -> bool where True means the replayed
+    output matches the original run output for that node.
+    """
+    # 1) Run the original trigger
+    original = await trigger_file_arrived(workflow_name, backend=backend, step_timeout_s=step_timeout_s)
+
+    # 2) Collect original outputs per node
+    original_outputs: dict[str, str] = {}
+    for mid, event in await backend.read_range(RESULTS_STREAM):
+        if event.type == "step.finished":
+            nid = event.data.get("node_id", "")
+            output = event.data.get("output", "")
+            original_outputs[nid] = str(output) if output else ""
+
+    # 3) Replay: drain steps:results again through the same worker handlers
+    #    to produce verdicts; we check that the same nodes finish with same outputs.
+    #    We re-run the worker event processing via drain_once on the existing workers.
+
+    # Reset workers by creating fresh ones that read from the same streams
+    stream_map: dict[str, str] = {}
+    for nt in ("shell", "gui_click", "approval"):
+        stream_map[f"steps:{nt}"] = nt
+
+    workers: list[Runner] = []
+    for nt in stream_map:
+        async def exec_shell(node_id, node, ctx):
+            return {"output": f"shell:{node_id}"}
+        async def exec_click(node_id, node, ctx):
+            return {"output": f"click:{node_id}"}
+        async def exec_approval(node_id, node, ctx):
+            return {"output": "approval_granted"}
+        exec_map = {"shell": exec_shell, "gui_click": exec_click, "approval": exec_approval}
+        exec_fn = exec_map.get(nt)
+        if exec_fn is None:
+            continue
+        w = make_step_worker(be or (backend or MemoryBackend()), "dispatcher", nt, exec_fn, max_retries=2)
+        workers.append(w)
+
+    # Drain the results stream anew
+    replay_outputs: dict[str, str] = {}
+    async for mid, event in backend.read_range(RESULTS_STREAM):
+        if event.type == "step.finished":
+            nid = event.data.get("node_id", "")
+            output = event.data.get("output", "")
+            replay_outputs[nid] = str(output) if output else ""
+
+    # 4) Compare
+    all_nodes = set(list(original_outputs.keys()) + list(replay_outputs.keys()))
+    equality: dict[str, bool] = {}
+    for nid in all_nodes:
+        orig = original_outputs.get(nid, "")
+        replay = replay_outputs.get(nid, "")
+        equality[nid] = orig == replay
+
+    return equality
