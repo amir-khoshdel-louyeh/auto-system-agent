@@ -61,7 +61,11 @@ def desktop_candidates(text: str, dirs: list[Path] | None = None) -> list[AppCan
         return []
     found: list[AppCandidate] = []
     try:
-        matches = find_desktop_matches(needle, dirs=dirs) if dirs is not None else find_desktop_matches(needle)
+        matches = (
+            find_desktop_matches(needle, dirs=dirs)
+            if dirs is not None
+            else find_desktop_matches(needle)
+        )
     except Exception:
         return []
     for name, file_id in matches:
@@ -109,7 +113,12 @@ def flatpak_candidates(text: str, table: list[tuple[str, str]] | None = None) ->
     for ref, name in rows:
         if needle in ref.lower() or needle in name.lower():
             found.append(
-                AppCandidate(display=name, identifier=ref, source="flatpak", exact=needle in (ref.lower(), name.lower()))
+                AppCandidate(
+                    display=name,
+                    identifier=ref,
+                    source="flatpak",
+                    exact=needle in (ref.lower(), name.lower()),
+                )
             )
     return found
 
@@ -180,5 +189,10 @@ def resolve_app(text: str) -> list[AppCandidate]:
             continue
         seen.add(key)
         ranked.append(candidate)
-    ranked.sort(key=lambda item: (not item.exact, {"flatpak": 0, "system": 1, "desktop": 2}.get(item.source, 3)))
+    ranked.sort(
+        key=lambda item: (
+            not item.exact,
+            {"flatpak": 0, "system": 1, "desktop": 2}.get(item.source, 3),
+        )
+    )
     return ranked

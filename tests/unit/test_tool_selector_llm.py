@@ -1,8 +1,8 @@
 import unittest
-from pathlib import Path
 
 from models import PlannedTask
 from platforms.tool_selector import ToolSelector
+
 
 class FakeMapper:
     def __init__(self, value):
@@ -13,12 +13,15 @@ class FakeMapper:
         self.calls += 1
         return self.value
 
+
 class ToolSelectorLLMTests(unittest.TestCase):
     def test_deterministic_path_wins_for_known_action(self):
         mapper = FakeMapper("help")
         selector = ToolSelector(llm_mapper=mapper)
 
-        task = PlannedTask(action="run_command", target="touch ~/Downloads/test.py", raw_input="make a file")
+        task = PlannedTask(
+            action="run_command", target="touch ~/Downloads/test.py", raw_input="make a file"
+        )
         self.assertEqual(selector.select(task), "run_command")
         self.assertEqual(mapper.calls, 0)
 
@@ -58,6 +61,7 @@ class ToolSelectorLLMTests(unittest.TestCase):
 
         task = PlannedTask(action="unknown", raw_input="show files in downloads")
         self.assertEqual(selector.select(task), "unknown")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -20,32 +20,42 @@ APPROVALS_STREAM = "approvals"
 STUB_APPROVER = "stub-approver (phase 6: human quorum)"
 
 
-async def execute_approval(node_id: str, node: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
+async def execute_approval(
+    node_id: str, node: dict[str, Any], ctx: dict[str, Any]
+) -> dict[str, Any]:
     """Request, record, then stub-decide one approval node."""
     backend: Backend = ctx["backend"]
     run_id: str = ctx["run_id"]
     quorum = node.get("params", {}).get("quorum", 1)
     await backend.publish(
         APPROVALS_STREAM,
-        new_event("approval.requested",
-                  {"run_id": run_id, "node_id": node_id, "quorum": quorum},
-                  correlation_id=run_id,
-                  idempotency_key=f"{run_id}:{node_id}:approval"),
+        new_event(
+            "approval.requested",
+            {"run_id": run_id, "node_id": node_id, "quorum": quorum},
+            correlation_id=run_id,
+            idempotency_key=f"{run_id}:{node_id}:approval",
+        ),
     )
     recorder = ctx.get("recorder")
-    execution_id = ctx.get("data", {}).get("execution_id", "") if isinstance(ctx.get("data"), dict) else ""
+    execution_id = (
+        ctx.get("data", {}).get("execution_id", "") if isinstance(ctx.get("data"), dict) else ""
+    )
     if quorum == 1:
         if recorder is not None and execution_id:
-            recorder.add_approval(execution_id, node_id, "approved",
-                                  decided_by=STUB_APPROVER, reason="quorum 1")
+            recorder.add_approval(
+                execution_id, node_id, "approved", decided_by=STUB_APPROVER, reason="quorum 1"
+            )
         return {"decision": "approved", "decided_by": STUB_APPROVER}
     if recorder is not None and execution_id:
-        recorder.add_approval(execution_id, node_id, "pending",
-                              decided_by="", reason="needs human quorum (phase 6)")
+        recorder.add_approval(
+            execution_id, node_id, "pending", decided_by="", reason="needs human quorum (phase 6)"
+        )
     raise ApprovalRequired(f"approval node '{node_id}': needs human quorum (phase 6)")
 
 
-def make_approval_worker(backend: Backend, group: str, ctx_extra: dict[str, Any] | None = None) -> Runner:
+def make_approval_worker(
+    backend: Backend, group: str, ctx_extra: dict[str, Any] | None = None
+) -> Runner:
     """Runner over `steps:approval` (extra ctx merged per task)."""
 
     async def run(node_id: str, node: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:

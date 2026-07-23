@@ -1,7 +1,7 @@
 import unittest
-from pathlib import Path
 
 from ui.real_terminal import RealTerminalFrame
+
 
 def _frame_without_display():
     frame = RealTerminalFrame.__new__(RealTerminalFrame)
@@ -9,6 +9,7 @@ def _frame_without_display():
     calls: list[str] = []
     frame.bell = lambda: calls.append("bell")  # type: ignore[method-assign]
     return frame, calls
+
 
 class InputAlertTests(unittest.TestCase):
     def test_sudo_prompt_bells(self):
@@ -48,6 +49,7 @@ class InputAlertTests(unittest.TestCase):
         frame._last_bell_at = time.monotonic() - real_terminal._BELL_DEBOUNCE_SECONDS - 1
         self.assertTrue(frame._maybe_alert("[sudo] password for amir: "))
         self.assertEqual(calls, ["bell", "bell"])
+
 
 if __name__ == "__main__":
     unittest.main()

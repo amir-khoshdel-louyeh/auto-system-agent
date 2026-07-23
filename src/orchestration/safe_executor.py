@@ -1,12 +1,11 @@
-import queue
 import shlex
 import threading
 from concurrent.futures import Future, ThreadPoolExecutor
 from pathlib import Path
 
-from safety.command_guard import assess_command, check_command
 from models import ExecutionResult, PlannedTask
 from orchestration.terminal import TerminalSession
+from safety.command_guard import assess_command, check_command
 
 _VERDICT_TO_LEVEL = {"ALLOW": "low", "CONFIRM": "medium", "DENY": "high"}
 
@@ -79,7 +78,9 @@ def compensation_for(command: str) -> str | None:
     for manager, install_verb, remove_verb in _INSTALL_REMOVE_PAIRS:
         lowered = [a.lower() for a in args]
         if prog == manager and install_verb.lower() in lowered:
-            pkgs = [a for a in args if a and not a.startswith("-") and a.lower() != install_verb.lower()]
+            pkgs = [
+                a for a in args if a and not a.startswith("-") and a.lower() != install_verb.lower()
+            ]
             if not pkgs:
                 return None
             return shlex.join(sudo_prefix + [argv[0]] + remove_verb.split() + pkgs)
@@ -107,7 +108,9 @@ class SafeExecutor:
         queue_size: int = STEP_QUEUE_SIZE,
     ) -> None:
         self._terminal = terminal or TerminalSession()
-        self._pool = ThreadPoolExecutor(max_workers=max(1, max_workers), thread_name_prefix="safe-exec")
+        self._pool = ThreadPoolExecutor(
+            max_workers=max(1, max_workers), thread_name_prefix="safe-exec"
+        )
         self._slots = threading.Semaphore(max(1, queue_size))
         self._queue_size = max(1, queue_size)
         self._depth = 0
@@ -211,6 +214,7 @@ class SafeExecutor:
     def _working_directory(self, value):
         # Allow tests to set working directory
         from pathlib import Path
+
         try:
             p = Path(value).resolve()
             if p.exists() and p.is_dir():
@@ -350,7 +354,9 @@ class SafeExecutor:
                         "command": command,
                         "guard": "policy",
                         "policy_decision": "blocked",
-                        "policy_reason": assessment["reasons"][0] if assessment["reasons"] else "deny-list",
+                        "policy_reason": assessment["reasons"][0]
+                        if assessment["reasons"]
+                        else "deny-list",
                         "risk_score": assessment["score"],
                         "risk_level": _VERDICT_TO_LEVEL["DENY"],
                         "verdict": "DENY",

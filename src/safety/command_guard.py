@@ -9,15 +9,14 @@ built from an operator-aware tokenizer, so later steps can score risk and
 enforce verdicts without a direct `bash -lc` bypass.
 """
 
-from dataclasses import dataclass, field
 import shlex
 import shutil
 import subprocess
 import time
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from platforms.os_utils import REMOVE_VERBS, UNINSTALL_MANAGERS, detect_os
-
 
 # ---------------------------------------------------------------------------
 # P1.1a: shell AST nodes + operator-aware tokenizer + simple-command parser.
@@ -355,6 +354,7 @@ def iter_redir_targets(node: ShellNode) -> list[tuple[str, str]]:
 # check_command() behaviour is unchanged here; P1.2 consumes these helpers.
 # ---------------------------------------------------------------------------
 
+
 def detect_expansions(text: str) -> list[str]:
     """List unsafe shell expansions in raw text: $(), ${}, $VAR, backticks."""
     found: list[str] = []
@@ -486,6 +486,7 @@ def node_shell_features(node: ShellNode) -> dict[str, list[str]]:
                 globs.append(item)
     return {"expansions": expansions, "globs": globs}
 
+
 # ---------------------------------------------------------------------------
 # P1.2: risk tables (weights per proposal.txt P1.2). Scoring helpers follow
 # in later portions; this portion only adds constants, no behaviour change.
@@ -521,9 +522,31 @@ _SHELL_PROGS = {"bash", "sh", "dash", "zsh", "fish", "ksh", "pwsh", "powershell"
 
 #: P1.2b allow-list: read-only / reversible commands that stay ALLOW on low score.
 _ALLOW_PROGS = {
-    "ls", "pwd", "whoami", "date", "uname", "df", "du", "ps", "cat", "head",
-    "tail", "grep", "find", "wc", "sort", "uniq", "echo", "printf", "true",
-    "false", "which", "who", "id", "uptime", "lsb_release",
+    "ls",
+    "pwd",
+    "whoami",
+    "date",
+    "uname",
+    "df",
+    "du",
+    "ps",
+    "cat",
+    "head",
+    "tail",
+    "grep",
+    "find",
+    "wc",
+    "sort",
+    "uniq",
+    "echo",
+    "printf",
+    "true",
+    "false",
+    "which",
+    "who",
+    "id",
+    "uptime",
+    "lsb_release",
 }
 
 
@@ -672,8 +695,17 @@ def _leaf_remove_package(argv: list[str]) -> str | None:
     if verb_at is None:
         return None
     skip = {
-        "-y", "--yes", "-e", "--exact", "--noconfirm", "--id",
-        "--silent", "-q", "--quiet", "--delete-data", "--all",
+        "-y",
+        "--yes",
+        "-e",
+        "--exact",
+        "--noconfirm",
+        "--id",
+        "--silent",
+        "-q",
+        "--quiet",
+        "--delete-data",
+        "--all",
     }
     for token in argv[verb_at + 1 :]:
         if not token or token in skip or token.startswith("-"):
@@ -856,7 +888,9 @@ def _has_pipe_to_shell(node: ShellNode) -> bool:
     if isinstance(node, PipeNode):
         left_progs = {_effective_argv(c.argv)[0] for c in iter_command_nodes(node.left) if c.argv}  # type: ignore[arg-type]
         right_progs = {_effective_argv(c.argv)[0] for c in iter_command_nodes(node.right) if c.argv}  # type: ignore[arg-type]
-        if left_progs & _DOWNLOAD_PROGS and right_progs & (_SHELL_PROGS | {"sudo", "python", "python3", "perl", "ruby", "node"}):
+        if left_progs & _DOWNLOAD_PROGS and right_progs & (
+            _SHELL_PROGS | {"sudo", "python", "python3", "perl", "ruby", "node"}
+        ):
             return True
         # Recurse: `a | b | sh` nests on the right.
         return _has_pipe_to_shell(node.left) or _has_pipe_to_shell(node.right)  # type: ignore[arg-type]
@@ -918,6 +952,7 @@ def _effective_prog(leaf: CommandNode) -> str:
 def _check_path(leaves: list[CommandNode]) -> str | None:
     """PATH check via shutil.which; skips builtins and empty/redir-only leaves."""
     from platforms.os_utils import detect_os  # local import: cheap, no cycle
+
     _ = detect_os
     for leaf in leaves:
         if not leaf.argv:
@@ -970,7 +1005,7 @@ def score_command(text: str) -> tuple[int, list[str]]:
     leaves = iter_command_nodes(node)
     redirs = iter_redir_targets(node)
     total = 0
-    reasons: list[str] = []
+    reasons = []
     for scorer in (
         _score_privilege(leaves),
         _score_destructiveness(leaves, raw),
@@ -999,11 +1034,34 @@ def score_command(text: str) -> tuple[int, list[str]]:
         total = max(total, worst)
     return min(100, total), reasons
 
+
 # Handled inside TerminalSession / the pty shell, not real executables.
 _SHELL_BUILTINS = {
-    "cd", "pwd", "history", "clear", "exit", "echo", "true", "false", ":",
-    "test", "[", "export", "source", ".", "alias", "unalias", "type",
-    "command", "hash", "printf", "pushd", "popd", "dirs", "read", "time",
+    "cd",
+    "pwd",
+    "history",
+    "clear",
+    "exit",
+    "echo",
+    "true",
+    "false",
+    ":",
+    "test",
+    "[",
+    "export",
+    "source",
+    ".",
+    "alias",
+    "unalias",
+    "type",
+    "command",
+    "hash",
+    "printf",
+    "pushd",
+    "popd",
+    "dirs",
+    "read",
+    "time",
 }
 
 # Linux file/URL openers: a bare word that is not a file is an app guess.
@@ -1039,7 +1097,12 @@ def assess_command(command: str) -> dict:
     if deny:
         reasons = [deny] + reasons
         score = max(score, 85)
-        return {"verdict": "DENY", "score": min(100, score), "reasons": reasons, "canonical_form": canonical}
+        return {
+            "verdict": "DENY",
+            "score": min(100, score),
+            "reasons": reasons,
+            "canonical_form": canonical,
+        }
     missing = _check_path(leaves)
     if missing:
         reasons = reasons + [f"missing binary '{missing}'"]

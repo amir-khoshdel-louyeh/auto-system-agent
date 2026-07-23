@@ -15,6 +15,7 @@ from storage.metrics import (
     throughput,
 )
 
+
 class MetricsTests(unittest.TestCase):
     def test_cpu_delta_math(self):
         self.assertEqual(cpu_percent_between((100, 1000), (150, 1200)), 75.0)
@@ -48,11 +49,12 @@ class MetricsTests(unittest.TestCase):
         self.assertEqual(throughput(120, 60), 2.0)
         self.assertEqual(throughput(5, 0), 0.0)
 
+
 class TemplateTests(unittest.TestCase):
     def test_save_replay_and_rates(self):
         import tempfile
 
-        from storage.templates import TemplateStore, validate_plan
+        from storage.templates import TemplateStore
 
         with tempfile.TemporaryDirectory() as tmp:
             store = TemplateStore(db_path=Path(tmp) / "audit.db")
@@ -65,15 +67,18 @@ class TemplateTests(unittest.TestCase):
             )
             self.assertEqual(template.runs, 0)
             tasks = store.replay("demo", raw_input="make demo")
-            self.assertEqual([(t.action, t.target) for t in tasks], [("run_command", "mkdir -p demo"), ("run_command", "touch demo/a.txt")])
+            self.assertEqual(
+                [(t.action, t.target) for t in tasks],
+                [("run_command", "mkdir -p demo"), ("run_command", "touch demo/a.txt")],
+            )
             self.assertEqual(store.record_run("demo", True).success_rate, 100.0)
             self.assertEqual(store.record_run("demo", False).success_rate, 50.0)
             self.assertEqual(store.list_names(), ["demo"])
 
     def test_invalid_plans_rejected(self):
-        from storage.templates import TemplateStore
-
         import tempfile
+
+        from storage.templates import TemplateStore
 
         with tempfile.TemporaryDirectory() as tmp:
             store = TemplateStore(db_path=Path(tmp) / "audit.db")
@@ -93,9 +98,10 @@ class TemplateTests(unittest.TestCase):
             with self.assertRaises(KeyError):
                 store.record_run("missing", True)
 
+
 class NotificationTests(unittest.TestCase):
     def test_notify_never_raises(self):
-        from storage.notifications import ResultCache, notify, result_key
+        from storage.notifications import notify
 
         self.assertFalse(notify("t", ""))
         self.assertIsInstance(notify("hello", "world", os_name="linux"), bool)
@@ -130,25 +136,29 @@ class NotificationTests(unittest.TestCase):
             self.assertFalse(notifications.notify("t", "m", os_name="linux"))
             self.assertFalse(notifications.notify("t", "m", os_name="macos"))
             self.assertFalse(notifications.notify("t", "m", os_name="windows"))
-        with patch.object(notifications.shutil, "which", return_value="/usr/bin/x"), patch.object(
-            notifications.subprocess, "run", return_value=Done()
+        with (
+            patch.object(notifications.shutil, "which", return_value="/usr/bin/x"),
+            patch.object(notifications.subprocess, "run", return_value=Done()),
         ):
             self.assertTrue(notifications.notify("t", "m", os_name="linux"))
             self.assertTrue(notifications.notify("t", "m", os_name="macos"))
             self.assertTrue(notifications.notify("t", "m", os_name="windows"))
-        with patch.object(notifications.shutil, "which", return_value="/usr/bin/x"), patch.object(
-            notifications.subprocess, "run", return_value=Failed()
+        with (
+            patch.object(notifications.shutil, "which", return_value="/usr/bin/x"),
+            patch.object(notifications.subprocess, "run", return_value=Failed()),
         ):
             self.assertFalse(notifications.notify("t", "m", os_name="linux"))
-        with patch.object(
-            notifications.subprocess, "run", side_effect=OSError("no exec")
-        ), patch.object(notifications.shutil, "which", return_value="/usr/bin/x"):
+        with (
+            patch.object(notifications.subprocess, "run", side_effect=OSError("no exec")),
+            patch.object(notifications.shutil, "which", return_value="/usr/bin/x"),
+        ):
             self.assertFalse(notifications.notify("t", "m", os_name="linux"))
+
 
 class EvaluatorBranchTests(unittest.TestCase):
     def _evaluate(self, message, success=False, scratchpad=None):
-        from orchestration.evaluator import Evaluator
         from models import ExecutionResult, PlannedTask
+        from orchestration.evaluator import Evaluator
 
         return Evaluator().evaluate(
             "goal",
@@ -167,7 +177,9 @@ class EvaluatorBranchTests(unittest.TestCase):
     def test_llm_verdict_parsing(self):
         from orchestration.evaluator import Evaluator
 
-        parsed = Evaluator._parse_llm_verdict('{"verdict": "retry", "reason": "typo", "fixed_command": "ls"}')
+        parsed = Evaluator._parse_llm_verdict(
+            '{"verdict": "retry", "reason": "typo", "fixed_command": "ls"}'
+        )
         self.assertIsNotNone(parsed)
         self.assertEqual(parsed.verdict, "retry")
         self.assertIsNone(Evaluator._parse_llm_verdict("no json here"))
@@ -178,6 +190,7 @@ class EvaluatorBranchTests(unittest.TestCase):
         from orchestration.evaluator import Evaluator
 
         self.assertFalse(Evaluator()._repeated_failures("", []))
+
 
 if __name__ == "__main__":
     unittest.main()

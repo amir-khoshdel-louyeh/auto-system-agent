@@ -115,7 +115,11 @@ class MemoryBackend(Backend):
         self, stream: str, start: int = 0, end: int | None = None
     ) -> list[tuple[str, Event]]:
         entries = self._streams.get(stream, [])
-        return [(mid, evt) for mid, evt in entries if start <= int(mid.split("-")[0]) and (end is None or int(mid.split("-")[0]) <= end)]
+        return [
+            (mid, evt)
+            for mid, evt in entries
+            if start <= int(mid.split("-")[0]) and (end is None or int(mid.split("-")[0]) <= end)
+        ]
 
     async def to_dlq(self, stream: str, event: Event, reason: str) -> str:
         self._seq += 1

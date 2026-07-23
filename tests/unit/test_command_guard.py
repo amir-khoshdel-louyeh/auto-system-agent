@@ -1,12 +1,14 @@
 import unittest
 from pathlib import Path
 
-from safety.command_guard import assess_command, check_command, find_desktop_matches
 from models import PlannedTask
 from orchestration.safe_executor import SafeExecutor
+from safety.command_guard import assess_command, check_command, find_desktop_matches
+
 
 def _run(cmd: str) -> str | None:
     return check_command(cmd)
+
 
 class CommandGuardTests(unittest.TestCase):
     def test_existing_binary_passes(self):
@@ -53,7 +55,9 @@ class CommandGuardTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             entry = Path(tmp) / "my-outlook-pwa.desktop"
-            entry.write_text("[Desktop Entry]\nName=Outlook PWA\nExec=chrome --app=x\n", encoding="utf-8")
+            entry.write_text(
+                "[Desktop Entry]\nName=Outlook PWA\nExec=chrome --app=x\n", encoding="utf-8"
+            )
             matches = find_desktop_matches("outlook", dirs=[Path(tmp)])
             self.assertEqual(len(matches), 1)
             self.assertEqual(matches[0][0], "Outlook PWA")
@@ -71,6 +75,7 @@ class CommandGuardTests(unittest.TestCase):
             self.assertFalse(result.success)
             self.assertIn("xdg-open", result.message)
             mocked.assert_not_called()
+
 
 class RiskVerdictTests(unittest.TestCase):
     """P1.4: verdict + score locked per command (ALLOW<=30/CONFIRM<=70/DENY>70)."""
@@ -214,6 +219,7 @@ class RiskVerdictTests(unittest.TestCase):
                     f"{command}: {result['reasons']}",
                 )
 
+
 class ParsingAndFeatureTests(unittest.TestCase):
     """P1.4: AST shape, syntax errors, expansion/glob, canonical, PATH."""
 
@@ -278,7 +284,7 @@ class ParsingAndFeatureTests(unittest.TestCase):
         ("echo `whoami`", ["backtick"]),
         ("echo $HOME", ["variable"]),
         ("echo ${HOME}", ["parameter"]),
-        ("echo \"$HOME\"", ["variable"]),
+        ('echo "$HOME"', ["variable"]),
         ("echo hello", []),
         ("echo '$HOME'", []),
         ("echo \\$HOME", []),
@@ -329,6 +335,7 @@ class ParsingAndFeatureTests(unittest.TestCase):
         self.assertEqual(missing, "definitely-not-a-real-binary-xyz")
         self.assertIsNone(_check_path(iter_command_nodes(parse_command("ls -la /tmp"))))
         self.assertIsNone(_check_path(iter_command_nodes(parse_command("cd /tmp"))))
+
 
 if __name__ == "__main__":
     unittest.main()

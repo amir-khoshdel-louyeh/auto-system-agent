@@ -1,12 +1,12 @@
 """Phase 0 (local-only, not committed): GET /health."""
 
 import unittest
-from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from app.main import create_app
 from app.settings import Settings
+
 
 class AppHealthTests(unittest.TestCase):
     def test_health_ok(self):
@@ -16,6 +16,7 @@ class AppHealthTests(unittest.TestCase):
         body = resp.json()
         self.assertEqual(body["status"], "healthy")
         self.assertEqual(body["version"], "0.1.0")
+
 
 if __name__ == "__main__":
     unittest.main()

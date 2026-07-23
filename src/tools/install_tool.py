@@ -7,7 +7,6 @@ from typing import List
 from models import ExecutionResult
 from platforms.os_utils import detect_linux_package_manager, detect_os
 
-
 APP_ALIASES = {
     "chrome": "google chrome",
     "google chrome browser": "google chrome",
@@ -93,7 +92,9 @@ def _resolve_app_name(library: dict, app_name: str) -> tuple[str | None, float]:
     return best_match, best_score
 
 
-def _build_linux_install_command(package_name: str, preferred_manager: str | None = None) -> list[str] | None:
+def _build_linux_install_command(
+    package_name: str, preferred_manager: str | None = None
+) -> list[str] | None:
     package_manager = (preferred_manager or "").strip().lower() or detect_linux_package_manager()
     if package_manager == "apt":
         return ["sudo", "apt", "install", "-y", package_name]
@@ -117,19 +118,27 @@ def verify_install_environment(command: list[str]) -> ExecutionResult:
     executable = command[0]
     if executable == "sudo":
         if shutil.which("sudo") is None:
-            return ExecutionResult(success=False, message="sudo is required but not available on this system.")
+            return ExecutionResult(
+                success=False, message="sudo is required but not available on this system."
+            )
 
         if len(command) < 2:
-            return ExecutionResult(success=False, message="Install command missing package manager executable.")
+            return ExecutionResult(
+                success=False, message="Install command missing package manager executable."
+            )
 
         package_manager = command[1]
         if shutil.which(package_manager) is None:
-            return ExecutionResult(success=False, message=f"Package manager not found: {package_manager}")
+            return ExecutionResult(
+                success=False, message=f"Package manager not found: {package_manager}"
+            )
 
         if hasattr(os, "geteuid") and os.geteuid() == 0:
             return ExecutionResult(success=True, message="Install environment verified.")
 
-        return ExecutionResult(success=True, message="Install environment verified. sudo may ask for password.")
+        return ExecutionResult(
+            success=True, message="Install environment verified. sudo may ask for password."
+        )
 
     if shutil.which(executable) is None:
         return ExecutionResult(success=False, message=f"Install executable not found: {executable}")

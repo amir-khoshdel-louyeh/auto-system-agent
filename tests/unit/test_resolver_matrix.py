@@ -4,9 +4,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from platforms import os_utils as resolver
 from models import PlannedTask
+from platforms import os_utils as resolver
 from platforms.tool_selector import ToolSelector
+
 
 class StrictMapper:
     """Explodes if the LLM is consulted for manager choice."""
@@ -20,6 +21,7 @@ class StrictMapper:
         if text.startswith("install ") or "install " in text:
             raise AssertionError(f"LLM must never pick a manager for: {text!r}")
         return self._fallback
+
 
 class ResolverMatrixTests(unittest.TestCase):
     """Native managers win per OS/distro; fallbacks engage when bins miss."""
@@ -84,19 +86,26 @@ class ResolverMatrixTests(unittest.TestCase):
 
     def test_rewrite_chain_orders_native_before_fallback(self):
         chain = resolver.rewrite_install(
-            "vlc", os_name="linux", distro_id="fedora", available=frozenset({"dnf", "flatpak", "snap"})
+            "vlc",
+            os_name="linux",
+            distro_id="fedora",
+            available=frozenset({"dnf", "flatpak", "snap"}),
         )
         self.assertTrue(chain[0].startswith("sudo dnf"), chain)
         self.assertEqual(len(chain), 3, chain)
 
     def test_unknown_capability_resolves_empty(self):
         self.assertEqual(
-            resolver.resolve("nope", os_name="linux", distro_id="ubuntu", available=frozenset({"apt"})),
+            resolver.resolve(
+                "nope", os_name="linux", distro_id="ubuntu", available=frozenset({"apt"})
+            ),
             [],
         )
 
     def test_live_probe_uses_which(self):
-        with patch("shutil.which", side_effect=lambda name: f"/usr/bin/{name}" if name == "dnf" else None):
+        with patch(
+            "shutil.which", side_effect=lambda name: f"/usr/bin/{name}" if name == "dnf" else None
+        ):
             self.assertEqual(resolver.live_available_binaries(), frozenset({"dnf"}))
 
     def test_distro_detection_from_injected_release(self):
@@ -109,14 +118,13 @@ class ResolverMatrixTests(unittest.TestCase):
             self.assertEqual(resolver.detect_linux_package_manager("fedora"), "dnf")
             self.assertEqual(resolver.detect_linux_distro(Path(tmp) / "missing"), "unknown")
 
+
 class SelectorDeterminismTests(unittest.TestCase):
     """select() rewrites installs without the LLM; other intents untouched."""
 
     def _select(self, command, system_config, available):
         mapper = StrictMapper()
-        with patch.object(
-            resolver, "live_available_binaries", return_value=frozenset(available)
-        ):
+        with patch.object(resolver, "live_available_binaries", return_value=frozenset(available)):
             selector = ToolSelector(llm_mapper=mapper, system_config=system_config)
             task = PlannedTask(action="run_command", target=command, raw_input=command)
             tool = selector.select(task)
@@ -189,6 +197,7 @@ class SelectorDeterminismTests(unittest.TestCase):
         self.assertEqual(selector.select(task), "help")
         self.assertEqual(mapper.calls, ["show help"])
 
+
 class AppDiscoveryTests(unittest.TestCase):
     """Dynamic discovery: icon labels, flatpak refs, system packages."""
 
@@ -199,7 +208,9 @@ class AppDiscoveryTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             entry = Path(tmp) / "spotify.desktop"
-            entry.write_text("[Desktop Entry]\nName=Spotify Music\nExec=spotify\n", encoding="utf-8")
+            entry.write_text(
+                "[Desktop Entry]\nName=Spotify Music\nExec=spotify\n", encoding="utf-8"
+            )
             found = app_resolver.desktop_candidates("spotify music", dirs=[Path(tmp)])
             self.assertEqual(len(found), 1)
             self.assertEqual(found[0].display, "Spotify Music")
@@ -211,7 +222,9 @@ class AppDiscoveryTests(unittest.TestCase):
 
         table = [("com.brave.Browser", "Brave"), ("org.videolan.VLC", "VLC")]
         found = app_resolver.flatpak_candidates("brave", table=table)
-        self.assertEqual([(item.identifier, item.exact) for item in found], [("com.brave.Browser", True)])
+        self.assertEqual(
+            [(item.identifier, item.exact) for item in found], [("com.brave.Browser", True)]
+        )
         self.assertEqual(app_resolver.flatpak_candidates("", table=table), [])
 
     def test_system_package_matching(self):
@@ -227,21 +240,24 @@ class AppDiscoveryTests(unittest.TestCase):
     def test_resolve_ranks_exact_first(self):
         from platforms import app_resolver
 
-        with unittest.mock.patch.object(
-            app_resolver, "flatpak_candidates", return_value=[]
-        ), unittest.mock.patch.object(
-            app_resolver, "system_package_candidates", return_value=[]
-        ), unittest.mock.patch.object(
-            app_resolver,
-            "desktop_candidates",
-            return_value=[
-                app_resolver.AppCandidate(display="VLC thing", identifier="x", source="desktop", exact=False)
-            ],
+        with (
+            unittest.mock.patch.object(app_resolver, "flatpak_candidates", return_value=[]),
+            unittest.mock.patch.object(app_resolver, "system_package_candidates", return_value=[]),
+            unittest.mock.patch.object(
+                app_resolver,
+                "desktop_candidates",
+                return_value=[
+                    app_resolver.AppCandidate(
+                        display="VLC thing", identifier="x", source="desktop", exact=False
+                    )
+                ],
+            ),
         ):
             ranked = app_resolver.resolve_app("vlc")
             self.assertEqual(len(ranked), 1)
             self.assertFalse(ranked[0].exact)
         self.assertEqual(app_resolver.resolve_app("   "), [])
+
 
 if __name__ == "__main__":
     unittest.main()

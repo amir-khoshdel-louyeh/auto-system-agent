@@ -8,13 +8,15 @@ import zipfile
 from pathlib import Path
 from unittest.mock import patch
 
-from safety.command_guard import assess_command
 from models import PlannedTask
 from orchestration.safe_executor import SafeExecutor
 from orchestration.terminal import TerminalSession
+from safety.command_guard import assess_command
+
 
 def _run(executor, command):
     return executor.execute("run_command", PlannedTask(action="run_command", target=command))
+
 
 class W1ScaffoldTests(unittest.TestCase):
     """W1: mkdir demo-app + venv + README; traversal gated, root wipe denied."""
@@ -62,6 +64,7 @@ class W1ScaffoldTests(unittest.TestCase):
         finally:
             executor.close()
 
+
 class W2InstallFallbackTests(unittest.TestCase):
     """W2: vlc/firefox resolve to native managers with fallback chains."""
 
@@ -101,10 +104,13 @@ class W2InstallFallbackTests(unittest.TestCase):
                 system_config={"os_name": "linux", "distro_id": "fedora"},
             )
             task = PlannedTask(
-                action="run_command", target="sudo apt install -y firefox", raw_input="install firefox"
+                action="run_command",
+                target="sudo apt install -y firefox",
+                raw_input="install firefox",
             )
             self.assertEqual(selector.select(task), "run_command")
             self.assertEqual(task.target, "sudo dnf install -y firefox")
+
 
 class W3LogBatchTests(unittest.TestCase):
     """W3: 500 logs, UTF-8 normalize, zip, checksum, parallel fan-out, no freeze."""
@@ -158,6 +164,7 @@ class W3LogBatchTests(unittest.TestCase):
                 _ = create_elapsed
             finally:
                 executor.close()
+
 
 if __name__ == "__main__":
     unittest.main()

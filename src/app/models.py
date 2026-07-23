@@ -92,7 +92,9 @@ class Recorder:
             )
             return vid
 
-    def start_execution(self, workflow_id: str, version: int, triggered_by: str = "manual") -> ExecutionRow:
+    def start_execution(
+        self, workflow_id: str, version: int, triggered_by: str = "manual"
+    ) -> ExecutionRow:
         """Insert a RUNNING execution row."""
         row = ExecutionRow(
             id=new_id(),
@@ -106,8 +108,16 @@ class Recorder:
             conn.execute(
                 "INSERT INTO executions (id, workflow_id, version, status, triggered_by,"
                 " started_at, finished_at, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-                (row.id, row.workflow_id, row.version, row.status, row.triggered_by,
-                 row.started_at, row.finished_at, row.error),
+                (
+                    row.id,
+                    row.workflow_id,
+                    row.version,
+                    row.status,
+                    row.triggered_by,
+                    row.started_at,
+                    row.finished_at,
+                    row.error,
+                ),
             )
         return row
 
@@ -119,8 +129,9 @@ class Recorder:
                 (status, utcnow(), error, execution_id),
             )
 
-    def add_approval(self, execution_id: str, node_id: str, verdict: str,
-                     decided_by: str = "", reason: str = "") -> ApprovalRow:
+    def add_approval(
+        self, execution_id: str, node_id: str, verdict: str, decided_by: str = "", reason: str = ""
+    ) -> ApprovalRow:
         """Insert an approval decision row."""
         row = ApprovalRow(
             id=new_id(),
@@ -135,7 +146,14 @@ class Recorder:
             conn.execute(
                 "INSERT INTO approvals (id, execution_id, node_id, verdict, decided_by,"
                 " decided_at, reason) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (row.id, row.execution_id, row.node_id, row.verdict, row.decided_by,
-                 row.decided_at, row.reason),
+                (
+                    row.id,
+                    row.execution_id,
+                    row.node_id,
+                    row.verdict,
+                    row.decided_by,
+                    row.decided_at,
+                    row.reason,
+                ),
             )
         return row

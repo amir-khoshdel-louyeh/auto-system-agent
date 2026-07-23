@@ -45,7 +45,7 @@ def _notify_windows(title: str, message: str) -> bool:
         "Windows.UI.Notifications, ContentType = WindowsRuntime] | Out-Null; "
         "$xml = \"<toast><visual><binding template='ToastText02'>"
         f"<text id='1'>{safe_title}</text><text id='2'>{safe_message}</text>"
-        "</binding></visual></toast>\"; "
+        '</binding></visual></toast>"; '
         "$doc = New-Object Windows.Data.Xml.Dom.XmlDocument; "
         "$doc.LoadXml($xml); "
         "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier("

@@ -56,7 +56,9 @@ class Event:
 
     def __post_init__(self) -> None:
         if self.type not in KNOWN_TYPES:
-            raise ValueError(f"unknown event type {self.type!r}; frozen set is {sorted(KNOWN_TYPES)}")
+            raise ValueError(
+                f"unknown event type {self.type!r}; frozen set is {sorted(KNOWN_TYPES)}"
+            )
         if not self.idempotency_key:
             raise ValueError("idempotency_key is required on every event")
 

@@ -10,7 +10,6 @@ import os
 from typing import Any
 from urllib import error, request
 
-
 OLLAMA_DEFAULT_URL = "http://localhost:11434/v1/chat/completions"
 OLLAMA_DEFAULT_MODEL = "llama3.1"
 OLLAMA_DEFAULT_TIMEOUT = 30.0
@@ -84,7 +83,9 @@ def ollama_chat(messages: list[dict[str, str]], config: dict | None = None) -> s
         native_payload = {"model": model, "messages": messages, "stream": False}
         native_body = json.dumps(native_payload).encode("utf-8")
         try:
-            native_req = request.Request(native_url, data=native_body, headers=headers, method="POST")
+            native_req = request.Request(
+                native_url, data=native_body, headers=headers, method="POST"
+            )
             with request.urlopen(native_req, timeout=timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 content = data.get("message", {}).get("content", "")

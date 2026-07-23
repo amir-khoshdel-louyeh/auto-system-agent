@@ -1,10 +1,9 @@
-import os
 import shutil
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from tools.install_tool import build_install_command, extract_known_apps, verify_install_environment
+
 
 class InstallToolTests(unittest.TestCase):
     def test_build_install_command_uses_apt_on_debian_family(self):
@@ -47,11 +46,14 @@ class InstallToolTests(unittest.TestCase):
         self.assertIn("vlc", known)
 
     def test_verify_install_environment_checks_sudo_and_package_manager(self):
-        with patch.object(shutil, "which", side_effect=lambda name: None if name == "dnf" else "/usr/bin/sudo"):
+        with patch.object(
+            shutil, "which", side_effect=lambda name: None if name == "dnf" else "/usr/bin/sudo"
+        ):
             result = verify_install_environment(["sudo", "dnf", "install", "-y", "vlc"])
 
         self.assertFalse(result.success)
         self.assertIn("Package manager not found", result.message)
+
 
 if __name__ == "__main__":
     unittest.main()

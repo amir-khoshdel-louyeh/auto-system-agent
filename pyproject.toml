@@ -1,0 +1,111 @@
+# Phase 0 item [6]: formatter, linter, type checker, test runner and
+# coverage configuration (docs/CONVENTIONS.md §1.3 quality commands).
+#
+# The project is not packaged; `src/` is put on sys.path by tests/conftest.py
+# and by PYTHONPATH in the API image, so only [tool.*] tables live here.
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --strict-markers"
+markers = [
+    "integration: needs backing services (postgres/redis) or writes outside tmp",
+    "acceptance: end-to-end acceptance scenario (W1/W2/W3)",
+    "slow: takes more than a few seconds",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = [".", "src"]
+extend-exclude = [
+    "source_MIT",      # read-only reference material, never linted
+    ".pytest_cache",
+    "__pycache__",
+]
+
+[tool.ruff.lint]
+# E4/E7/E9 = pycodestyle core + pyflakes (F) + isort (I) + bugbear (B)
+select = ["E4", "E7", "E9", "F", "W", "I", "B"]
+ignore = [
+    "E501", # line length is owned by `ruff format` (unbreakable strings exempt)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# sys.path bootstrap before the local imports is intentional here
+"main.py" = ["E402"]
+# FastAPI's Depends() in parameter defaults is the framework's idiom
+"src/app/**" = ["B008"]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "app",
+    "bus",
+    "engine",
+    "models",
+    "orchestration",
+    "platforms",
+    "safety",
+    "services",
+    "storage",
+    "tools",
+    "ui",
+    "workflows",
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.12"
+mypy_path = "src"
+files = ["src"]
+# Third-party SDKs without stubs must not break the build.
+ignore_missing_imports = true
+# Make the intra-project packages resolve as packages, not site-packages.
+explicit_package_bases = true
+namespace_packages = true
+# The real gate: type errors inside annotated code are errors everywhere.
+check_untyped_defs = true
+no_implicit_optional = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+show_error_codes = true
+
+# STRETCH/legacy carve-out: the 2.4k-line Tkinter demo client keeps its old
+# dynamic-widget style (widgets created conditionally, tkinter stub quirks).
+# The type gate covers the platform core; the client is re-scoped for typing
+# when its screens are rebuilt in Phase 8 (item [77]) - remove this override
+# there.
+[[tool.mypy.overrides]]
+module = "ui.gui"
+ignore_errors = true
+
+[tool.coverage.run]
+source = ["src"]
+branch = false
+omit = [
+    "*/__pycache__/*",
+    "src/ui/*", # Tkinter client is exercised by walkthrough tests, not coverage
+]
+
+[tool.coverage.report]
+precision = 1
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "@overload",
+]
+# Proposal §3.2 requires >= 80% coverage on core custom logic (planner,
+# validator, policy, scheduler, audit) at MVP acceptance. The global floor
+# below is the measured Phase 0 baseline (63.9% on 215 tests) and ratchets
+# up each phase; the strict core gate is
+#   coverage report --include="src/engine/*,src/safety/*,src/storage/*,src/bus/*" --fail-under=80
+# which activates once the Phase 6 planner rework lands (BACKLOG items 63, 91).
+fail_under = 63

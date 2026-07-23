@@ -4,6 +4,7 @@ Detects OS, distro, version, arch, kernel, CPU, RAM, and available
 package managers (apt/dnf/pacman/snap/flatpak/brew/zypper/apk) so the
 LLM can generate correct install commands.
 """
+
 import platform
 import re
 import shutil
@@ -67,10 +68,17 @@ def _detect_cpu() -> tuple[str, int]:
     model = platform.processor() or ""
     cores = 0
     try:
-        cores = len([l for l in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines() if l.startswith("model name")])
+        cores = len(
+            [
+                line
+                for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines()
+                if line.startswith("model name")
+            ]
+        )
     except Exception:
         try:
             import os as _os
+
             cores = _os.cpu_count() or 0
         except Exception:
             cores = 0
@@ -113,19 +121,23 @@ def _detect_arch() -> str:
 
 
 def _detect_package_manager(distro_id: str) -> str:
-    # Check which managers are actually available, prefer distro default
-    has_apt = shutil.which("apt") is not None
-    has_dnf = shutil.which("dnf") is not None
-    has_pacman = shutil.which("pacman") is not None
-    has_zypper = shutil.which("zypper") is not None
-    has_apk = shutil.which("apk") is not None
-    has_brew = shutil.which("brew") is not None
-
+    # Prefer the distro default when that manager is actually available;
+    # otherwise fall back to the first installed candidate below.
     distro_map = {
-        "ubuntu": "apt", "debian": "apt", "linuxmint": "apt", "pop": "apt",
-        "fedora": "dnf", "rhel": "dnf", "centos": "dnf", "rocky": "dnf", "almalinux": "dnf",
-        "arch": "pacman", "manjaro": "pacman", "endeavouros": "pacman",
-        "opensuse-leap": "zypper", "opensuse-tumbleweed": "zypper",
+        "ubuntu": "apt",
+        "debian": "apt",
+        "linuxmint": "apt",
+        "pop": "apt",
+        "fedora": "dnf",
+        "rhel": "dnf",
+        "centos": "dnf",
+        "rocky": "dnf",
+        "almalinux": "dnf",
+        "arch": "pacman",
+        "manjaro": "pacman",
+        "endeavouros": "pacman",
+        "opensuse-leap": "zypper",
+        "opensuse-tumbleweed": "zypper",
         "alpine": "apk",
     }
     preferred = distro_map.get(distro_id, "unknown")
@@ -135,7 +147,7 @@ def _detect_package_manager(distro_id: str) -> str:
     for cand in ("apt", "dnf", "pacman", "zypper", "apk"):
         if shutil.which(cand) is not None:
             return cand
-    if has_brew:
+    if shutil.which("brew") is not None:
         return "brew"
     return preferred if preferred != "unknown" else "unknown"
 
@@ -158,13 +170,17 @@ def detect_system_config() -> SystemConfig:
     distro_pretty = os_release.get("PRETTY_NAME", "")
     # fallback pretty from NAME + VERSION
     if not distro_pretty and os_release:
-        distro_pretty = f"{os_release.get('NAME','')} {distro_version}".strip()
+        distro_pretty = f"{os_release.get('NAME', '')} {distro_version}".strip()
 
     arch = _detect_arch()
     kernel = platform.release() or ""
     cpu_model, cpu_cores = _detect_cpu()
     ram_gb = _detect_ram_gb()
-    pkg = _detect_package_manager(distro_id) if os_name == "linux" else ("brew" if shutil.which("brew") else "unknown")
+    pkg = (
+        _detect_package_manager(distro_id)
+        if os_name == "linux"
+        else ("brew" if shutil.which("brew") else "unknown")
+    )
     if os_name == "windows":
         pkg = "winget"
     snap_available = shutil.which("snap") is not None

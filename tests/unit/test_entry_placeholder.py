@@ -1,9 +1,9 @@
 import unittest
-from pathlib import Path
 
 from ui.gui import AgentChatGUI
 
 HINT = "Ask the agent..."
+
 
 class StubEntry:
     def __init__(self, text=""):
@@ -23,12 +23,14 @@ class StubEntry:
         if "fg" in kwargs:
             self.fg = kwargs["fg"]
 
+
 def _gui_with_entry(text, has_placeholder):
     gui = AgentChatGUI.__new__(AgentChatGUI)
     gui.entry = StubEntry(text)
     gui._entry_placeholder = HINT
     gui._entry_has_placeholder = has_placeholder
     return gui
+
 
 class EntryPlaceholderTests(unittest.TestCase):
     def test_keypress_clears_stale_hint(self):
@@ -58,6 +60,7 @@ class EntryPlaceholderTests(unittest.TestCase):
     def test_hint_without_flag_reads_empty(self):
         gui = _gui_with_entry(HINT, False)
         self.assertEqual(AgentChatGUI._read_entry_text(gui), "")
+
 
 if __name__ == "__main__":
     unittest.main()

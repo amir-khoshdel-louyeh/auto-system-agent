@@ -1,11 +1,10 @@
-import shutil
 import os
+import shutil
 import stat
-from pathlib import Path
 import zipfile
+from pathlib import Path
 
 from models import ExecutionResult
-
 
 SYSTEM_PROTECTED_ROOTS = {
     Path("/bin").resolve(),
@@ -51,7 +50,9 @@ def _is_in_sandbox(path: Path) -> bool:
 
 
 def _sandbox_block(path: Path) -> ExecutionResult:
-    return ExecutionResult(success=False, message=f"Path is outside sandbox allow-list roots: {path}")
+    return ExecutionResult(
+        success=False, message=f"Path is outside sandbox allow-list roots: {path}"
+    )
 
 
 def _is_protected(path: Path) -> bool:
@@ -233,7 +234,7 @@ def view_file(path_text: str, *, mode: str = "all", line_count: int = 10) -> Exe
     if mode == "head":
         selected_lines = lines[: max(1, line_count)]
     elif mode == "tail":
-        selected_lines = lines[-max(1, line_count):]
+        selected_lines = lines[-max(1, line_count) :]
     elif mode == "less":
         selected_lines = lines[: max(1, line_count)]
 
@@ -308,7 +309,9 @@ def delete_path(path_text: str) -> ExecutionResult:
         return _sandbox_block(target)
 
     if _is_protected(target):
-        return ExecutionResult(success=False, message=f"Deletion blocked for protected path: {target}")
+        return ExecutionResult(
+            success=False, message=f"Deletion blocked for protected path: {target}"
+        )
 
     try:
         if target.is_dir():

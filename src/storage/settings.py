@@ -3,7 +3,6 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
-
 OLLAMA_DEFAULT_URL = "http://localhost:11434/v1/chat/completions"
 OLLAMA_DEFAULT_MODEL = "llama3.1"
 
@@ -100,13 +99,18 @@ class SettingsStore:
             "confirm_high_risk": bool(settings.confirm_high_risk),
             "window_geometry": self._normalize_window_geometry(settings.window_geometry),
             "react_max_iters": int(getattr(settings, "react_max_iters", 3)),
-            "system_config": settings.system_config if isinstance(settings.system_config, dict) else None,
+            "system_config": settings.system_config
+            if isinstance(settings.system_config, dict)
+            else None,
         }
         self._path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
     def get_system_config(self, settings: LLMSettings):
         """Return SystemConfig from settings or freshly detected if missing."""
-        from platforms.system_info import SystemConfig, detect_system_config, system_config_from_dict
+        from platforms.system_info import (
+            detect_system_config,
+            system_config_from_dict,
+        )
 
         if isinstance(settings.system_config, dict) and settings.system_config:
             return system_config_from_dict(settings.system_config)
@@ -124,7 +128,11 @@ class SettingsStore:
                 or os.getenv("AUTO_AGENT_LLM_URL", "").strip()
                 or OLLAMA_DEFAULT_URL
             )
-            api_key = settings.api_key.strip() or os.getenv("AUTO_AGENT_OLLAMA_API_KEY", "").strip() or os.getenv("AUTO_AGENT_LLM_API_KEY", "").strip()
+            api_key = (
+                settings.api_key.strip()
+                or os.getenv("AUTO_AGENT_OLLAMA_API_KEY", "").strip()
+                or os.getenv("AUTO_AGENT_LLM_API_KEY", "").strip()
+            )
             model = (
                 settings.model.strip()
                 or os.getenv("AUTO_AGENT_OLLAMA_MODEL", "").strip()
@@ -188,9 +196,11 @@ class SettingsStore:
 
     def _coerce_timeout(self, value: object, fallback: float) -> float:
         try:
-            return float(value)
+            if isinstance(value, (int, float, str)):
+                return float(value)
         except (TypeError, ValueError):
-            return float(fallback)
+            pass
+        return float(fallback)
 
     def _normalize_window_geometry(self, value: object) -> str:
         import re

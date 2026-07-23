@@ -14,8 +14,10 @@ from engine.validator.validator import (  # noqa: E402
 SRC_DIR = Path(__file__).resolve().parents[2] / "src"
 FIXTURES = SRC_DIR / "engine" / "validator" / "fixtures"
 
+
 def load_fixture(name):
     return load_text((FIXTURES / name).read_text(encoding="utf-8"))
+
 
 class DslLoaderTests(unittest.TestCase):
     def test_yaml_and_json_parse(self):
@@ -24,6 +26,7 @@ class DslLoaderTests(unittest.TestCase):
         self.assertEqual(wf.version, 3)
         wf_json = load_text('{"workflow":"j","version":3,"nodes":[]}', "json")
         self.assertEqual(wf_json.name, "j")
+
 
 class ValidatorFixtureTests(unittest.TestCase):
     def test_valid_fixtures_pass(self):
@@ -64,19 +67,25 @@ class ValidatorFixtureTests(unittest.TestCase):
     def test_ten_fixtures_present(self):
         self.assertEqual(len(sorted(FIXTURES.glob("*.yaml"))), 10)
 
+
 class W4NovalidateProbe(unittest.TestCase):
     """W4 without LLM/bus: manual DSL -> validate -> compile -> triggers."""
 
     def test_onboarding_demo_end_to_end(self):
-        text = (SRC_DIR / "workflows" / "examples" / "onboarding-demo.yaml").read_text(encoding="utf-8")
+        text = (SRC_DIR / "workflows" / "examples" / "onboarding-demo.yaml").read_text(
+            encoding="utf-8"
+        )
         wf = load_text(text)
         self.assertTrue(is_valid(wf), [str(e) for e in validate(wf)])
         dag = compile_wf(wf)
-        self.assertEqual(dag["adjacency"], {"setup": ["gate"], "darkmode": [], "gate": ["darkmode"]})
+        self.assertEqual(
+            dag["adjacency"], {"setup": ["gate"], "darkmode": [], "gate": ["darkmode"]}
+        )
         self.assertEqual(topological_order(wf), ["setup", "gate", "darkmode"])
         kinds = {next(iter(t)) for t in wf.triggers}
         self.assertEqual(kinds, {"cron", "event", "webhook"})
         self.assertIn({"event": "file.arrived"}, wf.triggers)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -4,20 +4,21 @@ Embeds a real bash -i via pty so sudo/password prompts work natively and
 the AI and user share the exact same terminal. Visual style mirrors Alacritty:
 JetBrains Mono 10, #0f172a bg, #f8fafc fg, xterm-256color with ANSI parsing.
 """
+
+import fcntl
 import os
 import pty
+import queue
 import re
 import select
 import signal
 import struct
 import subprocess
 import termios
-import fcntl
 import threading
 import time
-import queue
-from pathlib import Path
 import tkinter as tk
+from pathlib import Path
 from tkinter import scrolledtext
 
 # Fallback stripping for OSC/CSI sequences – Fedora shell integration emits OSC 3008 with ESC\ terminator
@@ -225,7 +226,11 @@ class RealTerminalFrame(tk.Frame):
         self._coalescer = EventCoalescer()
         self._display_drops = 0
         self._drain_scheduled = False
-        self._cwd = (cwd or Path.home()).resolve() if (cwd or Path.home()).exists() else Path.cwd().resolve()
+        self._cwd = (
+            (cwd or Path.home()).resolve()
+            if (cwd or Path.home()).exists()
+            else Path.cwd().resolve()
+        )
         if not self._cwd.exists():
             self._cwd = Path.cwd().resolve()
         # Page limits: rows/cols updated by _set_winsize, used to trim buffer
@@ -288,7 +293,13 @@ class RealTerminalFrame(tk.Frame):
         self.text.bind("<Control-c>", lambda e: self._send_ctrl(b"\x03"))
         # Handle Ctrl+L etc via keypress already
 
-        self.after(400, lambda: self._write_to_text("\n# Alacritty embedded terminal ready — same pty for AI and user. sudo prompts appear here.\n", None))
+        self.after(
+            400,
+            lambda: self._write_to_text(
+                "\n# Alacritty embedded terminal ready — same pty for AI and user. sudo prompts appear here.\n",
+                None,
+            ),
+        )
 
     def _configure_ansi_tags(self):
         # Base fg/bg already, add color tags
@@ -337,15 +348,9 @@ class RealTerminalFrame(tk.Frame):
             h = self.text.winfo_height()
             if w < 10 or h < 10:
                 return
-            # Estimate using actual font metrics if possible
-            try:
-                font = self.text.cget("font")
-                # Rough: JetBrains Mono 10 ~ char width 8, height 17
-                cols = max(20, w // 8)
-                rows = max(5, h // 17)
-            except Exception:
-                cols = max(20, w // 8)
-                rows = max(5, h // 17)
+            # Rough estimate: JetBrains Mono 10 ~ char width 8, height 17
+            cols = max(20, w // 8)
+            rows = max(5, h // 17)
             self._cols = cols
             self._rows = rows
             s = struct.pack("HHHH", rows, cols, 0, 0)
@@ -528,7 +533,9 @@ class RealTerminalFrame(tk.Frame):
                             if "ansi_dim" not in current_tags:
                                 current_tags.append("ansi_dim")
                         elif code == 22:  # normal intensity
-                            current_tags = [t for t in current_tags if t not in ("ansi_bold", "ansi_dim")]
+                            current_tags = [
+                                t for t in current_tags if t not in ("ansi_bold", "ansi_dim")
+                            ]
                         elif 30 <= code <= 37 or 90 <= code <= 97:
                             # Remove previous fg
                             current_tags = [t for t in current_tags if not t.startswith("ansi_fg_")]
@@ -557,7 +564,9 @@ class RealTerminalFrame(tk.Frame):
         except Exception:
             # Fallback: strip all ANSI (CSI with ?, OSC with BEL or ESC\)
             try:
-                clean = re.sub(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\].*?(?:\x07|\x1b\\)|\x1b\(B|\r", "", data)
+                clean = re.sub(
+                    r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\].*?(?:\x07|\x1b\\)|\x1b\(B|\r", "", data
+                )
                 self.text.configure(state=tk.NORMAL)
                 if len(clean) > 8000:
                     clean = clean[-8000:]
@@ -680,7 +689,7 @@ class RealTerminalFrame(tk.Frame):
     def _on_paste(self, event=None):
         try:
             data = self.clipboard_get()
-            if data:
+            if data and self.master_fd is not None:
                 os.write(self.master_fd, data.encode("utf-8", errors="replace"))
         except Exception:
             pass
@@ -724,7 +733,7 @@ class RealTerminalFrame(tk.Frame):
                     self._output_queue.get_nowait()
                 except queue.Empty:
                     break
-            marker = f"__CMD_DONE_{int(time.time()*1000) % 100000}__"
+            marker = f"__CMD_DONE_{int(time.time() * 1000) % 100000}__"
             marker_cmd = f"echo {marker}:$?"
             chained = self._chain_marker(cmd, marker_cmd)
             try:

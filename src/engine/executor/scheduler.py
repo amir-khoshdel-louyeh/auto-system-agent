@@ -49,9 +49,7 @@ Gate = Callable[[str, dict[str, Any]], Awaitable[str]]
 OnEvent = Callable[[str, dict[str, Any]], None]
 
 
-def compute_levels(
-    nodes: dict[str, Any], edges: list[tuple[str, str]]
-) -> list[list[str]]:
+def compute_levels(nodes: dict[str, Any], edges: list[tuple[str, str]]) -> list[list[str]]:
     """Group node ids into Kahn levels; raises ValueError on bad refs/cycles."""
     children: dict[str, list[str]] = {nid: [] for nid in nodes}
     in_degree: dict[str, int] = {nid: 0 for nid in nodes}

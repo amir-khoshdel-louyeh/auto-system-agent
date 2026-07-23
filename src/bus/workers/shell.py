@@ -31,8 +31,10 @@ async def execute_shell(node_id: str, node: dict[str, Any], ctx: dict[str, Any])
     exec_fn = ctx.get("exec_fn")
     if exec_fn is not None:
         return await exec_fn(node_id, node, ctx)
-    return {"ran": node.get("params", {}).get("run", ""),
-            "mode": "record-only (real bash: phase 6 sandbox)"}
+    return {
+        "ran": node.get("params", {}).get("run", ""),
+        "mode": "record-only (real bash: phase 6 sandbox)",
+    }
 
 
 def make_shell_worker(backend: Backend, group: str, exec_fn=None) -> Runner:

@@ -8,6 +8,7 @@ SECRET_KEY. DB-backed users arrive with the migration-backed auth phase.
 from __future__ import annotations
 
 import base64
+import binascii
 import hashlib
 import hmac
 import json
@@ -57,7 +58,7 @@ def verify_token(token: str, secret: str) -> str | None:
             return None
         sub = payload.get("sub")
         return sub if isinstance(sub, str) and sub else None
-    except (ValueError, json.JSONDecodeError, base64.binascii.Error):
+    except (ValueError, json.JSONDecodeError, binascii.Error):
         return None
 
 
@@ -70,9 +71,7 @@ def login(body: LoginIn, settings: Settings = Depends(get_settings)) -> TokenOut
     if body.username != settings.admin_user or not hmac.compare_digest(
         body.password, settings.admin_password
     ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials"
-        )
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     return TokenOut(
         access_token=create_token(body.username, settings.secret_key, settings.token_ttl_minutes)
     )

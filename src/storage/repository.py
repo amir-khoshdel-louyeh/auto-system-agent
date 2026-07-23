@@ -116,7 +116,7 @@ class AuditRepository:
                     compensation,
                 ),
             )
-            return int(cursor.lastrowid)
+            return int(cursor.lastrowid or 0)
 
     def finish_execution(
         self,
@@ -160,7 +160,7 @@ class AuditRepository:
                 " VALUES (?, ?, ?, ?, ?, ?)",
                 (execution_id, seq, state, stdout_ref, stderr_ref, retry_count),
             )
-            return int(cursor.lastrowid)
+            return int(cursor.lastrowid or 0)
 
     def fetch_execution(self, execution_id: int) -> dict:
         """One execution row plus its ordered steps."""
@@ -221,7 +221,7 @@ class AuditRepository:
                 "INSERT INTO metric (ts, cpu, mem, disk, queue) VALUES (?, ?, ?, ?, ?)",
                 (float(ts), float(cpu), float(mem), float(disk), int(queue)),
             )
-            return int(cursor.lastrowid)
+            return int(cursor.lastrowid or 0)
 
     def upsert_template(
         self,

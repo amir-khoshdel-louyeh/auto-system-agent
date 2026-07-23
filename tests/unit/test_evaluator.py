@@ -1,15 +1,18 @@
 import unittest
-from pathlib import Path
 
-from orchestration.evaluator import Evaluator
 from models import ExecutionResult, PlannedTask, ReActStep
+from orchestration.evaluator import Evaluator
+
 
 def _task(cmd: str) -> PlannedTask:
     return PlannedTask(action="run_command", target=cmd, raw_input=cmd)
 
+
 class EvaluatorTests(unittest.TestCase):
     def test_success_is_done(self):
-        ev = Evaluator().evaluate("list files", _task("ls"), "run_command", ExecutionResult(True, "ok"))
+        ev = Evaluator().evaluate(
+            "list files", _task("ls"), "run_command", ExecutionResult(True, "ok")
+        )
         self.assertEqual(ev.verdict, "done")
 
     def test_unknown_tool_needs_replan(self):
@@ -56,11 +59,24 @@ class EvaluatorTests(unittest.TestCase):
     def test_repeated_failures_escalate_to_replan(self):
         evaluator = Evaluator(max_same_command_retries=2)
         scratch = [
-            ReActStep(thought="t", task=_task("false"), tool="run_command", result=ExecutionResult(False, "bad")),
-            ReActStep(thought="t", task=_task("false"), tool="run_command", result=ExecutionResult(False, "bad")),
+            ReActStep(
+                thought="t",
+                task=_task("false"),
+                tool="run_command",
+                result=ExecutionResult(False, "bad"),
+            ),
+            ReActStep(
+                thought="t",
+                task=_task("false"),
+                tool="run_command",
+                result=ExecutionResult(False, "bad"),
+            ),
         ]
-        ev = evaluator.evaluate("x", _task("false"), "run_command", ExecutionResult(False, "bad"), scratch)
+        ev = evaluator.evaluate(
+            "x", _task("false"), "run_command", ExecutionResult(False, "bad"), scratch
+        )
         self.assertEqual(ev.verdict, "replan")
+
 
 if __name__ == "__main__":
     unittest.main()

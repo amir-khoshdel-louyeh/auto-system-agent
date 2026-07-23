@@ -9,6 +9,7 @@ import json
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 _ALLOWED_ACTIONS = {"run_command", "help"}
 
@@ -64,7 +65,7 @@ def validate_plan(steps: list[dict]) -> tuple[bool, str]:
 class TemplateStore:
     """SQLite-backed template store (audit database template table)."""
 
-    repository: object | None = None
+    repository: Any = None  # duck-typed AuditRepository; typed Protocol in item [16]
     db_path: Path | str | None = None
 
     def __post_init__(self) -> None:
@@ -95,7 +96,10 @@ class TemplateStore:
         if not ok:
             raise ValueError(f"invalid plan: {reason}")
         canonical = json.dumps(
-            [{"action": str(step["action"]), "target": str(step.get("target") or "")} for step in steps]
+            [
+                {"action": str(step["action"]), "target": str(step.get("target") or "")}
+                for step in steps
+            ]
         )
         existing = self.get(clean_name)
         template_id = self.repository.upsert_template(
@@ -129,7 +133,11 @@ class TemplateStore:
         if template is None:
             raise KeyError(f"unknown template: {name}")
         tasks = [
-            PlannedTask(action=str(step["action"]), target=str(step.get("target") or ""), raw_input=raw_input)
+            PlannedTask(
+                action=str(step["action"]),
+                target=str(step.get("target") or ""),
+                raw_input=raw_input,
+            )
             for step in template.steps()
         ]
         ok, reason = validate_plan(

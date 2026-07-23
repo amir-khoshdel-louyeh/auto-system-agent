@@ -28,20 +28,30 @@ def check_schema(workflow: Workflow) -> list[ValidationError]:
     errors: list[ValidationError] = []
     if not workflow.name or not isinstance(workflow.name, str):
         errors.append(
-            ValidationError("schema", "missing required key 'workflow' (non-empty string)", *_loc(workflow, "workflow"))
+            ValidationError(
+                "schema",
+                "missing required key 'workflow' (non-empty string)",
+                *_loc(workflow, "workflow"),
+            )
         )
     if not isinstance(workflow.version, int) or workflow.version < 1:
         errors.append(
-            ValidationError("schema", "key 'version' must be a positive integer", *_loc(workflow, "version"))
+            ValidationError(
+                "schema", "key 'version' must be a positive integer", *_loc(workflow, "version")
+            )
         )
     if not workflow.nodes:
         errors.append(
-            ValidationError("schema", "key 'nodes' must be a non-empty list", *_loc(workflow, "nodes"))
+            ValidationError(
+                "schema", "key 'nodes' must be a non-empty list", *_loc(workflow, "nodes")
+            )
         )
     for node in workflow.nodes:
         if not node.id:
             errors.append(
-                ValidationError("schema", "every node needs a non-empty string 'id'", *_loc(workflow, "id"))
+                ValidationError(
+                    "schema", "every node needs a non-empty string 'id'", *_loc(workflow, "id")
+                )
             )
         if not node.type:
             errors.append(
@@ -63,7 +73,11 @@ def check_schema(workflow: Workflow) -> list[ValidationError]:
     for src, dst in workflow.edges:
         if not src or not dst:
             errors.append(
-                ValidationError("schema", f"each edge needs [from, to]: [{src!r}, {dst!r}]", *_loc(workflow, "edges"))
+                ValidationError(
+                    "schema",
+                    f"each edge needs [from, to]: [{src!r}, {dst!r}]",
+                    *_loc(workflow, "edges"),
+                )
             )
     return errors
 

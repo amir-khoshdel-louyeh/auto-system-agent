@@ -1,8 +1,8 @@
 import unittest
-from pathlib import Path
 
 from services.llm_conversation_assistant import LLMConversationAssistant
 from services.llm_tool_mapper import LLMToolMapper
+
 
 class LLMClientBehaviorTests(unittest.TestCase):
     def test_tool_mapper_treats_none_as_no_tool(self):
@@ -15,9 +15,7 @@ class LLMClientBehaviorTests(unittest.TestCase):
     def test_conversation_assistant_accepts_plain_text_reply(self):
         assistant = LLMConversationAssistant(config={"url": "http://example.local"})
         assistant._post_json = lambda payload: {
-            "choices": [
-                {"message": {"content": "VLC is a solid choice for most users."}}
-            ]
+            "choices": [{"message": {"content": "VLC is a solid choice for most users."}}]
         }  # type: ignore[attr-defined]
 
         result = assistant.resolve("suggest a video player", {"install_app"}, [])
@@ -34,10 +32,15 @@ class LLMClientBehaviorTests(unittest.TestCase):
 
     def test_conversation_assistant_rejects_invalid_tool_schema(self):
         assistant = LLMConversationAssistant(config={"url": "http://example.local"})
-        assistant._post_json = lambda payload: {"type": "tool", "action": "install_app", "target": 99}  # type: ignore[attr-defined]
+        assistant._post_json = lambda payload: {
+            "type": "tool",
+            "action": "install_app",
+            "target": 99,
+        }  # type: ignore[attr-defined]
 
         result = assistant.resolve("install vlc", {"install_app"}, [])
         self.assertIsNone(result)
+
 
 if __name__ == "__main__":
     unittest.main()

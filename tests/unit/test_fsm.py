@@ -6,9 +6,19 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from orchestration.agent import (
+    CHAIN_GENESIS,
+    RUN_TRANSITIONS,
+    InvalidTransition,
+    RunState,
+    StateMachine,
+    chain_step_hash,
+)
+
 _TEST_HOME = None
 _OLD_HOME = None
 _DB_PATH_BLOCK = None
+
 
 def setUpModule():
     """No writes outside a temp HOME in these tests."""
@@ -16,10 +26,9 @@ def setUpModule():
     _TEST_HOME = tempfile.TemporaryDirectory()
     _OLD_HOME = os.environ.get("HOME")
     os.environ["HOME"] = _TEST_HOME.name
-    _DB_PATH_BLOCK = patch(
-        "storage.repository.DEFAULT_DB_PATH", Path(_TEST_HOME.name) / "audit.db"
-    )
+    _DB_PATH_BLOCK = patch("storage.repository.DEFAULT_DB_PATH", Path(_TEST_HOME.name) / "audit.db")
     _DB_PATH_BLOCK.start()
+
 
 def tearDownModule():
     global _TEST_HOME, _OLD_HOME, _DB_PATH_BLOCK
@@ -32,22 +41,21 @@ def tearDownModule():
     if _TEST_HOME is not None:
         _TEST_HOME.cleanup()
 
-from orchestration.agent import (
-    CHAIN_GENESIS,
-    RUN_TRANSITIONS,
-    InvalidTransition,
-    RunState,
-    StateMachine,
-    chain_step_hash,
-)
 
 class TransitionTableTests(unittest.TestCase):
     def test_all_states_present(self):
         self.assertEqual(
             set(RUN_TRANSITIONS),
             {
-                "IDLE", "PLANNED", "GUARDED", "EXECUTING", "OBSERVING",
-                "REPAIRING", "COMPENSATING", "DONE", "FAILED",
+                "IDLE",
+                "PLANNED",
+                "GUARDED",
+                "EXECUTING",
+                "OBSERVING",
+                "REPAIRING",
+                "COMPENSATING",
+                "DONE",
+                "FAILED",
             },
         )
 
@@ -106,7 +114,7 @@ class TransitionTableTests(unittest.TestCase):
         self.assertTrue(fsm.can("PLANNED"))
 
     def test_verdict_hook_mapping(self):
-        from orchestration.agent import AutoSystemAgent, VERDICT_TRANSITIONS
+        from orchestration.agent import VERDICT_TRANSITIONS, AutoSystemAgent
 
         self.assertEqual(
             VERDICT_TRANSITIONS,
@@ -116,6 +124,7 @@ class TransitionTableTests(unittest.TestCase):
         self.assertEqual(AutoSystemAgent.transition_for_verdict("retry"), RunState.REPAIRING)
         self.assertEqual(AutoSystemAgent.transition_for_verdict("replan"), RunState.REPAIRING)
         self.assertEqual(AutoSystemAgent.transition_for_verdict("abort"), RunState.COMPENSATING)
+
 
 class ChainHashTests(unittest.TestCase):
     def test_genesis_and_linkage(self):
@@ -136,6 +145,7 @@ class ChainHashTests(unittest.TestCase):
             chain_step_hash(prev, "ls /nope", 0), chain_step_hash(prev, "ls /nope", 2)
         )
 
+
 class StepTimeoutTests(unittest.TestCase):
     def test_timeout_selection(self):
         from orchestration.safe_executor import step_timeout
@@ -152,6 +162,7 @@ class StepTimeoutTests(unittest.TestCase):
         for command, expected in cases:
             with self.subTest(command=command):
                 self.assertEqual(step_timeout(command), expected)
+
 
 class CompensationMapTests(unittest.TestCase):
     def test_compensation_commands(self):
@@ -174,6 +185,7 @@ class CompensationMapTests(unittest.TestCase):
             with self.subTest(command=command):
                 self.assertEqual(compensation_for(command), expected)
 
+
 class CompensateExecutorTests(unittest.TestCase):
     def test_compensate_reverses_and_stays_idempotent(self):
         import tempfile
@@ -185,8 +197,12 @@ class CompensateExecutorTests(unittest.TestCase):
             executor = SafeExecutor()
             try:
                 executor.terminal._cwd = Path(tmp).resolve()
-                executor.execute("run_command", PlannedTask(action="run_command", target="mkdir -p demo"))
-                executor.execute("run_command", PlannedTask(action="run_command", target="touch demo/a.txt"))
+                executor.execute(
+                    "run_command", PlannedTask(action="run_command", target="mkdir -p demo")
+                )
+                executor.execute(
+                    "run_command", PlannedTask(action="run_command", target="touch demo/a.txt")
+                )
                 self.assertTrue((Path(tmp) / "demo" / "a.txt").exists())
                 results = executor.compensate()
                 self.assertEqual(len(results), 2)
@@ -205,6 +221,7 @@ class CompensateExecutorTests(unittest.TestCase):
 
         executor = SafeExecutor()
         try:
+
             def fake_run(command, timeout=300):
                 if command == "sleep 600":
                     return ExecutionResult(
@@ -215,23 +232,31 @@ class CompensateExecutorTests(unittest.TestCase):
                 return ExecutionResult(success=True, message="ok", data={"exit_code": 0})
 
             with patch.object(TerminalSession, "run", side_effect=fake_run):
-                executor.execute("run_command", PlannedTask(action="run_command", target="mkdir -p demo"))
-                result = executor.execute("run_command", PlannedTask(action="run_command", target="sleep 600"))
+                executor.execute(
+                    "run_command", PlannedTask(action="run_command", target="mkdir -p demo")
+                )
+                result = executor.execute(
+                    "run_command", PlannedTask(action="run_command", target="sleep 600")
+                )
             self.assertFalse(result.success)
             self.assertEqual(result.data.get("compensated"), ["rmdir demo"])
         finally:
             executor.close()
 
+
 class AbortRunTests(unittest.TestCase):
     def _agent(self, plans, verdicts, executor, log_path):
-        from orchestration.agent import AutoSystemAgent
         from models import Evaluation
+        from orchestration.agent import AutoSystemAgent
 
         class ListPlanner:
             def plan_tasks(self, user_input):
                 from models import PlannedTask
 
-                return [PlannedTask(action="run_command", target=cmd, raw_input=user_input) for cmd in plans]
+                return [
+                    PlannedTask(action="run_command", target=cmd, raw_input=user_input)
+                    for cmd in plans
+                ]
 
         class ScriptedSelector:
             SUPPORTED_ACTIONS = {"run_command", "help"}
@@ -323,7 +348,10 @@ class AbortRunTests(unittest.TestCase):
             try:
                 executor.terminal._cwd = Path(tmp).resolve()
                 agent = self._agent(
-                    ["mkdir -p demo", "false"], ["done", "abort"], executor, Path(tmp) / "events.jsonl"
+                    ["mkdir -p demo", "false"],
+                    ["done", "abort"],
+                    executor,
+                    Path(tmp) / "events.jsonl",
                 )
                 reply = agent.process("make demo then fail")
                 self.assertIn("COMPENSATING", agent._last_run_state.trail)
@@ -355,17 +383,31 @@ class AbortRunTests(unittest.TestCase):
                 executor.close()
 
     def test_retry_limit_escalates_to_replan(self):
-        from orchestration.evaluator import Evaluator
         from models import ExecutionResult, PlannedTask, ReActStep
+        from orchestration.evaluator import Evaluator
 
         evaluator = Evaluator()
         failed = ExecutionResult(success=False, message="Command failed with code 1.")
         scratchpad = [
-            ReActStep(thought="t", task=PlannedTask(action="run_command", target="ls /nope"), tool="run_command", result=failed),
-            ReActStep(thought="t", task=PlannedTask(action="run_command", target="ls /nope"), tool="run_command", result=failed),
+            ReActStep(
+                thought="t",
+                task=PlannedTask(action="run_command", target="ls /nope"),
+                tool="run_command",
+                result=failed,
+            ),
+            ReActStep(
+                thought="t",
+                task=PlannedTask(action="run_command", target="ls /nope"),
+                tool="run_command",
+                result=failed,
+            ),
         ]
         verdict = evaluator.evaluate(
-            "list nope", PlannedTask(action="run_command", target="ls /nope"), "run_command", failed, scratchpad
+            "list nope",
+            PlannedTask(action="run_command", target="ls /nope"),
+            "run_command",
+            failed,
+            scratchpad,
         )
         self.assertEqual(verdict.verdict, "replan")
 
@@ -396,6 +438,7 @@ class AbortRunTests(unittest.TestCase):
         finally:
             executor.execute = original
             executor.close()
+
 
 if __name__ == "__main__":
     unittest.main()

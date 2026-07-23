@@ -6,7 +6,6 @@ from urllib import error, request
 from models import PlannedTask
 from orchestration.task_schema import IntermediateTask
 
-
 SUPPORTED_ACTIONS = {
     "run_command",
     "help",
@@ -49,7 +48,11 @@ class Planner:
             self._timeout = float(timeout_raw) if timeout_raw else 30.0
         except ValueError:
             self._timeout = 30.0
-        api_key_raw = str(config.get("api_key") or os.getenv("AUTO_AGENT_OLLAMA_API_KEY", "") or os.getenv("AUTO_AGENT_LLM_API_KEY", "")).strip()
+        api_key_raw = str(
+            config.get("api_key")
+            or os.getenv("AUTO_AGENT_OLLAMA_API_KEY", "")
+            or os.getenv("AUTO_AGENT_LLM_API_KEY", "")
+        ).strip()
         self._api_key = api_key_raw
         self._system_config = system_config if isinstance(system_config, dict) else None
 
@@ -114,12 +117,18 @@ class Planner:
         if isinstance(self._system_config, dict) and self._system_config:
             try:
                 from platforms.system_info import system_config_from_dict
+
                 cfg = system_config_from_dict(self._system_config)
                 system_fragment = cfg.to_prompt_fragment()
             except Exception:
                 system_fragment = ""
         if system_fragment:
-            system_context = f"\nHost system: {system_fragment}\nUse the correct package manager for installs (e.g. apt for Debian/Ubuntu, dnf for Fedora, pacman for Arch, snap/flatpak if available). Match arch {self._system_config.get('arch','')}.\n"
+            arch = self._system_config.get("arch", "") if self._system_config else ""
+            system_context = (
+                f"\nHost system: {system_fragment}\nUse the correct package manager for installs "
+                f"(e.g. apt for Debian/Ubuntu, dnf for Fedora, pacman for Arch, "
+                f"snap/flatpak if available). Match arch {arch}.\n"
+            )
         else:
             system_context = "\n"
 
@@ -145,7 +154,7 @@ class Planner:
             "  'pwd', 'cd ~/Downloads', 'echo hello'.\n"
             "- For help, target is empty.\n"
             "- If the instruction contains multiple steps, return multiple entries in tasks in order (each is a run_command).\n"
-            "- If it is general chat, return {\"tasks\": [{\"action\": \"unknown\", \"target\": \"\"}]}\n"
+            '- If it is general chat, return {"tasks": [{"action": "unknown", "target": ""}]}\n'
             "- Always use absolute or ~/ paths. For Downloads use ~/Downloads/<name>. Do not use bare filenames.\n"
             "- Opening apps/files: on Linux NEVER use 'open' (macOS-only). Use 'xdg-open <existing-file-or-URL>' only for real files/URLs. "
             "To launch an app, prefer 'gtk-launch <name>.desktop', 'flatpak run <app-id>', or '<command> &' (e.g. 'thunderbird &'). "
@@ -200,7 +209,11 @@ class Planner:
                 )
                 tasks.append(candidate.to_planned_task())
             except ValueError:
-                tasks.append(PlannedTask(action="unknown", target=target, raw_input=user_input, options=options or {}))
+                tasks.append(
+                    PlannedTask(
+                        action="unknown", target=target, raw_input=user_input, options=options or {}
+                    )
+                )
 
         if not tasks:
             return None
@@ -246,7 +259,14 @@ class Planner:
         try:
             with request.urlopen(req, timeout=self._timeout) as response:
                 return json.loads(response.read().decode("utf-8"))
-        except (error.URLError, error.HTTPError, json.JSONDecodeError, TimeoutError, OSError, Exception):
+        except (
+            error.URLError,
+            error.HTTPError,
+            json.JSONDecodeError,
+            TimeoutError,
+            OSError,
+            Exception,
+        ):
             # Try native Ollama /api/chat as fallback if the URL was the default OpenAI-compat
             # and the server speaks native protocol.
             if self._url.endswith("/v1/chat/completions"):
@@ -257,7 +277,9 @@ class Planner:
                     "stream": False,
                 }
                 native_body = json.dumps(native_payload).encode("utf-8")
-                native_req = request.Request(native_url, data=native_body, headers=headers, method="POST")
+                native_req = request.Request(
+                    native_url, data=native_body, headers=headers, method="POST"
+                )
                 try:
                     with request.urlopen(native_req, timeout=self._timeout) as resp:
                         native_raw = json.loads(resp.read().decode("utf-8"))
@@ -276,11 +298,7 @@ class Planner:
         if isinstance(response_json, dict) and "action" in response_json:
             return response_json
 
-        content = (
-            response_json.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-        )
+        content = response_json.get("choices", [{}])[0].get("message", {}).get("content", "")
         if not isinstance(content, str):
             return None
         text = content.strip()

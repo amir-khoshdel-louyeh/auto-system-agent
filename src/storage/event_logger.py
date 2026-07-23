@@ -53,7 +53,9 @@ class EventLogger:
         if repository is None and not self._repository_failed:
             try:
                 repository = self._repository = (
-                    AuditRepository(self._db_path) if self._db_path is not None else AuditRepository()
+                    AuditRepository(self._db_path)
+                    if self._db_path is not None
+                    else AuditRepository()
                 )
             except Exception:
                 self._repository_failed = True
@@ -93,7 +95,8 @@ class EventLogger:
             result = item.get("result")
             succeeded = isinstance(result, dict) and bool(result.get("success"))
             message = result.get("message") if isinstance(result, dict) else ""
-            chain = item.get("chain") if isinstance(item.get("chain"), dict) else {}
+            raw_chain = item.get("chain")
+            chain = raw_chain if isinstance(raw_chain, dict) else {}
             prefix = ""
             if chain.get("step_hash"):
                 prefix = f"chain:{chain.get('step_hash')} prev:{chain.get('prev_hash', '')} "
@@ -117,7 +120,8 @@ class EventLogger:
         for item in steps:
             if not isinstance(item, dict):
                 continue
-            audit = item.get("audit") if isinstance(item.get("audit"), dict) else {}
+            raw_audit = item.get("audit")
+            audit = raw_audit if isinstance(raw_audit, dict) else {}
             score = audit.get("risk_score")
             if isinstance(score, bool):
                 score = None

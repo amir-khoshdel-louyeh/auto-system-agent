@@ -1,6 +1,7 @@
 import shlex
 import subprocess
 
+from models import ExecutionResult
 from safety.command_guard import (
     ALLOW_MAX,
     CONFIRM_MAX,
@@ -8,14 +9,25 @@ from safety.command_guard import (
     check_command,
     score_command,
 )
-from models import ExecutionResult
 
 # Kept for import compatibility; decisions now come from command_guard
 # (assess_command), which is the single source of safety truth.
 COMMAND_TOOL_POLICY = {
     "blocked_separators": {"&&", "||", ";", "|"},
     "blocked_interpreters": {
-        "bash", "dash", "fish", "ksh", "node", "perl", "pwsh", "powershell", "python", "python3", "ruby", "sh", "zsh"
+        "bash",
+        "dash",
+        "fish",
+        "ksh",
+        "node",
+        "perl",
+        "pwsh",
+        "powershell",
+        "python",
+        "python3",
+        "ruby",
+        "sh",
+        "zsh",
     },
     "blocked_commands": {"rm", "shutdown", "reboot", "mkfs", "dd", "poweroff"},
     "blocked_arguments": {"--no-preserve-root", "-rf", "-fr"},
@@ -49,7 +61,12 @@ def _check_command_policy(parts: list[str]) -> ExecutionResult | None:
         return ExecutionResult(
             success=False,
             message=guard_message,
-            data={"policy_decision": "blocked", "policy_reason": "preflight", "risk_score": score, "risk_level": _risk_level(score)},
+            data={
+                "policy_decision": "blocked",
+                "policy_reason": "preflight",
+                "risk_score": score,
+                "risk_level": _risk_level(score),
+            },
         )
     assessment = assess_command(text)
     if assessment["verdict"] == "DENY":
@@ -98,7 +115,9 @@ def run_command(command_text: str) -> ExecutionResult:
     except FileNotFoundError:
         return ExecutionResult(success=False, message=f"Command not found: {parts[0]}")
     except PermissionError:
-        return ExecutionResult(success=False, message=f"Permission denied while executing command: {parts[0]}")
+        return ExecutionResult(
+            success=False, message=f"Permission denied while executing command: {parts[0]}"
+        )
     except OSError as exc:
         return ExecutionResult(success=False, message=f"Could not execute command: {exc}")
 
@@ -108,11 +127,25 @@ def run_command(command_text: str) -> ExecutionResult:
         return ExecutionResult(
             success=False,
             message=f"Command failed with code {completed.returncode}.\n{output.strip()}",
-            data={"policy_decision": "approved", "policy_reason": reason, "risk_score": risk, "risk_level": _risk_level(risk), "verdict": verdict, "canonical_form": assessment["canonical_form"]},
+            data={
+                "policy_decision": "approved",
+                "policy_reason": reason,
+                "risk_score": risk,
+                "risk_level": _risk_level(risk),
+                "verdict": verdict,
+                "canonical_form": assessment["canonical_form"],
+            },
         )
 
     return ExecutionResult(
         success=True,
         message=output.strip() or "Command executed successfully.",
-        data={"policy_decision": "approved", "policy_reason": reason, "risk_score": risk, "risk_level": _risk_level(risk), "verdict": verdict, "canonical_form": assessment["canonical_form"]},
+        data={
+            "policy_decision": "approved",
+            "policy_reason": reason,
+            "risk_score": risk,
+            "risk_level": _risk_level(risk),
+            "verdict": verdict,
+            "canonical_form": assessment["canonical_form"],
+        },
     )

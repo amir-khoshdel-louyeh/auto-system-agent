@@ -3,7 +3,6 @@ from typing import Any, Literal
 
 from models import PlannedTask
 
-
 TaskAction = Literal[
     "run_command",
     "help",

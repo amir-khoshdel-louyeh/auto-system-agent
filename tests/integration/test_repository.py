@@ -8,6 +8,7 @@ from pathlib import Path
 from storage.event_logger import EventLogger
 from storage.repository import AuditRepository
 
+
 class RepositoryCrudTests(unittest.TestCase):
     def _repo(self, tmp_path):
         return AuditRepository(Path(tmp_path) / "audit.db")
@@ -90,6 +91,7 @@ class RepositoryCrudTests(unittest.TestCase):
             self.assertEqual(reopened.count_executions(), 1)
             self.assertEqual(reopened.fetch_executions()[0]["nl_intent"], "persisted")
 
+
 class LoggerDualWriteTests(unittest.TestCase):
     def test_jsonl_and_db_both_receive_event(self):
         import tempfile
@@ -102,7 +104,9 @@ class LoggerDualWriteTests(unittest.TestCase):
                 {
                     "mode": "multi_step",
                     "user_input": "install vlc",
-                    "planned_tasks": [{"action": "run_command", "target": "sudo dnf install -y vlc"}],
+                    "planned_tasks": [
+                        {"action": "run_command", "target": "sudo dnf install -y vlc"}
+                    ],
                     "steps": [
                         {
                             "tool": "run_command",
@@ -137,6 +141,7 @@ class LoggerDualWriteTests(unittest.TestCase):
 
             EventLogger(log_path=log_path, repository=BrokenRepository()).log({"mode": "x"})
             self.assertTrue(log_path.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

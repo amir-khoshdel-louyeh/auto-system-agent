@@ -5,10 +5,24 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from models import PlannedTask
+from orchestration.agent import AutoSystemAgent
+from storage.event_logger import EventLogger
+
+
+class InMemoryLogger(EventLogger):
+    def __init__(self) -> None:
+        self.events = []
+
+    def log(self, event):
+        self.events.append(event)
+
+
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _TEST_HOME = None
 _OLD_HOME = None
 _DB_PATH_BLOCK = None
+
 
 def setUpModule():
     """No writes outside a temp HOME in these tests."""
@@ -16,10 +30,9 @@ def setUpModule():
     _TEST_HOME = tempfile.TemporaryDirectory()
     _OLD_HOME = os.environ.get("HOME")
     os.environ["HOME"] = _TEST_HOME.name
-    _DB_PATH_BLOCK = patch(
-        "storage.repository.DEFAULT_DB_PATH", Path(_TEST_HOME.name) / "audit.db"
-    )
+    _DB_PATH_BLOCK = patch("storage.repository.DEFAULT_DB_PATH", Path(_TEST_HOME.name) / "audit.db")
     _DB_PATH_BLOCK.start()
+
 
 def tearDownModule():
     global _TEST_HOME, _OLD_HOME, _DB_PATH_BLOCK
@@ -32,20 +45,11 @@ def tearDownModule():
     if _TEST_HOME is not None:
         _TEST_HOME.cleanup()
 
-from orchestration.agent import AutoSystemAgent
-from storage.event_logger import EventLogger
-from models import PlannedTask
-
-class InMemoryLogger(EventLogger):
-    def __init__(self) -> None:
-        self.events = []
-
-    def log(self, event):
-        self.events.append(event)
 
 class FakePlanner:
     def plan_tasks(self, user_input: str):
         return [PlannedTask(action="create_folder", target="demo", raw_input=user_input)]
+
 
 class FakeSelector:
     SUPPORTED_ACTIONS = {"create_folder"}
@@ -53,25 +57,30 @@ class FakeSelector:
     def select(self, task):
         return task.action
 
+
 class FakeExecutor:
     def execute(self, tool_key, task):
         from models import ExecutionResult
 
         return ExecutionResult(success=True, message="ok")
 
+
 class FakeAssistant:
     def resolve(self, user_text, allowed_actions, history):
         return None
 
+
 class UnknownPlanner:
     def plan_tasks(self, user_input: str):
         return [PlannedTask(action="unknown", target=user_input, raw_input=user_input)]
+
 
 class UnknownSelector:
     SUPPORTED_ACTIONS = {"create_folder", "run_command", "install_app", "list_files"}
 
     def select(self, task):
         return "unknown"
+
 
 class EventLoggerTests(unittest.TestCase):
     def test_agent_writes_structured_event(self):
@@ -129,6 +138,7 @@ class EventLoggerTests(unittest.TestCase):
         self.assertEqual(len(unresolved), 1)
         self.assertEqual(unresolved[0]["reason"], "planner_unknown")
         self.assertIn("unknown", unresolved[0]["planned_actions"])
+
 
 if __name__ == "__main__":
     unittest.main()

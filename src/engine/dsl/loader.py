@@ -29,9 +29,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 try:
-    import yaml  # type: ignore[import-not-found]
+    import yaml
 except ImportError:  # pragma: no cover - env without PyYAML
-    yaml = None  # type: ignore[assignment]
+    yaml = None
 
 
 @dataclass(frozen=True)

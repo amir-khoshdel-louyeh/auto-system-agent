@@ -1,17 +1,20 @@
-import tkinter as tk
-from tkinter import messagebox, scrolledtext, ttk
-import queue
 import os
+import queue
 import threading
 import time
+import tkinter as tk
+from tkinter import messagebox, scrolledtext, ttk
 from typing import Callable
 
-from orchestration.agent import AutoSystemAgent
 from models import ExecutionResult, StepStatus
+from orchestration.agent import AutoSystemAgent
+from platforms.system_info import (
+    SystemConfig,
+    system_config_from_dict,
+    system_config_to_dict,
+)
+from storage.settings import OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL, LLMSettings, SettingsStore
 from ui.real_terminal import RealTerminalFrame
-from storage.settings import LLMSettings, OLLAMA_DEFAULT_MODEL, OLLAMA_DEFAULT_URL, SettingsStore
-from platforms.system_info import SystemConfig, detect_system_config, system_config_from_dict, system_config_to_dict
-
 
 BG_APP = "#eef2f7"
 BG_PANEL = "#ffffff"
@@ -29,7 +32,9 @@ ERROR = "#dc2626"
 ERROR_BG = "#fee2e2"
 
 
-def format_metrics_dialog(sample, average_cpu: float, success_pct: float, samples_stored: int) -> str:
+def format_metrics_dialog(
+    sample, average_cpu: float, success_pct: float, samples_stored: int
+) -> str:
     """Pure P4.3 formatter for the System Metrics dialog (Tk-free)."""
     lines = [
         f"CPU now: {sample.cpu:.1f}% (60s avg: {average_cpu:.1f}%)",
@@ -92,23 +97,47 @@ class AgentChatGUI:
         tools_menu = tk.Menu(menu_bar, tearoff=0)
         tools_menu.add_command(label="Tools Overview", command=self._open_tools_window)
         tools_menu.add_separator()
-        tools_menu.add_command(label="Insert Example: make file in Downloads", command=lambda: self._insert_tool_command("make a file known as test.py in the Downloads directory"))
-        tools_menu.add_command(label="Insert Example: list Downloads", command=lambda: self._insert_tool_command("list files in ~/Downloads"))
-        tools_menu.add_command(label="Insert Example: install vlc", command=lambda: self._insert_tool_command("install vlc"))
-        tools_menu.add_command(label="Insert Example: run ls -la", command=lambda: self._insert_tool_command("run ls -la ~/Downloads"))
+        tools_menu.add_command(
+            label="Insert Example: make file in Downloads",
+            command=lambda: self._insert_tool_command(
+                "make a file known as test.py in the Downloads directory"
+            ),
+        )
+        tools_menu.add_command(
+            label="Insert Example: list Downloads",
+            command=lambda: self._insert_tool_command("list files in ~/Downloads"),
+        )
+        tools_menu.add_command(
+            label="Insert Example: install vlc",
+            command=lambda: self._insert_tool_command("install vlc"),
+        )
+        tools_menu.add_command(
+            label="Insert Example: run ls -la",
+            command=lambda: self._insert_tool_command("run ls -la ~/Downloads"),
+        )
         menu_bar.add_cascade(label="Tools", menu=tools_menu)
 
         settings_menu = tk.Menu(menu_bar, tearoff=0)
         settings_menu.add_command(label="Settings", command=self._open_settings_window)
         settings_menu.add_separator()
-        settings_menu.add_command(label="LLM Settings", command=lambda: self._open_settings_window(selected_tab="llm"))
-        settings_menu.add_command(label="App Options", command=lambda: self._open_settings_window(selected_tab="app"))
+        settings_menu.add_command(
+            label="LLM Settings", command=lambda: self._open_settings_window(selected_tab="llm")
+        )
+        settings_menu.add_command(
+            label="App Options", command=lambda: self._open_settings_window(selected_tab="app")
+        )
         settings_menu.add_separator()
-        settings_menu.add_command(label="System Architecture", command=lambda: self._show_system_config_dialog(required=False))
+        settings_menu.add_command(
+            label="System Architecture",
+            command=lambda: self._show_system_config_dialog(required=False),
+        )
         menu_bar.add_cascade(label="Settings", menu=settings_menu)
         # System menu for quick access
         system_menu = tk.Menu(menu_bar, tearoff=0)
-        system_menu.add_command(label="System Architecture…", command=lambda: self._show_system_config_dialog(required=False))
+        system_menu.add_command(
+            label="System Architecture…",
+            command=lambda: self._show_system_config_dialog(required=False),
+        )
         system_menu.add_command(label="System Metrics…", command=self._show_metrics_dialog)
         menu_bar.add_cascade(label="System", menu=system_menu)
         self.root.config(menu=menu_bar)
@@ -121,7 +150,9 @@ class AgentChatGUI:
         main_container.grid_rowconfigure(0, weight=1)
 
         # Left panel (1/4): chat + input stacked vertically
-        left_panel = tk.Frame(main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
+        left_panel = tk.Frame(
+            main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1
+        )
         left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
         left_panel.grid_rowconfigure(1, weight=1)
         left_panel.grid_columnconfigure(0, weight=1)
@@ -133,13 +164,23 @@ class AgentChatGUI:
         agent_header.grid_columnconfigure(0, weight=1)
         left_head = tk.Frame(agent_header, bg=ACCENT)
         left_head.grid(row=0, column=0, sticky="w", padx=12)
-        tk.Label(left_head, text="⬢", font=("TkDefaultFont", 14), fg="#ffffff", bg=ACCENT).pack(side=tk.LEFT, padx=(0, 6))
-        tk.Label(left_head, text="Agent", font=("Segoe UI", 11, "bold"), fg="#ffffff", bg=ACCENT).pack(side=tk.LEFT)
-        tk.Label(left_head, text="Automated assistant", font=("Segoe UI", 8), fg="#cbd5e1", bg=ACCENT).pack(side=tk.LEFT, padx=(8, 0))
+        tk.Label(left_head, text="⬢", font=("TkDefaultFont", 14), fg="#ffffff", bg=ACCENT).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        tk.Label(
+            left_head, text="Agent", font=("Segoe UI", 11, "bold"), fg="#ffffff", bg=ACCENT
+        ).pack(side=tk.LEFT)
+        tk.Label(
+            left_head, text="Automated assistant", font=("Segoe UI", 8), fg="#cbd5e1", bg=ACCENT
+        ).pack(side=tk.LEFT, padx=(8, 0))
         # status dot + text
-        self._agent_status_dot = tk.Label(agent_header, text="●", font=("TkDefaultFont", 10), fg=SUCCESS, bg=ACCENT)
+        self._agent_status_dot = tk.Label(
+            agent_header, text="●", font=("TkDefaultFont", 10), fg=SUCCESS, bg=ACCENT
+        )
         self._agent_status_dot.grid(row=0, column=1, sticky="e", padx=(0, 4))
-        self._agent_status_label = tk.Label(agent_header, text="Ready", font=("Segoe UI", 8), fg="#e0f2fe", bg=ACCENT)
+        self._agent_status_label = tk.Label(
+            agent_header, text="Ready", font=("Segoe UI", 8), fg="#e0f2fe", bg=ACCENT
+        )
         self._agent_status_label.grid(row=0, column=2, sticky="e", padx=(0, 12))
 
         chat_container = tk.Frame(left_panel, bg=BG_PANEL)
@@ -170,7 +211,9 @@ class AgentChatGUI:
         input_frame.grid_columnconfigure(0, weight=1)
 
         # Entry row – modern pill style
-        entry_row = tk.Frame(input_frame, bg="#f1f5f9", highlightbackground="#cbd5e1", highlightthickness=1, bd=0)
+        entry_row = tk.Frame(
+            input_frame, bg="#f1f5f9", highlightbackground="#cbd5e1", highlightthickness=1, bd=0
+        )
         entry_row.grid(row=0, column=0, sticky="ew", pady=(0, 0), ipady=2)
         entry_row.grid_columnconfigure(0, weight=1)
 
@@ -220,24 +263,47 @@ class AgentChatGUI:
         self.send_button.grid(row=0, column=1, padx=(0, 6), pady=4)
 
         # Right panel (3/4): pinned terminal – pty-backed bash, same session for AI and you
-        right_panel = tk.Frame(main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
+        right_panel = tk.Frame(
+            main_container, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1
+        )
         right_panel.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
         right_panel.grid_rowconfigure(1, weight=1)
         right_panel.grid_columnconfigure(0, weight=1)
 
         header_frame = tk.Frame(right_panel, bg=BG_PANEL)
         header_frame.grid(row=0, column=0, sticky="ew", padx=10, pady=(6, 4))
-        tk.Label(header_frame, text="Terminal", font=("TkDefaultFont", 10, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
+        tk.Label(
+            header_frame,
+            text="Terminal",
+            font=("TkDefaultFont", 10, "bold"),
+            fg=ACCENT,
+            bg=BG_PANEL,
+        ).pack(anchor="w")
 
         # Vertical split: top explanation box, bottom terminal (each ~50%)
-        self._right_paned = tk.PanedWindow(right_panel, orient=tk.VERTICAL, bg=BG_APP, sashwidth=4, sashrelief=tk.FLAT, showhandle=False)
+        self._right_paned = tk.PanedWindow(
+            right_panel,
+            orient=tk.VERTICAL,
+            bg=BG_APP,
+            sashwidth=4,
+            sashrelief=tk.FLAT,
+            showhandle=False,
+        )
         self._right_paned.grid(row=1, column=0, sticky="nsew", padx=10, pady=(0, 10))
         right_panel.grid_rowconfigure(1, weight=1)
 
         # Top: explanation box
-        explanation_container = tk.Frame(self._right_paned, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
+        explanation_container = tk.Frame(
+            self._right_paned, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1
+        )
         self._right_paned.add(explanation_container, minsize=100, height=180)
-        tk.Label(explanation_container, text="Explanation", font=("TkDefaultFont", 9, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w", padx=8, pady=(6, 2))
+        tk.Label(
+            explanation_container,
+            text="Explanation",
+            font=("TkDefaultFont", 9, "bold"),
+            fg=ACCENT,
+            bg=BG_PANEL,
+        ).pack(anchor="w", padx=8, pady=(6, 2))
         self.explanation_text = scrolledtext.ScrolledText(
             explanation_container,
             wrap=tk.WORD,
@@ -252,21 +318,35 @@ class AgentChatGUI:
             state=tk.DISABLED,
         )
         self.explanation_text.pack(fill=tk.BOTH, expand=True, padx=6, pady=(0, 6))
-        self.explanation_text.tag_configure("exp_title", font=("Segoe UI", 9, "bold"), foreground=ACCENT)
+        self.explanation_text.tag_configure(
+            "exp_title", font=("Segoe UI", 9, "bold"), foreground=ACCENT
+        )
         self.explanation_text.tag_configure("exp_body", font=("Segoe UI", 9), foreground=FG_PRIMARY)
         self.explanation_text.tag_configure("exp_error", font=("Segoe UI", 9), foreground=ERROR)
         self.explanation_text.tag_configure("exp_success", font=("Segoe UI", 9), foreground=SUCCESS)
 
         # Bottom: pty terminal
-        terminal_container = tk.Frame(self._right_paned, bg=BG_PANEL, highlightbackground="#0f172a", highlightthickness=1)
+        terminal_container = tk.Frame(
+            self._right_paned, bg=BG_PANEL, highlightbackground="#0f172a", highlightthickness=1
+        )
         self._right_paned.add(terminal_container, minsize=150)
         terminal_container.grid_rowconfigure(0, weight=1)
         terminal_container.grid_columnconfigure(0, weight=1)
         try:
-            cwd_for_pty = self.agent._executor.terminal.cwd if hasattr(self.agent, "_executor") and hasattr(self.agent._executor, "terminal") else None
+            cwd_for_pty = (
+                self.agent._executor.terminal.cwd
+                if hasattr(self.agent, "_executor") and hasattr(self.agent._executor, "terminal")
+                else None
+            )
         except Exception:
             cwd_for_pty = None
-        self.real_terminal = RealTerminalFrame(terminal_container, cwd=cwd_for_pty, bg=BG_PANEL, highlightbackground="#0f172a", highlightthickness=1)
+        self.real_terminal = RealTerminalFrame(
+            terminal_container,
+            cwd=cwd_for_pty,
+            bg=BG_PANEL,
+            highlightbackground="#0f172a",
+            highlightthickness=1,
+        )
         self.real_terminal.grid(row=0, column=0, sticky="nsew")
         self.terminal_text = self.real_terminal.text
         self._step_progress_rows: dict[int, int] = {}
@@ -287,6 +367,7 @@ class AgentChatGUI:
                     if stripped == "cd" or stripped.startswith("cd "):
                         import shlex
                         from pathlib import Path
+
                         try:
                             parts = shlex.split(stripped)
                             target = parts[1] if len(parts) > 1 else "~"
@@ -305,10 +386,20 @@ class AgentChatGUI:
                 except Exception:
                     pass
                 success = code == 0
-                msg = out.strip() if out.strip() else (f"Command executed: {cmd}" if success else f"Command failed (exit {code}): {cmd}")
+                msg = (
+                    out.strip()
+                    if out.strip()
+                    else (
+                        f"Command executed: {cmd}"
+                        if success
+                        else f"Command failed (exit {code}): {cmd}"
+                    )
+                )
                 if len(msg) > 6000:
                     msg = msg[-6000:]
-                return ExecutionResult(success=success, message=msg, data={"exit_code": code, "command": cmd})
+                return ExecutionResult(
+                    success=success, message=msg, data={"exit_code": code, "command": cmd}
+                )
 
             _orig_terminal.run = _pty_run
         except Exception as e:
@@ -454,12 +545,15 @@ class AgentChatGUI:
         # Only show user and agent; hide verbose System progress as requested,
         # but keep welcome/important system as subtle center note if needed.
         import time as _time
+
         ts = _time.strftime("%H:%M")
         # Simplify agent output to success / error only
         if speaker == "Agent":
             low = message.lower()
-            is_error = ("[error]" in low or " error" in low or "failed" in low or "✗" in message)
-            is_success = ("[success]" in low or "success" in low or "succeeded" in low or "✓" in message)
+            is_error = "[error]" in low or " error" in low or "failed" in low or "✗" in message
+            is_success = (
+                "[success]" in low or "success" in low or "succeeded" in low or "✓" in message
+            )
             # Welcome message is neutral
             if message.strip().lower().startswith("welcome"):
                 who_tag = "who_agent"
@@ -470,7 +564,10 @@ class AgentChatGUI:
                 body_tag = "bubble_agent_error"
                 label = "✗ Agent  " + ts
                 # Show LLM explanation in chat when available, otherwise concise fallback
-                if len(message.strip()) < 25 or message.strip().lower() == "✗ error — see terminal for details.":
+                if (
+                    len(message.strip()) < 25
+                    or message.strip().lower() == "✗ error — see terminal for details."
+                ):
                     message = "✗ Error — see terminal for details."
                 # Keep the actual LLM-generated explanation (no generic replacement)
             elif is_success:
@@ -560,7 +657,7 @@ class AgentChatGUI:
             if text == placeholder:
                 return ""
             if placeholder and text.startswith(placeholder):
-                return text[len(placeholder):].strip()
+                return text[len(placeholder) :].strip()
             # Flag set but content is fully user text: drop the stale flag.
             self._entry_has_placeholder = False
             try:
@@ -678,7 +775,11 @@ class AgentChatGUI:
         except Exception:
             details = []
         if not details:
-            for widget_name in ("confirmation_status_label", "confirmation_details_label", "risk_badges_label"):
+            for widget_name in (
+                "confirmation_status_label",
+                "confirmation_details_label",
+                "risk_badges_label",
+            ):
                 try:
                     getattr(self, widget_name).configure(text="")
                 except Exception:
@@ -753,7 +854,9 @@ class AgentChatGUI:
         except Exception:
             pass
 
-    def _start_background_task(self, task_fn: Callable[[Callable[[StepStatus], None]], str | None]) -> None:
+    def _start_background_task(
+        self, task_fn: Callable[[Callable[[StepStatus], None]], str | None]
+    ) -> None:
         self._request_counter += 1
         request_id = self._request_counter
         self._active_request_id = request_id
@@ -769,7 +872,9 @@ class AgentChatGUI:
                 if response:
                     self._ui_queue.put(("response", (request_id, response)))
             except Exception as exc:
-                self._ui_queue.put(("error", (request_id, f"Unexpected error while processing request: {exc}")))
+                self._ui_queue.put(
+                    ("error", (request_id, f"Unexpected error while processing request: {exc}"))
+                )
             finally:
                 self._ui_queue.put(("done", (request_id, None)))
 
@@ -782,13 +887,20 @@ class AgentChatGUI:
         try:
             if hasattr(self, "real_terminal") and self.real_terminal is not None:
                 # _exec_lock is held during run_command
-                if hasattr(self.real_terminal, "_exec_lock") and self.real_terminal._exec_lock.locked():
+                if (
+                    hasattr(self.real_terminal, "_exec_lock")
+                    and self.real_terminal._exec_lock.locked()
+                ):
                     is_terminal_busy = True
                 # also check pty output activity via recent queue if needed
         except Exception:
             is_terminal_busy = False
 
-        if self._is_busy and self._request_started_at is not None and self._task_timeout_seconds > 0:
+        if (
+            self._is_busy
+            and self._request_started_at is not None
+            and self._task_timeout_seconds > 0
+        ):
             if is_terminal_busy:
                 self._request_started_at = time.time()
             else:
@@ -908,7 +1020,9 @@ class AgentChatGUI:
     def _show_startup_provider_dialog(self) -> None:
         """Mandatory modal on every startup: user must choose API or Local model."""
         # Use current settings as initial values but force explicit choice
-        current_mode = self._settings_store._normalize_provider_mode(getattr(self._settings, "provider_mode", "local"))
+        current_mode = self._settings_store._normalize_provider_mode(
+            getattr(self._settings, "provider_mode", "local")
+        )
         initial_mode = current_mode if current_mode in ("local", "api") else "local"
 
         # Prepare initial field values
@@ -948,6 +1062,7 @@ class AgentChatGUI:
             except Exception:
                 pass
             import sys as _sys
+
             _sys.exit(0)
 
         def on_dialog_close():
@@ -958,7 +1073,13 @@ class AgentChatGUI:
 
         header = tk.Frame(dialog, bg=BG_PANEL, padx=16, pady=12)
         header.pack(fill=tk.X)
-        tk.Label(header, text="Choose how the app will run", font=("TkDefaultFont", 12, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
+        tk.Label(
+            header,
+            text="Choose how the app will run",
+            font=("TkDefaultFont", 12, "bold"),
+            fg=ACCENT,
+            bg=BG_PANEL,
+        ).pack(anchor="w")
         tk.Label(
             header,
             text="You must select exactly one provider before the app can start.\nThe app will act according to your choice (Local Ollama or Remote API).",
@@ -972,8 +1093,18 @@ class AgentChatGUI:
 
         radio_frame = tk.Frame(dialog, padx=16, pady=8)
         radio_frame.pack(fill=tk.X)
-        tk.Radiobutton(radio_frame, text="Local Model (Ollama)  — runs on http://localhost:11434, no API key", variable=mode_var, value="local").pack(anchor="w", pady=2)
-        tk.Radiobutton(radio_frame, text="Remote API  — OpenAI-compatible endpoint with API key", variable=mode_var, value="api").pack(anchor="w", pady=2)
+        tk.Radiobutton(
+            radio_frame,
+            text="Local Model (Ollama)  — runs on http://localhost:11434, no API key",
+            variable=mode_var,
+            value="local",
+        ).pack(anchor="w", pady=2)
+        tk.Radiobutton(
+            radio_frame,
+            text="Remote API  — OpenAI-compatible endpoint with API key",
+            variable=mode_var,
+            value="api",
+        ).pack(anchor="w", pady=2)
 
         content = tk.Frame(dialog, padx=16, pady=8)
         content.pack(fill=tk.BOTH, expand=True)
@@ -1016,7 +1147,14 @@ class AgentChatGUI:
         api_timeout_entry.insert(0, init_api_timeout)
         api_frame.columnconfigure(1, weight=1)
 
-        hint = tk.Label(dialog, text="* Required for Remote API. Local needs only URL/model.", fg=FG_MUTED, font=("TkDefaultFont", 8), anchor="w", padx=16)
+        hint = tk.Label(
+            dialog,
+            text="* Required for Remote API. Local needs only URL/model.",
+            fg=FG_MUTED,
+            font=("TkDefaultFont", 8),
+            anchor="w",
+            padx=16,
+        )
         hint.pack(fill=tk.X, pady=(0, 8))
 
         def sync_state(*_args):
@@ -1047,7 +1185,9 @@ class AgentChatGUI:
         def on_continue():
             mode = mode_var.get().strip() or "local"
             if mode not in ("local", "api"):
-                messagebox.showerror("Invalid choice", "Please select Local or Remote API.", parent=dialog)
+                messagebox.showerror(
+                    "Invalid choice", "Please select Local or Remote API.", parent=dialog
+                )
                 return
             if mode == "local":
                 url = local_url_entry.get().strip() or OLLAMA_DEFAULT_URL
@@ -1055,10 +1195,14 @@ class AgentChatGUI:
                 timeout_raw = local_timeout_entry.get().strip() or "30"
                 api_key = ""
                 if not url:
-                    messagebox.showerror("Invalid value", "Local Ollama URL is required.", parent=dialog)
+                    messagebox.showerror(
+                        "Invalid value", "Local Ollama URL is required.", parent=dialog
+                    )
                     return
                 if not model:
-                    messagebox.showerror("Invalid value", "Local model name is required.", parent=dialog)
+                    messagebox.showerror(
+                        "Invalid value", "Local model name is required.", parent=dialog
+                    )
                     return
             else:
                 url = api_url_entry.get().strip()
@@ -1066,13 +1210,19 @@ class AgentChatGUI:
                 model = api_model_entry.get().strip()
                 timeout_raw = api_timeout_entry.get().strip() or "30"
                 if not url:
-                    messagebox.showerror("Invalid value", "API URL is required for Remote API.", parent=dialog)
+                    messagebox.showerror(
+                        "Invalid value", "API URL is required for Remote API.", parent=dialog
+                    )
                     return
                 if not api_key:
-                    messagebox.showerror("Invalid value", "API Key is required for Remote API.", parent=dialog)
+                    messagebox.showerror(
+                        "Invalid value", "API Key is required for Remote API.", parent=dialog
+                    )
                     return
                 if not model:
-                    messagebox.showerror("Invalid value", "Model is required for Remote API.", parent=dialog)
+                    messagebox.showerror(
+                        "Invalid value", "Model is required for Remote API.", parent=dialog
+                    )
                     return
 
             try:
@@ -1080,7 +1230,9 @@ class AgentChatGUI:
                 if timeout_val <= 0:
                     raise ValueError
             except ValueError:
-                messagebox.showerror("Invalid value", "Timeout must be a positive number.", parent=dialog)
+                messagebox.showerror(
+                    "Invalid value", "Timeout must be a positive number.", parent=dialog
+                )
                 return
 
             # Preserve other settings
@@ -1100,7 +1252,9 @@ class AgentChatGUI:
             try:
                 self._settings_store.save(self._settings)
             except Exception as exc:
-                messagebox.showerror("Save failed", f"Could not save settings: {exc}", parent=dialog)
+                messagebox.showerror(
+                    "Save failed", f"Could not save settings: {exc}", parent=dialog
+                )
                 return
             choice_made["done"] = True
             choice_made["mode"] = mode
@@ -1112,8 +1266,24 @@ class AgentChatGUI:
 
         btn_frame = tk.Frame(dialog, padx=16, pady=12)
         btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
-        tk.Button(btn_frame, text="Exit", command=exit_app, bg="#6b7280", fg="#ffffff", relief=tk.FLAT, padx=12).pack(side=tk.RIGHT, padx=(8, 0))
-        tk.Button(btn_frame, text="Continue", command=on_continue, bg=ACCENT, fg="#ffffff", relief=tk.FLAT, padx=12).pack(side=tk.RIGHT)
+        tk.Button(
+            btn_frame,
+            text="Exit",
+            command=exit_app,
+            bg="#6b7280",
+            fg="#ffffff",
+            relief=tk.FLAT,
+            padx=12,
+        ).pack(side=tk.RIGHT, padx=(8, 0))
+        tk.Button(
+            btn_frame,
+            text="Continue",
+            command=on_continue,
+            bg=ACCENT,
+            fg="#ffffff",
+            relief=tk.FLAT,
+            padx=12,
+        ).pack(side=tk.RIGHT)
         # Bind Enter to continue
         dialog.bind("<Return>", lambda _e: on_continue())
 
@@ -1138,7 +1308,11 @@ class AgentChatGUI:
         try:
             from platforms.system_info import detect_system_config
 
-            persisted = self._settings.system_config if isinstance(self._settings.system_config, dict) else None
+            persisted = (
+                self._settings.system_config
+                if isinstance(self._settings.system_config, dict)
+                else None
+            )
             detected = detect_system_config()
             # If persisted exists, start from it; otherwise from detected
             if isinstance(persisted, dict) and persisted:
@@ -1176,6 +1350,7 @@ class AgentChatGUI:
             except Exception:
                 pass
             import sys as _sys
+
             _sys.exit(0)
 
         def on_close():
@@ -1192,11 +1367,21 @@ class AgentChatGUI:
 
         header = tk.Frame(dialog, bg=BG_PANEL, padx=16, pady=12)
         header.pack(fill=tk.X)
-        tk.Label(header, text="System Architecture — Please review", font=("TkDefaultFont", 12, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
+        tk.Label(
+            header,
+            text="System Architecture — Please review",
+            font=("TkDefaultFont", 12, "bold"),
+            fg=ACCENT,
+            bg=BG_PANEL,
+        ).pack(anchor="w")
         tk.Label(
             header,
             text="Detected your OS, architecture and package managers. Installing apps needs the right manager (apt for Debian/Ubuntu, dnf for Fedora, pacman for Arch, snap/flatpak if available). Review, modify if needed, then Accept. This config will be used to generate correct commands.",
-            font=("TkDefaultFont", 9), fg=FG_MUTED, bg=BG_PANEL, wraplength=640, justify=tk.LEFT
+            font=("TkDefaultFont", 9),
+            fg=FG_MUTED,
+            bg=BG_PANEL,
+            wraplength=640,
+            justify=tk.LEFT,
         ).pack(anchor="w", pady=(4, 0))
 
         body = tk.Frame(dialog, padx=16, pady=8)
@@ -1214,14 +1399,18 @@ class AgentChatGUI:
 
         # Helper to add row
         def add_combo_row(parent, label, row, values, initial, width=28):
-            tk.Label(parent, text=label, bg=BG_PANEL, anchor="w").grid(row=row, column=0, sticky="w", padx=6, pady=4)
+            tk.Label(parent, text=label, bg=BG_PANEL, anchor="w").grid(
+                row=row, column=0, sticky="w", padx=6, pady=4
+            )
             var = tk.StringVar(value=initial)
             cb = ttk.Combobox(parent, textvariable=var, values=values, width=width, state="normal")
             cb.grid(row=row, column=1, sticky="we", padx=6, pady=4)
             return var, cb
 
         def add_entry_row(parent, label, row, initial, width=40):
-            tk.Label(parent, text=label, bg=BG_PANEL, anchor="w").grid(row=row, column=0, sticky="w", padx=6, pady=4)
+            tk.Label(parent, text=label, bg=BG_PANEL, anchor="w").grid(
+                row=row, column=0, sticky="w", padx=6, pady=4
+            )
             ent = tk.Entry(parent, width=width)
             ent.grid(row=row, column=1, sticky="we", padx=6, pady=4)
             ent.insert(0, initial or "")
@@ -1229,71 +1418,180 @@ class AgentChatGUI:
 
         inner.grid_columnconfigure(1, weight=1)
         r = 0
-        os_var, os_cb = add_combo_row(inner, "OS", r, ["linux", "windows", "macos"], cfg.os_name); r += 1
-        distro_vals = ["ubuntu", "debian", "fedora", "arch", "manjaro", "opensuse-leap", "opensuse-tumbleweed", "alpine", "linuxmint", "pop", "rhel", "centos", "rocky", "unknown"]
-        distro_var, distro_cb = add_combo_row(inner, "Distro ID", r, distro_vals, cfg.distro_id); r += 1
-        distro_ver_ent = add_entry_row(inner, "Version", r, cfg.distro_version); r += 1
-        pretty_ent = add_entry_row(inner, "Pretty Name", r, cfg.distro_pretty); r += 1
-        arch_var, arch_cb = add_combo_row(inner, "Architecture", r, ["x86_64", "aarch64", "armv7l", "i386", "ppc64le", "s390x"], cfg.arch); r += 1
-        kernel_ent = add_entry_row(inner, "Kernel", r, cfg.kernel); r += 1
-        cpu_model_ent = add_entry_row(inner, "CPU Model", r, cfg.cpu_model); r += 1
-        tk.Label(inner, text="CPU Cores", bg=BG_PANEL).grid(row=r, column=0, sticky="w", padx=6, pady=4)
+        os_var, os_cb = add_combo_row(inner, "OS", r, ["linux", "windows", "macos"], cfg.os_name)
+        r += 1
+        distro_vals = [
+            "ubuntu",
+            "debian",
+            "fedora",
+            "arch",
+            "manjaro",
+            "opensuse-leap",
+            "opensuse-tumbleweed",
+            "alpine",
+            "linuxmint",
+            "pop",
+            "rhel",
+            "centos",
+            "rocky",
+            "unknown",
+        ]
+        distro_var, distro_cb = add_combo_row(inner, "Distro ID", r, distro_vals, cfg.distro_id)
+        r += 1
+        distro_ver_ent = add_entry_row(inner, "Version", r, cfg.distro_version)
+        r += 1
+        pretty_ent = add_entry_row(inner, "Pretty Name", r, cfg.distro_pretty)
+        r += 1
+        arch_var, arch_cb = add_combo_row(
+            inner,
+            "Architecture",
+            r,
+            ["x86_64", "aarch64", "armv7l", "i386", "ppc64le", "s390x"],
+            cfg.arch,
+        )
+        r += 1
+        kernel_ent = add_entry_row(inner, "Kernel", r, cfg.kernel)
+        r += 1
+        cpu_model_ent = add_entry_row(inner, "CPU Model", r, cfg.cpu_model)
+        r += 1
+        tk.Label(inner, text="CPU Cores", bg=BG_PANEL).grid(
+            row=r, column=0, sticky="w", padx=6, pady=4
+        )
         cores_var = tk.StringVar(value=str(cfg.cpu_cores))
         cores_spin = tk.Spinbox(inner, from_=1, to=256, textvariable=cores_var, width=8)
-        cores_spin.grid(row=r, column=1, sticky="w", padx=6, pady=4); r += 1
-        ram_ent = add_entry_row(inner, "RAM (GB)", r, f"{cfg.ram_gb:.1f}" if cfg.ram_gb else ""); r += 1
-        pkg_vals = ["apt", "dnf", "pacman", "zypper", "apk", "snap", "flatpak", "brew", "winget", "unknown"]
-        pkg_var, pkg_cb = add_combo_row(inner, "Primary Package Manager *", r, pkg_vals, cfg.package_manager); r += 1
-        tk.Label(inner, text="* Used for `install` commands (snap/flatpak also available as fallback)", bg=BG_PANEL, fg=FG_MUTED, font=("TkDefaultFont", 7)).grid(row=r, column=0, columnspan=2, sticky="w", padx=6, pady=(0,4)); r+=1
+        cores_spin.grid(row=r, column=1, sticky="w", padx=6, pady=4)
+        r += 1
+        ram_ent = add_entry_row(inner, "RAM (GB)", r, f"{cfg.ram_gb:.1f}" if cfg.ram_gb else "")
+        r += 1
+        pkg_vals = [
+            "apt",
+            "dnf",
+            "pacman",
+            "zypper",
+            "apk",
+            "snap",
+            "flatpak",
+            "brew",
+            "winget",
+            "unknown",
+        ]
+        pkg_var, pkg_cb = add_combo_row(
+            inner, "Primary Package Manager *", r, pkg_vals, cfg.package_manager
+        )
+        r += 1
+        tk.Label(
+            inner,
+            text="* Used for `install` commands (snap/flatpak also available as fallback)",
+            bg=BG_PANEL,
+            fg=FG_MUTED,
+            font=("TkDefaultFont", 7),
+        ).grid(row=r, column=0, columnspan=2, sticky="w", padx=6, pady=(0, 4))
+        r += 1
 
         snap_var = tk.BooleanVar(value=bool(cfg.snap_available))
         flatpak_var = tk.BooleanVar(value=bool(cfg.flatpak_available))
         brew_var = tk.BooleanVar(value=bool(cfg.brew_available))
-        tk.Checkbutton(inner, text="Snap available (snap install)", variable=snap_var, bg=BG_PANEL, anchor="w").grid(row=r, column=0, columnspan=2, sticky="w", padx=6, pady=2); r+=1
-        tk.Checkbutton(inner, text="Flatpak available (flatpak install)", variable=flatpak_var, bg=BG_PANEL, anchor="w").grid(row=r, column=0, columnspan=2, sticky="w", padx=6, pady=2); r+=1
-        tk.Checkbutton(inner, text="Homebrew available (brew install)", variable=brew_var, bg=BG_PANEL, anchor="w").grid(row=r, column=0, columnspan=2, sticky="w", padx=6, pady=2); r+=1
-        hw_ent = add_entry_row(inner, "Hardware Summary", r, cfg.hardware_summary); r+=1
+        tk.Checkbutton(
+            inner, text="Snap available (snap install)", variable=snap_var, bg=BG_PANEL, anchor="w"
+        ).grid(row=r, column=0, columnspan=2, sticky="w", padx=6, pady=2)
+        r += 1
+        tk.Checkbutton(
+            inner,
+            text="Flatpak available (flatpak install)",
+            variable=flatpak_var,
+            bg=BG_PANEL,
+            anchor="w",
+        ).grid(row=r, column=0, columnspan=2, sticky="w", padx=6, pady=2)
+        r += 1
+        tk.Checkbutton(
+            inner,
+            text="Homebrew available (brew install)",
+            variable=brew_var,
+            bg=BG_PANEL,
+            anchor="w",
+        ).grid(row=r, column=0, columnspan=2, sticky="w", padx=6, pady=2)
+        r += 1
+        hw_ent = add_entry_row(inner, "Hardware Summary", r, cfg.hardware_summary)
+        r += 1
 
-        note = tk.Label(inner, text="You can change package manager if you prefer snap/flatpak even though your distro default is different.\nThis choice directly affects commands like `sudo apt install -y vlc` vs `sudo dnf install -y vlc` vs `snap install vlc`.", fg=FG_MUTED, bg=BG_PANEL, font=("TkDefaultFont", 8), wraplength=580, justify=tk.LEFT)
-        note.grid(row=r, column=0, columnspan=2, sticky="w", padx=6, pady=8); r+=1
+        note = tk.Label(
+            inner,
+            text="You can change package manager if you prefer snap/flatpak even though your distro default is different.\nThis choice directly affects commands like `sudo apt install -y vlc` vs `sudo dnf install -y vlc` vs `snap install vlc`.",
+            fg=FG_MUTED,
+            bg=BG_PANEL,
+            font=("TkDefaultFont", 8),
+            wraplength=580,
+            justify=tk.LEFT,
+        )
+        note.grid(row=r, column=0, columnspan=2, sticky="w", padx=6, pady=8)
+        r += 1
 
         def do_detect_again():
             try:
                 fresh = detect_system_config()
                 os_var.set(fresh.os_name)
                 distro_var.set(fresh.distro_id)
-                distro_ver_ent.delete(0, tk.END); distro_ver_ent.insert(0, fresh.distro_version)
-                pretty_ent.delete(0, tk.END); pretty_ent.insert(0, fresh.distro_pretty)
+                distro_ver_ent.delete(0, tk.END)
+                distro_ver_ent.insert(0, fresh.distro_version)
+                pretty_ent.delete(0, tk.END)
+                pretty_ent.insert(0, fresh.distro_pretty)
                 arch_var.set(fresh.arch)
-                kernel_ent.delete(0, tk.END); kernel_ent.insert(0, fresh.kernel)
-                cpu_model_ent.delete(0, tk.END); cpu_model_ent.insert(0, fresh.cpu_model)
+                kernel_ent.delete(0, tk.END)
+                kernel_ent.insert(0, fresh.kernel)
+                cpu_model_ent.delete(0, tk.END)
+                cpu_model_ent.insert(0, fresh.cpu_model)
                 cores_var.set(str(fresh.cpu_cores))
-                ram_ent.delete(0, tk.END); ram_ent.insert(0, f"{fresh.ram_gb:.1f}" if fresh.ram_gb else "")
+                ram_ent.delete(0, tk.END)
+                ram_ent.insert(0, f"{fresh.ram_gb:.1f}" if fresh.ram_gb else "")
                 pkg_var.set(fresh.package_manager)
                 snap_var.set(bool(fresh.snap_available))
                 flatpak_var.set(bool(fresh.flatpak_available))
                 brew_var.set(bool(fresh.brew_available))
-                hw_ent.delete(0, tk.END); hw_ent.insert(0, fresh.hardware_summary)
+                hw_ent.delete(0, tk.END)
+                hw_ent.insert(0, fresh.hardware_summary)
             except Exception as e:
                 messagebox.showerror("Detect failed", str(e), parent=dialog)
 
         btn_frame = tk.Frame(dialog, padx=16, pady=12)
         btn_frame.pack(fill=tk.X, side=tk.BOTTOM)
-        tk.Button(btn_frame, text="Detect Again", command=do_detect_again, bg="#e5e7eb", fg="#1f2937", relief=tk.FLAT, padx=12).pack(side=tk.LEFT)
-        tk.Button(btn_frame, text="Exit", command=exit_app, bg="#6b7280", fg="#ffffff", relief=tk.FLAT, padx=12).pack(side=tk.RIGHT, padx=(8,0))
+        tk.Button(
+            btn_frame,
+            text="Detect Again",
+            command=do_detect_again,
+            bg="#e5e7eb",
+            fg="#1f2937",
+            relief=tk.FLAT,
+            padx=12,
+        ).pack(side=tk.LEFT)
+        tk.Button(
+            btn_frame,
+            text="Exit",
+            command=exit_app,
+            bg="#6b7280",
+            fg="#ffffff",
+            relief=tk.FLAT,
+            padx=12,
+        ).pack(side=tk.RIGHT, padx=(8, 0))
+
         # Accept handler
         def on_accept():
             # Validate
             arch_v = arch_var.get().strip() or "x86_64"
             pkg_v = pkg_var.get().strip() or "unknown"
             if pkg_v not in pkg_vals:
-                messagebox.showerror("Invalid", f"Package manager must be one of {', '.join(pkg_vals)}", parent=dialog)
+                messagebox.showerror(
+                    "Invalid",
+                    f"Package manager must be one of {', '.join(pkg_vals)}",
+                    parent=dialog,
+                )
                 return
             try:
                 cores_i = int(float(cores_var.get().strip() or "0"))
                 ram_f = float(ram_ent.get().strip() or "0")
             except ValueError:
-                messagebox.showerror("Invalid", "CPU cores must be integer, RAM must be numeric", parent=dialog)
+                messagebox.showerror(
+                    "Invalid", "CPU cores must be integer, RAM must be numeric", parent=dialog
+                )
                 return
             new_cfg = SystemConfig(
                 os_name=os_var.get().strip() or "linux",
@@ -1325,7 +1623,15 @@ class AgentChatGUI:
                 pass
             dialog.destroy()
 
-        tk.Button(btn_frame, text="Accept", command=on_accept, bg=ACCENT, fg="#ffffff", relief=tk.FLAT, padx=12).pack(side=tk.RIGHT)
+        tk.Button(
+            btn_frame,
+            text="Accept",
+            command=on_accept,
+            bg=ACCENT,
+            fg="#ffffff",
+            relief=tk.FLAT,
+            padx=12,
+        ).pack(side=tk.RIGHT)
         dialog.bind("<Return>", lambda e: on_accept())
         self._fit_dialog_to_content(dialog, default_width=720, default_height=620)
         dialog.wait_window()
@@ -1335,11 +1641,16 @@ class AgentChatGUI:
         if accepted["done"]:
             try:
                 self.agent = self._build_agent()
-                self._append_message("System", f"System config accepted: {pkg_var.get()} on {distro_var.get()} {arch_var.get()} | snap={snap_var.get()} flatpak={flatpak_var.get()}")
+                self._append_message(
+                    "System",
+                    f"System config accepted: {pkg_var.get()} on {distro_var.get()} {arch_var.get()} | snap={snap_var.get()} flatpak={flatpak_var.get()}",
+                )
             except Exception:
                 pass
 
-    def _fit_dialog_to_content(self, dialog: tk.Toplevel, default_width: int = 620, default_height: int = 380) -> None:
+    def _fit_dialog_to_content(
+        self, dialog: tk.Toplevel, default_width: int = 620, default_height: int = 380
+    ) -> None:
         """Ensure dialog window is at least as large as its content to avoid clipping."""
         try:
             dialog.update_idletasks()
@@ -1513,7 +1824,13 @@ class AgentChatGUI:
 
         header = tk.Frame(window, bg=BG_PANEL, padx=16, pady=12)
         header.pack(fill=tk.X)
-        tk.Label(header, text="Available Tools", font=("TkDefaultFont", 12, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
+        tk.Label(
+            header,
+            text="Available Tools",
+            font=("TkDefaultFont", 12, "bold"),
+            fg=ACCENT,
+            bg=BG_PANEL,
+        ).pack(anchor="w")
         tk.Label(
             header,
             text="All requests run directly as bash commands (bash -lc). No per-request Python tool.",
@@ -1526,16 +1843,47 @@ class AgentChatGUI:
         paned = tk.PanedWindow(window, orient=tk.HORIZONTAL, bg=BG_APP, sashwidth=4)
         paned.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
 
-        left_frame = tk.Frame(paned, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
+        left_frame = tk.Frame(
+            paned, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1
+        )
         paned.add(left_frame, minsize=220, width=260)
-        tk.Label(left_frame, text="Tool Categories", font=("TkDefaultFont", 10, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w", padx=10, pady=(10, 6))
-        tools_list = tk.Listbox(left_frame, bg="#f8fafc", fg=FG_PRIMARY, borderwidth=0, highlightthickness=0, selectbackground="#dbeafe", font=("TkDefaultFont", 9))
+        tk.Label(
+            left_frame,
+            text="Tool Categories",
+            font=("TkDefaultFont", 10, "bold"),
+            fg=ACCENT,
+            bg=BG_PANEL,
+        ).pack(anchor="w", padx=10, pady=(10, 6))
+        tools_list = tk.Listbox(
+            left_frame,
+            bg="#f8fafc",
+            fg=FG_PRIMARY,
+            borderwidth=0,
+            highlightthickness=0,
+            selectbackground="#dbeafe",
+            font=("TkDefaultFont", 9),
+        )
         tools_list.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
 
-        right_frame = tk.Frame(paned, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1)
+        right_frame = tk.Frame(
+            paned, bg=BG_PANEL, highlightbackground="#d0d7e2", highlightthickness=1
+        )
         paned.add(right_frame, minsize=380)
-        tk.Label(right_frame, text="Details", font=("TkDefaultFont", 10, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w", padx=10, pady=(10, 6))
-        details_text = scrolledtext.ScrolledText(right_frame, wrap=tk.WORD, font=("TkDefaultFont", 9), bg="#f8fafc", fg=FG_PRIMARY, borderwidth=0, relief=tk.FLAT, padx=10, pady=8, height=16)
+        tk.Label(
+            right_frame, text="Details", font=("TkDefaultFont", 10, "bold"), fg=ACCENT, bg=BG_PANEL
+        ).pack(anchor="w", padx=10, pady=(10, 6))
+        details_text = scrolledtext.ScrolledText(
+            right_frame,
+            wrap=tk.WORD,
+            font=("TkDefaultFont", 9),
+            bg="#f8fafc",
+            fg=FG_PRIMARY,
+            borderwidth=0,
+            relief=tk.FLAT,
+            padx=10,
+            pady=8,
+            height=16,
+        )
         details_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 8))
         details_text.configure(state=tk.DISABLED)
 
@@ -1548,21 +1896,38 @@ class AgentChatGUI:
                 "name": "Shell Commands (bash -lc)",
                 "actions": ["run_command"],
                 "description": "Every user request is translated to an exact shell command and executed via bash -lc with cwd tracking (pwd/cd/history).",
-                "examples": ["touch ~/Downloads/test.py", "mkdir -p ~/Downloads/demo && touch ~/Downloads/demo/file.txt", "ls -la ~/Downloads", "cat ~/Downloads/test.py", "cp ~/Downloads/a.txt ~/Downloads/b.txt"],
+                "examples": [
+                    "touch ~/Downloads/test.py",
+                    "mkdir -p ~/Downloads/demo && touch ~/Downloads/demo/file.txt",
+                    "ls -la ~/Downloads",
+                    "cat ~/Downloads/test.py",
+                    "cp ~/Downloads/a.txt ~/Downloads/b.txt",
+                ],
                 "safety": "Direct shell: any bash command is allowed. Destructive commands (rm, sudo) require confirmation. History and cwd are tracked.",
             },
             {
                 "name": "File & Folder (via shell)",
                 "actions": ["run_command"],
                 "description": "File operations are plain shell commands, not Python wrappers.",
-                "examples": ["mkdir -p ~/Downloads/demo", "touch ~/Downloads/test.py", "rm ~/Downloads/test.py", "mv ~/Downloads/a.txt ~/Downloads/b.txt", "zip -r ~/Downloads/archive.zip ~/Downloads/demo"],
+                "examples": [
+                    "mkdir -p ~/Downloads/demo",
+                    "touch ~/Downloads/test.py",
+                    "rm ~/Downloads/test.py",
+                    "mv ~/Downloads/a.txt ~/Downloads/b.txt",
+                    "zip -r ~/Downloads/archive.zip ~/Downloads/demo",
+                ],
                 "safety": "Uses real mkdir/touch/rm/mv/zip. Paths like ~/Downloads/<name> are used directly.",
             },
             {
                 "name": "System & Install (via shell)",
                 "actions": ["run_command"],
                 "description": "System tasks are shell commands, no separate installer tool.",
-                "examples": ["sudo apt install -y vlc", "ps -eo pid,comm,%cpu | head", "ping -c 4 google.com", "git clone https://github.com/user/repo.git"],
+                "examples": [
+                    "sudo apt install -y vlc",
+                    "ps -eo pid,comm,%cpu | head",
+                    "ping -c 4 google.com",
+                    "git clone https://github.com/user/repo.git",
+                ],
                 "safety": "Installer is just shell: sudo apt/dnf/pacman/brew/winget. Confirmation required for sudo/rm.",
             },
         ]
@@ -1588,15 +1953,23 @@ class AgentChatGUI:
             tk.Button(
                 btn_row,
                 text=f"Insert example: {item['examples'][0]}",
-                command=lambda ex=item['examples'][0]: self._insert_tool_command(ex),
+                command=lambda ex=item["examples"][0]: self._insert_tool_command(ex),
                 bg=ACCENT,
                 fg="#ffffff",
                 relief=tk.FLAT,
                 padx=10,
             ).pack(side=tk.LEFT)
-            tk.Button(btn_row, text="Close", command=on_close, bg="#6b7280", fg="#ffffff", relief=tk.FLAT, padx=10).pack(side=tk.RIGHT)
+            tk.Button(
+                btn_row,
+                text="Close",
+                command=on_close,
+                bg="#6b7280",
+                fg="#ffffff",
+                relief=tk.FLAT,
+                padx=10,
+            ).pack(side=tk.RIGHT)
 
-        for idx, entry in enumerate(catalog):
+        for entry in catalog:
             tools_list.insert(tk.END, entry["name"])
 
         def on_select(_event=None):
@@ -1614,7 +1987,10 @@ class AgentChatGUI:
 
     def _open_settings_window(self, selected_tab: str | None = None) -> None:
         """Dedicated Settings window (new window) with tabs for LLM and App options."""
-        if hasattr(self, "_settings_window") and getattr(self, "_settings_window", None) is not None:
+        if (
+            hasattr(self, "_settings_window")
+            and getattr(self, "_settings_window", None) is not None
+        ):
             try:
                 win = self._settings_window
                 if win.winfo_exists():
@@ -1650,8 +2026,16 @@ class AgentChatGUI:
 
         header = tk.Frame(window, bg=BG_PANEL, padx=16, pady=10)
         header.pack(fill=tk.X)
-        tk.Label(header, text="Settings", font=("TkDefaultFont", 12, "bold"), fg=ACCENT, bg=BG_PANEL).pack(anchor="w")
-        tk.Label(header, text="Configure LLM provider and application behavior. Changes are saved to ~/.auto_system_agent/settings.json", font=("TkDefaultFont", 9), fg=FG_MUTED, bg=BG_PANEL).pack(anchor="w", pady=(2, 0))
+        tk.Label(
+            header, text="Settings", font=("TkDefaultFont", 12, "bold"), fg=ACCENT, bg=BG_PANEL
+        ).pack(anchor="w")
+        tk.Label(
+            header,
+            text="Configure LLM provider and application behavior. Changes are saved to ~/.auto_system_agent/settings.json",
+            font=("TkDefaultFont", 9),
+            fg=FG_MUTED,
+            bg=BG_PANEL,
+        ).pack(anchor="w", pady=(2, 0))
 
         notebook = ttk.Notebook(window)
         notebook.pack(fill=tk.BOTH, expand=True, padx=12, pady=12)
@@ -1661,36 +2045,71 @@ class AgentChatGUI:
         llm_frame = tk.Frame(notebook, padx=16, pady=12, bg=BG_PANEL)
         notebook.add(llm_frame, text="LLM Provider")
 
-        normalized_mode = self._settings_store._normalize_provider_mode(self._settings.provider_mode)
+        normalized_mode = self._settings_store._normalize_provider_mode(
+            self._settings.provider_mode
+        )
         llm_mode_var = tk.StringVar(value=normalized_mode)
 
-        tk.Label(llm_frame, text="Provider Mode", bg=BG_PANEL, fg=FG_PRIMARY, font=("TkDefaultFont", 9, "bold")).grid(row=0, column=0, sticky="nw", pady=6, padx=6)
+        tk.Label(
+            llm_frame,
+            text="Provider Mode",
+            bg=BG_PANEL,
+            fg=FG_PRIMARY,
+            font=("TkDefaultFont", 9, "bold"),
+        ).grid(row=0, column=0, sticky="nw", pady=6, padx=6)
         mode_box = tk.Frame(llm_frame, bg=BG_PANEL)
         mode_box.grid(row=0, column=1, sticky="w", pady=6, padx=6)
-        tk.Radiobutton(mode_box, text="Local Model (Ollama) — local inference", variable=llm_mode_var, value="local", bg=BG_PANEL).pack(anchor="w")
-        tk.Radiobutton(mode_box, text="Remote API — OpenAI-compatible endpoint", variable=llm_mode_var, value="api", bg=BG_PANEL).pack(anchor="w")
+        tk.Radiobutton(
+            mode_box,
+            text="Local Model (Ollama) — local inference",
+            variable=llm_mode_var,
+            value="local",
+            bg=BG_PANEL,
+        ).pack(anchor="w")
+        tk.Radiobutton(
+            mode_box,
+            text="Remote API — OpenAI-compatible endpoint",
+            variable=llm_mode_var,
+            value="api",
+            bg=BG_PANEL,
+        ).pack(anchor="w")
 
-        tk.Label(llm_frame, text="LLM URL", bg=BG_PANEL).grid(row=1, column=0, sticky="w", padx=6, pady=6)
+        tk.Label(llm_frame, text="LLM URL", bg=BG_PANEL).grid(
+            row=1, column=0, sticky="w", padx=6, pady=6
+        )
         llm_url_entry = tk.Entry(llm_frame, width=48)
         llm_url_entry.grid(row=1, column=1, sticky="we", padx=6, pady=6)
         llm_url_entry.insert(0, self._settings.url)
 
-        tk.Label(llm_frame, text="API Key", bg=BG_PANEL).grid(row=2, column=0, sticky="w", padx=6, pady=6)
+        tk.Label(llm_frame, text="API Key", bg=BG_PANEL).grid(
+            row=2, column=0, sticky="w", padx=6, pady=6
+        )
         llm_key_entry = tk.Entry(llm_frame, width=48, show="*")
         llm_key_entry.grid(row=2, column=1, sticky="we", padx=6, pady=6)
         llm_key_entry.insert(0, self._settings.api_key)
 
-        tk.Label(llm_frame, text="Model", bg=BG_PANEL).grid(row=3, column=0, sticky="w", padx=6, pady=6)
+        tk.Label(llm_frame, text="Model", bg=BG_PANEL).grid(
+            row=3, column=0, sticky="w", padx=6, pady=6
+        )
         llm_model_entry = tk.Entry(llm_frame, width=48)
         llm_model_entry.grid(row=3, column=1, sticky="we", padx=6, pady=6)
         llm_model_entry.insert(0, self._settings.model)
 
-        tk.Label(llm_frame, text="Timeout (s)", bg=BG_PANEL).grid(row=4, column=0, sticky="w", padx=6, pady=6)
+        tk.Label(llm_frame, text="Timeout (s)", bg=BG_PANEL).grid(
+            row=4, column=0, sticky="w", padx=6, pady=6
+        )
         llm_timeout_entry = tk.Entry(llm_frame, width=20)
         llm_timeout_entry.grid(row=4, column=1, sticky="w", padx=6, pady=6)
         llm_timeout_entry.insert(0, str(self._settings.timeout))
 
-        helper_llm = tk.Label(llm_frame, text="Local uses Ollama at http://localhost:11434 (or URL above). Remote API uses URL + API key + model.", fg=FG_MUTED, bg=BG_PANEL, justify=tk.LEFT, wraplength=500)
+        helper_llm = tk.Label(
+            llm_frame,
+            text="Local uses Ollama at http://localhost:11434 (or URL above). Remote API uses URL + API key + model.",
+            fg=FG_MUTED,
+            bg=BG_PANEL,
+            justify=tk.LEFT,
+            wraplength=500,
+        )
         helper_llm.grid(row=5, column=0, columnspan=2, sticky="w", padx=6, pady=8)
         llm_frame.columnconfigure(1, weight=1)
 
@@ -1708,17 +2127,27 @@ class AgentChatGUI:
         app_frame = tk.Frame(notebook, padx=16, pady=12, bg=BG_PANEL)
         notebook.add(app_frame, text="App Options")
 
-        tk.Label(app_frame, text="GUI Request Timeout (seconds)", bg=BG_PANEL).grid(row=0, column=0, sticky="w", padx=6, pady=8)
+        tk.Label(app_frame, text="GUI Request Timeout (seconds)", bg=BG_PANEL).grid(
+            row=0, column=0, sticky="w", padx=6, pady=8
+        )
         app_timeout_entry = tk.Entry(app_frame, width=20)
         app_timeout_entry.grid(row=0, column=1, sticky="w", padx=6, pady=8)
         app_timeout_entry.insert(0, str(self._settings.gui_timeout_seconds))
 
-        tk.Label(app_frame, text="Install Retries", bg=BG_PANEL).grid(row=1, column=0, sticky="w", padx=6, pady=8)
+        tk.Label(app_frame, text="Install Retries", bg=BG_PANEL).grid(
+            row=1, column=0, sticky="w", padx=6, pady=8
+        )
         app_retries_entry = tk.Entry(app_frame, width=20)
         app_retries_entry.grid(row=1, column=1, sticky="w", padx=6, pady=8)
         app_retries_entry.insert(0, str(self._settings.install_retries))
 
-        tk.Label(app_frame, text="These options apply immediately and are saved in local settings.", fg=FG_MUTED, bg=BG_PANEL, justify=tk.LEFT).grid(row=2, column=0, columnspan=2, sticky="w", padx=6, pady=8)
+        tk.Label(
+            app_frame,
+            text="These options apply immediately and are saved in local settings.",
+            fg=FG_MUTED,
+            bg=BG_PANEL,
+            justify=tk.LEFT,
+        ).grid(row=2, column=0, columnspan=2, sticky="w", padx=6, pady=8)
         app_frame.columnconfigure(1, weight=1)
 
         # Select requested tab
@@ -1736,16 +2165,22 @@ class AgentChatGUI:
             try:
                 llm_timeout_val = float(llm_timeout_entry.get().strip() or "30")
             except ValueError:
-                messagebox.showerror("Invalid value", "LLM Timeout must be a number.", parent=window)
+                messagebox.showerror(
+                    "Invalid value", "LLM Timeout must be a number.", parent=window
+                )
                 return
             llm_mode = llm_mode_var.get().strip() or "local"
             if llm_mode not in ("local", "api"):
                 llm_mode = "local"
             if llm_mode == "api" and not llm_url_entry.get().strip():
-                messagebox.showerror("Invalid value", "API URL is required for Remote API.", parent=window)
+                messagebox.showerror(
+                    "Invalid value", "API URL is required for Remote API.", parent=window
+                )
                 return
             if llm_mode == "api" and not llm_key_entry.get().strip():
-                messagebox.showerror("Invalid value", "API Key is required for Remote API.", parent=window)
+                messagebox.showerror(
+                    "Invalid value", "API Key is required for Remote API.", parent=window
+                )
                 return
             if not llm_model_entry.get().strip():
                 messagebox.showerror("Invalid value", "Model is required.", parent=window)
@@ -1755,13 +2190,21 @@ class AgentChatGUI:
                 gui_timeout = float(app_timeout_entry.get().strip() or "300")
                 install_retries = int(app_retries_entry.get().strip() or "2")
             except ValueError:
-                messagebox.showerror("Invalid value", "Timeout must be numeric and retries must be integer.", parent=window)
+                messagebox.showerror(
+                    "Invalid value",
+                    "Timeout must be numeric and retries must be integer.",
+                    parent=window,
+                )
                 return
             if gui_timeout < 0:
-                messagebox.showerror("Invalid value", "GUI timeout must be >= 0 (0 disables timeout).", parent=window)
+                messagebox.showerror(
+                    "Invalid value", "GUI timeout must be >= 0 (0 disables timeout).", parent=window
+                )
                 return
             if install_retries < 0:
-                messagebox.showerror("Invalid value", "Install retries cannot be negative.", parent=window)
+                messagebox.showerror(
+                    "Invalid value", "Install retries cannot be negative.", parent=window
+                )
                 return
 
             prev_geo = getattr(self._settings, "window_geometry", "920x560")
@@ -1780,15 +2223,33 @@ class AgentChatGUI:
             try:
                 self._settings_store.save(self._settings)
             except Exception as exc:
-                messagebox.showerror("Save failed", f"Could not save settings: {exc}", parent=window)
+                messagebox.showerror(
+                    "Save failed", f"Could not save settings: {exc}", parent=window
+                )
                 return
             self.agent = self._build_agent()
             self._apply_runtime_options()
             self._append_message("System", "Settings saved and applied.")
             on_close()
 
-        tk.Button(btn_frame, text="Cancel", command=on_close, bg="#6b7280", fg="#ffffff", relief=tk.FLAT, padx=12).pack(side=tk.RIGHT, padx=(8, 0))
-        tk.Button(btn_frame, text="Save", command=save_all, bg=ACCENT, fg="#ffffff", relief=tk.FLAT, padx=12).pack(side=tk.RIGHT)
+        tk.Button(
+            btn_frame,
+            text="Cancel",
+            command=on_close,
+            bg="#6b7280",
+            fg="#ffffff",
+            relief=tk.FLAT,
+            padx=12,
+        ).pack(side=tk.RIGHT, padx=(8, 0))
+        tk.Button(
+            btn_frame,
+            text="Save",
+            command=save_all,
+            bg=ACCENT,
+            fg="#ffffff",
+            relief=tk.FLAT,
+            padx=12,
+        ).pack(side=tk.RIGHT)
 
         self._fit_dialog_to_content(window, default_width=760, default_height=520)
 
@@ -1799,7 +2260,9 @@ class AgentChatGUI:
         dialog.grab_set()
         dialog.resizable(True, True)
 
-        tk.Label(dialog, text="GUI Request Timeout (seconds)").grid(row=0, column=0, sticky="w", padx=12, pady=10)
+        tk.Label(dialog, text="GUI Request Timeout (seconds)").grid(
+            row=0, column=0, sticky="w", padx=12, pady=10
+        )
         timeout_entry = tk.Entry(dialog, width=20)
         timeout_entry.grid(row=0, column=1, sticky="w", padx=12, pady=10)
         timeout_entry.insert(0, str(self._settings.gui_timeout_seconds))
@@ -1822,14 +2285,22 @@ class AgentChatGUI:
                 gui_timeout = float(timeout_entry.get().strip() or "300")
                 install_retries = int(retries_entry.get().strip() or "2")
             except ValueError:
-                messagebox.showerror("Invalid value", "Timeout must be numeric and retries must be integer.", parent=dialog)
+                messagebox.showerror(
+                    "Invalid value",
+                    "Timeout must be numeric and retries must be integer.",
+                    parent=dialog,
+                )
                 return
 
             if gui_timeout < 0:
-                messagebox.showerror("Invalid value", "GUI timeout must be >= 0 (0 disables timeout).", parent=dialog)
+                messagebox.showerror(
+                    "Invalid value", "GUI timeout must be >= 0 (0 disables timeout).", parent=dialog
+                )
                 return
             if install_retries < 0:
-                messagebox.showerror("Invalid value", "Install retries cannot be negative.", parent=dialog)
+                messagebox.showerror(
+                    "Invalid value", "Install retries cannot be negative.", parent=dialog
+                )
                 return
 
             self._settings.gui_timeout_seconds = gui_timeout
@@ -1842,7 +2313,9 @@ class AgentChatGUI:
 
         button_frame = tk.Frame(dialog)
         button_frame.grid(row=3, column=0, columnspan=2, sticky="e", padx=12, pady=12)
-        tk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=(8, 0))
+        tk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(
+            side=tk.RIGHT, padx=(8, 0)
+        )
         tk.Button(button_frame, text="Save", command=save_and_close).pack(side=tk.RIGHT)
 
         self._fit_dialog_to_content(dialog, default_width=520, default_height=260)
@@ -1865,7 +2338,11 @@ class AgentChatGUI:
             try:
                 repo = AuditRepository()
                 repo.record_metric(
-                    ts=sample.ts, cpu=sample.cpu, mem=sample.mem, disk=sample.disk, queue=sample.queue
+                    ts=sample.ts,
+                    cpu=sample.cpu,
+                    mem=sample.mem,
+                    disk=sample.disk,
+                    queue=sample.queue,
                 )
                 rows = repo.fetch_metrics(limit=120)
                 average = avg_cpu([Metric(**row) for row in rows], 60.0)
@@ -1934,7 +2411,8 @@ class AgentChatGUI:
                 system_cfg = self._settings.system_config
             else:
                 # Fallback to detection (should have been set via system window)
-                from platforms.system_info import system_config_to_dict, detect_system_config
+                from platforms.system_info import detect_system_config, system_config_to_dict
+
                 system_cfg = system_config_to_dict(detect_system_config())
         except Exception:
             system_cfg = None
@@ -1964,7 +2442,9 @@ class AgentChatGUI:
         dialog.columnconfigure(1, weight=1)
 
         # Normalize for display (bundled->local, custom->api)
-        normalized_mode = self._settings_store._normalize_provider_mode(self._settings.provider_mode)
+        normalized_mode = self._settings_store._normalize_provider_mode(
+            self._settings.provider_mode
+        )
         mode_var = tk.StringVar(value=normalized_mode)
         mode_label = tk.Label(dialog, text="Provider Mode")
         mode_label.grid(row=0, column=0, sticky="nw", padx=12, pady=8)
@@ -2021,10 +2501,14 @@ class AgentChatGUI:
             if mode not in ("local", "api"):
                 mode = "local"
             if mode == "api" and not url_entry.get().strip():
-                messagebox.showerror("Invalid value", "API URL is required for Remote API.", parent=dialog)
+                messagebox.showerror(
+                    "Invalid value", "API URL is required for Remote API.", parent=dialog
+                )
                 return
             if mode == "api" and not key_entry.get().strip():
-                messagebox.showerror("Invalid value", "API Key is required for Remote API.", parent=dialog)
+                messagebox.showerror(
+                    "Invalid value", "API Key is required for Remote API.", parent=dialog
+                )
                 return
             if not model_entry.get().strip():
                 messagebox.showerror("Invalid value", "Model is required.", parent=dialog)
@@ -2055,7 +2539,9 @@ class AgentChatGUI:
 
         button_frame = tk.Frame(dialog)
         button_frame.grid(row=6, column=0, columnspan=2, sticky="e", padx=12, pady=12)
-        tk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.RIGHT, padx=(8, 0))
+        tk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(
+            side=tk.RIGHT, padx=(8, 0)
+        )
         tk.Button(button_frame, text="Save", command=save_and_close).pack(side=tk.RIGHT)
 
         self._fit_dialog_to_content(dialog, default_width=620, default_height=380)

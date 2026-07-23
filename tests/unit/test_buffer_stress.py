@@ -9,12 +9,12 @@ import queue
 import statistics
 import time
 import unittest
-from pathlib import Path
 
 from ui.real_terminal import (
     DISPLAY_QUEUE_SIZE,
     EventCoalescer,
 )
+
 
 def _drain_all(display_queue, coalescer, force_windows=0):
     """Tick the consumer until the queue and buffer empty; return writes."""
@@ -34,6 +34,7 @@ def _drain_all(display_queue, coalescer, force_windows=0):
         elif display_queue.empty() and coalescer.pending():
             coalescer._window_start = 0.0
     return writes
+
 
 class CoalescerBurstTests(unittest.TestCase):
     def test_10k_lines_collapse_to_few_writes(self):
@@ -97,6 +98,7 @@ class CoalescerBurstTests(unittest.TestCase):
         p95 = statistics.quantiles(batch_times, n=100)[94]
         self.assertLess(p95, 200.0, f"render p95 {p95:.1f}ms over budget")
 
+
 class GuiAckTests(unittest.TestCase):
     def test_event_ack_inside_100ms(self):
         """Headless analog of the after(50) drain: put + handle 1k events."""
@@ -114,6 +116,7 @@ class GuiAckTests(unittest.TestCase):
         elapsed_ms = (time.monotonic() - started) * 1000.0
         self.assertEqual(handled, 1000)
         self.assertLess(elapsed_ms, 100.0, f"ack took {elapsed_ms:.1f}ms")
+
 
 if __name__ == "__main__":
     unittest.main()

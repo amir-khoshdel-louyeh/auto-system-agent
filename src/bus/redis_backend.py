@@ -11,6 +11,7 @@ paths never pay for it.
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from .backend import Backend
 from .events import Event
@@ -25,7 +26,7 @@ class RedisBackend(Backend):
 
     def __init__(self, url: str = "redis://localhost:6379/0") -> None:
         self.url = url
-        self._client = None
+        self._client: Any = None
 
     async def _get_client(self):
         if self._client is None:
@@ -91,7 +92,9 @@ class RedisBackend(Backend):
         self, stream: str, start: int = 0, end: int | None = None
     ) -> list[tuple[str, Event]]:
         client = await self._get_client()
-        raw = await client.xrange(stream, min=f"{start}-0", max=f"{end}-0" if end is not None else "+")
+        raw = await client.xrange(
+            stream, min=f"{start}-0", max=f"{end}-0" if end is not None else "+"
+        )
         return [
             (message_id, Event.from_dict(json.loads(fields[_PAYLOAD_FIELD])))
             for message_id, fields in raw
@@ -107,6 +110,10 @@ class RedisBackend(Backend):
         client = await self._get_client()
         raw = await client.xrange(f"{stream}:dlq", min="-", max="+")
         return [
-            (message_id, Event.from_dict(json.loads(fields[_PAYLOAD_FIELD])), fields.get("reason", ""))
+            (
+                message_id,
+                Event.from_dict(json.loads(fields[_PAYLOAD_FIELD])),
+                fields.get("reason", ""),
+            )
             for message_id, fields in raw
         ]

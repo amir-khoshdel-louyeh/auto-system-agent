@@ -92,10 +92,17 @@ async def dispatch_trigger(
 
     await backend.publish(
         PLANS_STREAM,
-        new_event("plan.created",
-                  {"run_id": run_id, "workflow": workflow.name, "version": workflow.version,
-                   "trigger": event.type},
-                  correlation_id=run_id, idempotency_key=f"plan:{run_id}"),
+        new_event(
+            "plan.created",
+            {
+                "run_id": run_id,
+                "workflow": workflow.name,
+                "version": workflow.version,
+                "trigger": event.type,
+            },
+            correlation_id=run_id,
+            idempotency_key=f"plan:{run_id}",
+        ),
     )
 
     execution_id = ""
@@ -103,15 +110,17 @@ async def dispatch_trigger(
         wid = recorder.ensure_workflow(workflow.name)
         dsl_hash = hashlib.sha256(workflow.raw_text.encode("utf-8")).hexdigest()
         recorder.add_version(wid, workflow.version, workflow.raw_text, dsl_hash)
-        execution_id = recorder.start_execution(wid, workflow.version,
-                                                triggered_by=event.type).id
+        execution_id = recorder.start_execution(wid, workflow.version, triggered_by=event.type).id
 
     async def bus_handler(node_id: str, node: dict[str, Any]) -> dict[str, Any]:
         await backend.publish(
             steps_stream(node.get("type", "")),
-            new_event("step.dispatched",
-                      {"node_id": node_id, "node": node, "execution_id": execution_id},
-                      correlation_id=run_id, idempotency_key=f"{run_id}:{node_id}"),
+            new_event(
+                "step.dispatched",
+                {"node_id": node_id, "node": node, "execution_id": execution_id},
+                correlation_id=run_id,
+                idempotency_key=f"{run_id}:{node_id}",
+            ),
         )
         return await wait_verdict(backend, run_id, node_id, timeout_s=step_timeout_s)
 
@@ -120,8 +129,12 @@ async def dispatch_trigger(
         if node.status == "FAILED":
             await backend.publish(
                 RESULTS_STREAM,
-                new_event("step.failed", {"node_id": nid, "error": node.error},
-                          correlation_id=run_id, idempotency_key=f"{run_id}:{nid}:failed"),
+                new_event(
+                    "step.failed",
+                    {"node_id": nid, "error": node.error},
+                    correlation_id=run_id,
+                    idempotency_key=f"{run_id}:{nid}:failed",
+                ),
             )
     if recorder is not None and execution_id:
         recorder.finish_execution(execution_id, run.status, run.error)

@@ -1,20 +1,16 @@
 import hashlib
-from dataclasses import replace
 from typing import Callable
 
-from storage.event_logger import EventLogger
+from models import Evaluation, ExecutionResult, PlannedTask, ReActStep, StepStatus
 from orchestration.evaluator import Evaluator
-from services.llm_conversation_assistant import LLMConversationAssistant
-from services.llm_tool_mapper import LLMToolMapper
-from models import Evaluation
-from models import ExecutionResult
-from models import PlannedTask
-from models import ReActStep
-from models import StepStatus
 from orchestration.planner import Planner
-from ui.result_formatter import ResultFormatter
 from orchestration.safe_executor import SafeExecutor
 from platforms.tool_selector import ToolSelector
+from services.llm_conversation_assistant import LLMConversationAssistant
+from services.llm_tool_mapper import LLMToolMapper
+from storage.event_logger import EventLogger
+from ui.result_formatter import ResultFormatter
+
 CONFIRMATION_YES_WORDS = {"yes", "y", "confirm", "ok", "proceed"}
 CONFIRMATION_NO_WORDS = {"no", "n", "cancel", "stop"}
 HIGH_RISK_ACTIONS = {"run_command"}
@@ -29,6 +25,7 @@ ACTION_RISK_LEVELS = {
 # P3.1: recoverable orchestration states (C2). Guarded transitions reject
 # illegal jumps; the ReAct loop drives advance() instead of ad-hoc flags.
 # ---------------------------------------------------------------------------
+
 
 class RunState(str):
     """ReAct execution states."""
@@ -51,7 +48,13 @@ RUN_TRANSITIONS: dict[str, frozenset[str]] = {
     RunState.GUARDED: frozenset({RunState.EXECUTING, RunState.PLANNED, RunState.FAILED}),
     RunState.EXECUTING: frozenset({RunState.OBSERVING, RunState.COMPENSATING, RunState.FAILED}),
     RunState.OBSERVING: frozenset(
-        {RunState.EXECUTING, RunState.REPAIRING, RunState.COMPENSATING, RunState.DONE, RunState.FAILED}
+        {
+            RunState.EXECUTING,
+            RunState.REPAIRING,
+            RunState.COMPENSATING,
+            RunState.DONE,
+            RunState.FAILED,
+        }
     ),
     RunState.REPAIRING: frozenset({RunState.GUARDED, RunState.PLANNED, RunState.FAILED}),
     RunState.COMPENSATING: frozenset({RunState.FAILED, RunState.DONE}),
@@ -135,7 +138,9 @@ class AutoSystemAgent:
         # Planner is now LLM-only and needs the OLLAMA config + system context
         self._planner = planner or Planner(config=llm_config, system_config=system_config)
         self._system_config = system_config if isinstance(system_config, dict) else None
-        self._selector = selector or ToolSelector(llm_mapper=llm_mapper, system_config=system_config)
+        self._selector = selector or ToolSelector(
+            llm_mapper=llm_mapper, system_config=system_config
+        )
         self._executor = executor or SafeExecutor()
         self._formatter = formatter or ResultFormatter()
         self._assistant = assistant or LLMConversationAssistant(config=llm_config)
@@ -167,7 +172,13 @@ class AutoSystemAgent:
             if self._requires_confirmation_for_tasks(tasks):
                 reply = self._queue_confirmation(user_input, tasks, source_mode="multi_step")
                 self._remember(user_input, reply)
-                self._log_event(user_input=user_input, mode="confirmation_requested", planned_tasks=tasks, steps=[], reply=reply)
+                self._log_event(
+                    user_input=user_input,
+                    mode="confirmation_requested",
+                    planned_tasks=tasks,
+                    steps=[],
+                    reply=reply,
+                )
                 return reply
 
             reply, steps = self._process_multi_step(user_input, tasks, progress_callback)
@@ -178,14 +189,28 @@ class AutoSystemAgent:
                 last_tool = steps[-1]["tool"]
                 last_msg = steps[-1]["result"]["message"]
                 fake_result = ExecutionResult(success=False, message=last_msg)
-                llm_explain = self._explain_failure_with_llm(user_input, last_tool, last_task, fake_result)
+                llm_explain = self._explain_failure_with_llm(
+                    user_input, last_tool, last_task, fake_result
+                )
                 if llm_explain:
                     combined = f"{reply}\n\n{llm_explain}"
                     self._remember(user_input, combined)
-                    self._log_event(user_input=user_input, mode="multi_step_explained", planned_tasks=tasks, steps=steps, reply=combined)
+                    self._log_event(
+                        user_input=user_input,
+                        mode="multi_step_explained",
+                        planned_tasks=tasks,
+                        steps=steps,
+                        reply=combined,
+                    )
                     return combined
             self._remember(user_input, reply)
-            self._log_event(user_input=user_input, mode="multi_step", planned_tasks=tasks, steps=steps, reply=reply)
+            self._log_event(
+                user_input=user_input,
+                mode="multi_step",
+                planned_tasks=tasks,
+                steps=steps,
+                reply=reply,
+            )
             return reply
 
         task = tasks[0]
@@ -196,7 +221,13 @@ class AutoSystemAgent:
             if self._requires_confirmation_for_tasks([task]):
                 reply = self._queue_confirmation(user_input, [task], source_mode="llm_planned")
                 self._remember(user_input, reply)
-                self._log_event(user_input=user_input, mode="confirmation_requested", planned_tasks=[task], steps=[], reply=reply)
+                self._log_event(
+                    user_input=user_input,
+                    mode="confirmation_requested",
+                    planned_tasks=[task],
+                    steps=[],
+                    reply=reply,
+                )
                 return reply
 
             reply, steps = self._run_react_loop(
@@ -206,7 +237,9 @@ class AutoSystemAgent:
                 last_tool = steps[-1]["tool"]
                 last_msg = steps[-1]["result"]["message"]
                 fake_result = ExecutionResult(success=False, message=last_msg)
-                llm_explain = self._explain_failure_with_llm(user_input, last_tool, task, fake_result)
+                llm_explain = self._explain_failure_with_llm(
+                    user_input, last_tool, task, fake_result
+                )
                 if llm_explain:
                     combined = f"{reply}\n\n{llm_explain}"
                     self._remember(user_input, combined)
@@ -231,7 +264,9 @@ class AutoSystemAgent:
         # Planner returned unknown -> ask OLLAMA for chat or tool
         return self._resolve_via_ollama(user_input, tasks, reason="planner_unknown")
 
-    def _resolve_via_ollama(self, user_input: str, planned_tasks: list[PlannedTask], reason: str) -> str:
+    def _resolve_via_ollama(
+        self, user_input: str, planned_tasks: list[PlannedTask], reason: str
+    ) -> str:
         allowed_actions = set(self._selector.SUPPORTED_ACTIONS)
         llm_result = self._assistant.resolve(user_input, allowed_actions, self._history)
 
@@ -239,7 +274,13 @@ class AutoSystemAgent:
             reply = llm_result["response"]
             self._update_context_from_chat(reply)
             self._remember(user_input, reply)
-            self._log_event(user_input=user_input, mode="ollama_chat", planned_tasks=planned_tasks, steps=[], reply=reply)
+            self._log_event(
+                user_input=user_input,
+                mode="ollama_chat",
+                planned_tasks=planned_tasks,
+                steps=[],
+                reply=reply,
+            )
             return reply
 
         if llm_result and llm_result.get("type") == "tool":
@@ -252,22 +293,40 @@ class AutoSystemAgent:
             if self._requires_confirmation_for_tasks([llm_task]):
                 reply = self._queue_confirmation(user_input, [llm_task], source_mode="ollama_tool")
                 self._remember(user_input, reply)
-                self._log_event(user_input=user_input, mode="confirmation_requested", planned_tasks=[llm_task], steps=[], reply=reply)
+                self._log_event(
+                    user_input=user_input,
+                    mode="confirmation_requested",
+                    planned_tasks=[llm_task],
+                    steps=[],
+                    reply=reply,
+                )
                 return reply
 
             llm_tool_key = self._selector.select(llm_task)
             # No hard-coded fallback message: if OLLAMA suggests unknown tool, report OLLAMA error
             if llm_tool_key == "unknown":
                 reply = self._ollama_unavailable_message()
-                self._log_unresolved_intent(user_input=user_input, reason="ollama_mapped_unknown", planned_tasks=planned_tasks)
+                self._log_unresolved_intent(
+                    user_input=user_input,
+                    reason="ollama_mapped_unknown",
+                    planned_tasks=planned_tasks,
+                )
                 self._remember(user_input, reply)
-                self._log_event(user_input=user_input, mode="ollama_unmapped", planned_tasks=planned_tasks, steps=[], reply=reply)
+                self._log_event(
+                    user_input=user_input,
+                    mode="ollama_unmapped",
+                    planned_tasks=planned_tasks,
+                    steps=[],
+                    reply=reply,
+                )
                 return reply
 
             result = self._executor.execute(llm_tool_key, llm_task)
             self._update_context_from_task(llm_task, result)
             if not result.success:
-                llm_explain = self._explain_failure_with_llm(user_input, llm_tool_key, llm_task, result)
+                llm_explain = self._explain_failure_with_llm(
+                    user_input, llm_tool_key, llm_task, result
+                )
                 if llm_explain:
                     self._remember(user_input, llm_explain)
                     self._log_event(
@@ -297,7 +356,13 @@ class AutoSystemAgent:
         )
         reply = self._ollama_unavailable_message()
         self._remember(user_input, reply)
-        self._log_event(user_input=user_input, mode="ollama_unavailable", planned_tasks=planned_tasks, steps=[], reply=reply)
+        self._log_event(
+            user_input=user_input,
+            mode="ollama_unavailable",
+            planned_tasks=planned_tasks,
+            steps=[],
+            reply=reply,
+        )
         return reply
 
     def _ollama_unavailable_message(self) -> str:
@@ -312,7 +377,9 @@ class AutoSystemAgent:
             f"(e.g. `ollama pull {model_hint}` and `ollama serve`). Then configure the URL/model in Settings."
         )
 
-    def _explain_failure_with_llm(self, user_input: str, tool_key: str, task: PlannedTask, result: ExecutionResult) -> str | None:
+    def _explain_failure_with_llm(
+        self, user_input: str, tool_key: str, task: PlannedTask, result: ExecutionResult
+    ) -> str | None:
         """Ask LLM to explain a failed command without hard-coded messages."""
         if result.success:
             return None
@@ -327,7 +394,9 @@ class AutoSystemAgent:
                 "Do not hallucinate new flatpak IDs - if the ID was wrong, explain that it does not exist in flathub and suggest how to search (flatpak search / dnf search) instead of inventing another ID. "
                 "Respond as a helpful assistant, not as JSON."
             )
-            llm_reply = self._assistant.resolve(explain_prompt, set(self._selector.SUPPORTED_ACTIONS), history)
+            llm_reply = self._assistant.resolve(
+                explain_prompt, set(self._selector.SUPPORTED_ACTIONS), history
+            )
             if llm_reply and llm_reply.get("type") == "chat" and llm_reply.get("response"):
                 return str(llm_reply["response"]).strip()
             # Fallback: if LLM returns plain text chat, _assistant already handles it
@@ -364,9 +433,7 @@ class AutoSystemAgent:
             except Exception:
                 assessment = None
             if assessment is not None:
-                level = {"ALLOW": "low", "CONFIRM": "medium", "DENY": "high"}[
-                    assessment["verdict"]
-                ]
+                level = {"ALLOW": "low", "CONFIRM": "medium", "DENY": "high"}[assessment["verdict"]]
                 return {
                     "action": task.action,
                     "target": task.target or "",
@@ -396,7 +463,9 @@ class AutoSystemAgent:
         tasks: list[PlannedTask] = self._pending_confirmation.get("tasks", [])
         return [self.task_risk_details(task) for task in tasks]
 
-    def confirm_pending(self, progress_callback: Callable[[str], None] | None = None) -> str | None:
+    def confirm_pending(
+        self, progress_callback: Callable[[StepStatus], None] | None = None
+    ) -> str | None:
         return self._handle_pending_confirmation("yes", progress_callback)
 
     def cancel_pending(self) -> str | None:
@@ -438,7 +507,10 @@ class AutoSystemAgent:
             for task in tasks:
                 tool_key = preselected_tools.pop(id(task), None) or self._selector.select(task)
                 step_no = len(scratchpad) + 1
-                self._notify(progress_callback, StepStatus(step=step_no, total=step_no, tool=tool_key, state="running"))
+                self._notify(
+                    progress_callback,
+                    StepStatus(step=step_no, total=step_no, tool=tool_key, state="running"),
+                )
                 if fsm.can(RunState.GUARDED):
                     fsm.advance(RunState.GUARDED)
 
@@ -452,32 +524,14 @@ class AutoSystemAgent:
                     )
                     fsm.advance(RunState.EXECUTING)
                     fsm.advance(RunState.OBSERVING)
-                    chained = self._append_chain_step(scratchpad, evaluation.reason, task, tool_key, unknown_result)
-                    payload = self._step_payload(tool_key, task, unknown_result)
-                    payload["chain"] = {"prev_hash": chained.prev_hash, "step_hash": chained.step_hash}
-                    step_payloads.append(payload)
-                    self._notify(
-                        progress_callback,
-                        StepStatus(step=step_no, total=step_no, tool=tool_key, state="failed", message=unknown_result.message),
+                    chained = self._append_chain_step(
+                        scratchpad, evaluation.reason, task, tool_key, unknown_result
                     )
-                else:
-                    if self._requires_confirmation_for_tasks([task]):
-                        reply = self._queue_confirmation(user_input, [task], source_mode="react_loop")
-                        self._remember(user_input, reply)
-                        self._log_event(user_input=user_input, mode="confirmation_requested", planned_tasks=[task], steps=step_payloads, reply=reply)
-                        if fsm.can(RunState.PLANNED):
-                            fsm.advance(RunState.PLANNED)
-                        pending_results = [step.result for step in scratchpad]
-                        return (f"{self._formatter.format_many(pending_results)}\n\n{reply}".strip() if pending_results else reply), step_payloads
-
-                    fsm.advance(RunState.EXECUTING)
-                    result = self._executor.execute(tool_key, task)
-                    self._update_context_from_task(task, result)
-                    fsm.advance(RunState.OBSERVING)
-                    evaluation = self._evaluator.evaluate_with_llm(user_input, task, tool_key, result, scratchpad)
-                    chained = self._append_chain_step(scratchpad, evaluation.reason, task, tool_key, result)
-                    payload = self._step_payload(tool_key, task, result)
-                    payload["chain"] = {"prev_hash": chained.prev_hash, "step_hash": chained.step_hash}
+                    payload = self._step_payload(tool_key, task, unknown_result)
+                    payload["chain"] = {
+                        "prev_hash": chained.prev_hash,
+                        "step_hash": chained.step_hash,
+                    }
                     step_payloads.append(payload)
                     self._notify(
                         progress_callback,
@@ -485,7 +539,59 @@ class AutoSystemAgent:
                             step=step_no,
                             total=step_no,
                             tool=tool_key,
-                            state="done" if result.success and evaluation.verdict == "done" else "failed" if evaluation.verdict in ("abort",) or not result.success else "done",
+                            state="failed",
+                            message=unknown_result.message,
+                        ),
+                    )
+                else:
+                    if self._requires_confirmation_for_tasks([task]):
+                        reply = self._queue_confirmation(
+                            user_input, [task], source_mode="react_loop"
+                        )
+                        self._remember(user_input, reply)
+                        self._log_event(
+                            user_input=user_input,
+                            mode="confirmation_requested",
+                            planned_tasks=[task],
+                            steps=step_payloads,
+                            reply=reply,
+                        )
+                        if fsm.can(RunState.PLANNED):
+                            fsm.advance(RunState.PLANNED)
+                        pending_results = [step.result for step in scratchpad]
+                        return (
+                            f"{self._formatter.format_many(pending_results)}\n\n{reply}".strip()
+                            if pending_results
+                            else reply
+                        ), step_payloads
+
+                    fsm.advance(RunState.EXECUTING)
+                    result = self._executor.execute(tool_key, task)
+                    self._update_context_from_task(task, result)
+                    fsm.advance(RunState.OBSERVING)
+                    evaluation = self._evaluator.evaluate_with_llm(
+                        user_input, task, tool_key, result, scratchpad
+                    )
+                    chained = self._append_chain_step(
+                        scratchpad, evaluation.reason, task, tool_key, result
+                    )
+                    payload = self._step_payload(tool_key, task, result)
+                    payload["chain"] = {
+                        "prev_hash": chained.prev_hash,
+                        "step_hash": chained.step_hash,
+                    }
+                    step_payloads.append(payload)
+                    self._notify(
+                        progress_callback,
+                        StepStatus(
+                            step=step_no,
+                            total=step_no,
+                            tool=tool_key,
+                            state="done"
+                            if result.success and evaluation.verdict == "done"
+                            else "failed"
+                            if evaluation.verdict in ("abort",) or not result.success
+                            else "done",
                             message=evaluation.reason or result.message,
                         ),
                     )
@@ -505,7 +611,9 @@ class AutoSystemAgent:
                 compensated = self._compensate_aborted_run(fsm)
                 fsm.advance(RunState.FAILED)
                 results = [step.result for step in scratchpad]
-                reply = f"{self._formatter.format_many(results)}\n\nStopped: {aborted.reason}".strip()
+                reply = (
+                    f"{self._formatter.format_many(results)}\n\nStopped: {aborted.reason}".strip()
+                )
                 if compensated:
                     reply = f"{reply}\nCompensated {len(compensated)} action(s): {'; '.join(compensated)}"
                 return reply, step_payloads
@@ -522,7 +630,10 @@ class AutoSystemAgent:
 
         fsm.advance(RunState.FAILED)
         results = [step.result for step in scratchpad]
-        return f"{self._formatter.format_many(results)}\n\nStopped after {self._max_react_iters} attempts.".strip(), step_payloads
+        return (
+            f"{self._formatter.format_many(results)}\n\nStopped after {self._max_react_iters} attempts.".strip(),
+            step_payloads,
+        )
 
     @staticmethod
     def transition_for_verdict(verdict: str) -> str | None:
@@ -539,11 +650,7 @@ class AutoSystemAgent:
             return []
         fsm.advance(RunState.COMPENSATING)
         try:
-            before = {
-                entry["seq"]
-                for entry in self._executor.journal
-                if entry.get("compensated")
-            }
+            before = {entry["seq"] for entry in self._executor.journal if entry.get("compensated")}
             compensate(since=start)
             return [
                 str(entry["compensation"])
@@ -610,7 +717,12 @@ class AutoSystemAgent:
             try:
                 parts = shlex.split(task.target)
                 for token in reversed(parts):
-                    if "/" in token or token.startswith("~") or token.endswith(".py") or token.endswith(".txt"):
+                    if (
+                        "/" in token
+                        or token.startswith("~")
+                        or token.endswith(".py")
+                        or token.endswith(".txt")
+                    ):
                         self._context["last_path"] = token
                         break
                 else:
@@ -685,7 +797,13 @@ class AutoSystemAgent:
         result = self._executor.execute(tool_key, task)
         self._notify(
             progress_callback,
-            StepStatus(step=1, total=1, tool=tool_key, state="done" if result.success else "failed", message=result.message),
+            StepStatus(
+                step=1,
+                total=1,
+                tool=tool_key,
+                state="done" if result.success else "failed",
+                message=result.message,
+            ),
         )
         self._update_context_from_task(task, result)
         reply = self._formatter.format(result)
@@ -699,16 +817,16 @@ class AutoSystemAgent:
         )
         return reply
 
-    def _queue_confirmation(self, user_input: str, tasks: list[PlannedTask], source_mode: str) -> str:
+    def _queue_confirmation(
+        self, user_input: str, tasks: list[PlannedTask], source_mode: str
+    ) -> str:
         self._pending_confirmation = {
             "source_input": user_input,
             "source_mode": source_mode,
             "tasks": tasks,
         }
 
-        summary = "; ".join(
-            f"{task.action} {task.target or ''}".strip() for task in tasks
-        )
+        summary = "; ".join(f"{task.action} {task.target or ''}".strip() for task in tasks)
         risk_bits = []
         for task in tasks:
             try:
@@ -749,7 +867,18 @@ class AutoSystemAgent:
             if task.action == "run_command" and task.target:
                 low = (task.target or "").lower()
                 # Only require confirmation for destructive patterns
-                dangerous = ["rm ", "rm -", "sudo ", "mkfs", " dd ", "shutdown", "reboot", ":(){", "chmod 777", "> /dev/"]
+                dangerous = [
+                    "rm ",
+                    "rm -",
+                    "sudo ",
+                    "mkfs",
+                    " dd ",
+                    "shutdown",
+                    "reboot",
+                    ":(){",
+                    "chmod 777",
+                    "> /dev/",
+                ]
                 if any(pat in low for pat in dangerous):
                     return True
                 try:
@@ -766,7 +895,9 @@ class AutoSystemAgent:
         decision = str(result.data.get("policy_decision", "")).strip() or "approved"
         if "blocked" in result.message.lower():
             decision = "blocked"
-        reason = str(result.data.get("policy_reason", "")).strip() or ("safety_policy" if decision == "blocked" else "allowed_action")
+        reason = str(result.data.get("policy_reason", "")).strip() or (
+            "safety_policy" if decision == "blocked" else "allowed_action"
+        )
         return {
             "tool": tool_key,
             "task": {
@@ -812,7 +943,9 @@ class AutoSystemAgent:
             }
         )
 
-    def _log_unresolved_intent(self, *, user_input: str, reason: str, planned_tasks: list[PlannedTask]) -> None:
+    def _log_unresolved_intent(
+        self, *, user_input: str, reason: str, planned_tasks: list[PlannedTask]
+    ) -> None:
         self._event_logger.log(
             {
                 "mode": "unresolved_intent",

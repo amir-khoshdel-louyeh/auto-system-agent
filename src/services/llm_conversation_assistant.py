@@ -128,22 +128,24 @@ class LLMConversationAssistant:
 
         normalized = item_type.strip().lower()
         if normalized == "chat":
-            return isinstance(payload.get("response"), str) and bool(str(payload.get("response", "")).strip())
+            return isinstance(payload.get("response"), str) and bool(
+                str(payload.get("response", "")).strip()
+            )
 
         if normalized == "tool":
-            action_ok = isinstance(payload.get("action"), str) and bool(str(payload.get("action", "")).strip())
+            action_ok = isinstance(payload.get("action"), str) and bool(
+                str(payload.get("action", "")).strip()
+            )
             target_ok = "target" not in payload or isinstance(payload.get("target"), str)
-            destination_ok = "destination" not in payload or isinstance(payload.get("destination"), str)
+            destination_ok = "destination" not in payload or isinstance(
+                payload.get("destination"), str
+            )
             return action_ok and target_ok and destination_ok
 
         return False
 
     def _extract_text(self, response_json: dict) -> str | None:
-        content = (
-            response_json.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-        )
+        content = response_json.get("choices", [{}])[0].get("message", {}).get("content", "")
         if not isinstance(content, str) or not content.strip():
             content = response_json.get("message", {}).get("content", "")
             if not isinstance(content, str) or not content.strip():
@@ -177,7 +179,9 @@ class LLMConversationAssistant:
                     "stream": False,
                 }
                 native_body = json.dumps(native_payload).encode("utf-8")
-                native_req = request.Request(native_url, data=native_body, headers=headers, method="POST")
+                native_req = request.Request(
+                    native_url, data=native_body, headers=headers, method="POST"
+                )
                 try:
                     with request.urlopen(native_req, timeout=self._timeout) as resp:
                         native_raw = json.loads(resp.read().decode("utf-8"))
@@ -193,11 +197,7 @@ class LLMConversationAssistant:
         if isinstance(response_json, dict) and "type" in response_json:
             return response_json
 
-        content = (
-            response_json.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-        )
+        content = response_json.get("choices", [{}])[0].get("message", {}).get("content", "")
         if not isinstance(content, str) or not content.strip():
             content = response_json.get("message", {}).get("content", "")
             if not isinstance(content, str):

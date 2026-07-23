@@ -36,10 +36,7 @@ def normalize_edges(workflow: Workflow) -> list[tuple[str, str]]:
 
 def compile(workflow: Workflow) -> dict[str, Any]:
     """Return `{name, version, nodes, adjacency, triggers, policy}`."""
-    nodes = {
-        node.id: {"type": node.type, "params": dict(node.params)}
-        for node in workflow.nodes
-    }
+    nodes = {node.id: {"type": node.type, "params": dict(node.params)} for node in workflow.nodes}
     edges = normalize_edges(workflow)
     adjacency: dict[str, list[str]] = {nid: [] for nid in nodes}
     for src, dst in edges:

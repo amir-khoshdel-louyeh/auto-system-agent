@@ -6,6 +6,7 @@ from pathlib import Path
 
 from storage.settings import LLMSettings, SettingsStore
 
+
 class SettingsStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp_dir = tempfile.TemporaryDirectory()
@@ -80,13 +81,16 @@ class SettingsStoreTests(unittest.TestCase):
 
     def test_load_normalizes_invalid_provider_mode(self):
         self.settings_path.write_text(
-            json.dumps({"provider_mode": "unknown", "url": "", "api_key": "", "model": "", "timeout": 8}),
+            json.dumps(
+                {"provider_mode": "unknown", "url": "", "api_key": "", "model": "", "timeout": 8}
+            ),
             encoding="utf-8",
         )
 
         loaded = self.store.load()
 
         self.assertEqual(loaded.provider_mode, "local")
+
 
 if __name__ == "__main__":
     unittest.main()

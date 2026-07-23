@@ -4,10 +4,15 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from models import PlannedTask, StepStatus
+from orchestration.agent import AutoSystemAgent
+from orchestration.safe_executor import SafeExecutor
+
 _TEST_HOME = None
 _OLD_HOME = None
 _LLM_BLOCK = None
 _DB_PATH_BLOCK = None
+
 
 def setUpModule():
     """No real LLM calls; no writes outside a temp HOME in these tests."""
@@ -17,10 +22,9 @@ def setUpModule():
     os.environ["HOME"] = _TEST_HOME.name
     _LLM_BLOCK = patch("services.llm_ollama_client.ollama_chat", return_value=None)
     _LLM_BLOCK.start()
-    _DB_PATH_BLOCK = patch(
-        "storage.repository.DEFAULT_DB_PATH", Path(_TEST_HOME.name) / "audit.db"
-    )
+    _DB_PATH_BLOCK = patch("storage.repository.DEFAULT_DB_PATH", Path(_TEST_HOME.name) / "audit.db")
     _DB_PATH_BLOCK.start()
+
 
 def tearDownModule():
     global _TEST_HOME, _OLD_HOME, _LLM_BLOCK, _DB_PATH_BLOCK
@@ -35,11 +39,6 @@ def tearDownModule():
     if _TEST_HOME is not None:
         _TEST_HOME.cleanup()
 
-from orchestration.agent import AutoSystemAgent
-from models import StepStatus
-from orchestration.planner import Planner
-from models import PlannedTask
-from orchestration.safe_executor import SafeExecutor
 
 class FakePlanner:
     def __init__(self, action: str, target: str = "") -> None:
@@ -52,6 +51,7 @@ class FakePlanner:
     def plan_tasks(self, user_input: str) -> list[PlannedTask]:
         return [self.plan(user_input)]
 
+
 class FakeAssistant:
     def __init__(self, result=None):
         self.result = result
@@ -59,17 +59,20 @@ class FakeAssistant:
     def resolve(self, user_text, allowed_actions, history):
         return self.result
 
+
 class FakeSelector:
     SUPPORTED_ACTIONS = {"run_command", "help"}
 
     def select(self, task):
         return task.action
 
+
 class FakeExecutor:
     def execute(self, tool_key, task):
         from models import ExecutionResult
 
         return ExecutionResult(success=True, message=f"{tool_key}:{task.target}")
+
 
 class CapturingExecutor:
     def __init__(self):
@@ -81,6 +84,7 @@ class CapturingExecutor:
         self.calls.append((tool_key, task.target, dict(task.options)))
         return ExecutionResult(success=True, message=f"{tool_key}:{task.target}")
 
+
 class PassThroughSelector:
     SUPPORTED_ACTIONS = {
         "run_command",
@@ -89,6 +93,7 @@ class PassThroughSelector:
 
     def select(self, task):
         return task.action if task.action in self.SUPPORTED_ACTIONS else "unknown"
+
 
 class AgentConversationTests(unittest.TestCase):
     def test_handles_empty_planner_task_list(self):
@@ -106,7 +111,9 @@ class AgentConversationTests(unittest.TestCase):
 
     def test_returns_chat_response_for_unknown_intent(self):
         planner = FakePlanner("unknown")
-        assistant = FakeAssistant({"type": "chat", "response": "Firefox is a privacy-focused browser."})
+        assistant = FakeAssistant(
+            {"type": "chat", "response": "Firefox is a privacy-focused browser."}
+        )
         agent = AutoSystemAgent(planner=planner, assistant=assistant)
 
         response = agent.process("which browser is privacy friendly?")
@@ -172,8 +179,18 @@ class AgentConversationTests(unittest.TestCase):
         )
 
         agent.process("create folder demo then list files in .", progress_callback=updates.append)
-        self.assertTrue(any(isinstance(item, StepStatus) and item.step == 1 and item.state == "running" for item in updates))
-        self.assertTrue(any(isinstance(item, StepStatus) and item.step == 2 and item.tool == "run_command" for item in updates))
+        self.assertTrue(
+            any(
+                isinstance(item, StepStatus) and item.step == 1 and item.state == "running"
+                for item in updates
+            )
+        )
+        self.assertTrue(
+            any(
+                isinstance(item, StepStatus) and item.step == 2 and item.tool == "run_command"
+                for item in updates
+            )
+        )
 
     def test_resolves_install_it_from_previous_chat_suggestion(self):
         class SequenceAssistant:
@@ -186,7 +203,12 @@ class AgentConversationTests(unittest.TestCase):
                     return {"type": "chat", "response": "VLC is a strong video player choice."}
                 # Second call: OLLAMA resolves "install it" to run_command via history
                 if "install it" in user_text.lower():
-                    return {"type": "tool", "action": "run_command", "target": "sudo apt install -y vlc", "destination": ""}
+                    return {
+                        "type": "tool",
+                        "action": "run_command",
+                        "target": "sudo apt install -y vlc",
+                        "destination": "",
+                    }
                 return None
 
         class SuggestThenInstallPlanner:
@@ -216,7 +238,11 @@ class AgentConversationTests(unittest.TestCase):
     def test_confirmation_cancel_skips_execution(self):
         class InstallPlanner:
             def plan_tasks(self, user_input):
-                return [PlannedTask(action="run_command", target="sudo apt install -y vlc", raw_input=user_input)]
+                return [
+                    PlannedTask(
+                        action="run_command", target="sudo apt install -y vlc", raw_input=user_input
+                    )
+                ]
 
         executor = CapturingExecutor()
         agent = AutoSystemAgent(
@@ -236,7 +262,11 @@ class AgentConversationTests(unittest.TestCase):
     def test_confirmation_helper_methods(self):
         class InstallPlanner:
             def plan_tasks(self, user_input):
-                return [PlannedTask(action="run_command", target="sudo apt install -y vlc", raw_input=user_input)]
+                return [
+                    PlannedTask(
+                        action="run_command", target="sudo apt install -y vlc", raw_input=user_input
+                    )
+                ]
 
         executor = CapturingExecutor()
         agent = AutoSystemAgent(
@@ -258,7 +288,11 @@ class AgentConversationTests(unittest.TestCase):
     def test_can_disable_high_risk_confirmation(self):
         class InstallPlanner:
             def plan_tasks(self, user_input):
-                return [PlannedTask(action="run_command", target="sudo apt install -y vlc", raw_input=user_input)]
+                return [
+                    PlannedTask(
+                        action="run_command", target="sudo apt install -y vlc", raw_input=user_input
+                    )
+                ]
 
         executor = CapturingExecutor()
         agent = AutoSystemAgent(
@@ -277,7 +311,11 @@ class AgentConversationTests(unittest.TestCase):
     def test_pending_confirmation_summary_reflects_waiting_action(self):
         class InstallPlanner:
             def plan_tasks(self, user_input):
-                return [PlannedTask(action="run_command", target="sudo apt install -y vlc", raw_input=user_input)]
+                return [
+                    PlannedTask(
+                        action="run_command", target="sudo apt install -y vlc", raw_input=user_input
+                    )
+                ]
 
         executor = CapturingExecutor()
         agent = AutoSystemAgent(
@@ -289,7 +327,9 @@ class AgentConversationTests(unittest.TestCase):
 
         prompt = agent.process("install vlc")
         self.assertIn("Confirmation required", prompt)
-        self.assertEqual(agent.get_pending_confirmation_summary(), "run_command sudo apt install -y vlc")
+        self.assertEqual(
+            agent.get_pending_confirmation_summary(), "run_command sudo apt install -y vlc"
+        )
 
         agent.process("no")
         self.assertEqual(agent.get_pending_confirmation_summary(), "")
@@ -299,7 +339,9 @@ class AgentConversationTests(unittest.TestCase):
             def plan_tasks(self, user_input):
                 return [
                     PlannedTask(action="run_command", target="mkdir -p demo", raw_input=user_input),
-                    PlannedTask(action="run_command", target="zip -r demo.zip demo", raw_input=user_input),
+                    PlannedTask(
+                        action="run_command", target="zip -r demo.zip demo", raw_input=user_input
+                    ),
                 ]
 
         executor = CapturingExecutor()
@@ -320,7 +362,11 @@ class AgentConversationTests(unittest.TestCase):
             def plan_tasks(self, user_input):
                 return [
                     PlannedTask(action="run_command", target="echo hello", raw_input=user_input),
-                    PlannedTask(action="run_command", target="ls /nonexistent_path_12345", raw_input=user_input),
+                    PlannedTask(
+                        action="run_command",
+                        target="ls /nonexistent_path_12345",
+                        raw_input=user_input,
+                    ),
                 ]
 
         agent = AutoSystemAgent(
@@ -336,6 +382,7 @@ class AgentConversationTests(unittest.TestCase):
         self.assertIn("Step 1: [SUCCESS]", response)
         self.assertIn("Step 2: [ERROR]", response)
         self.assertIn("No such file", response)
+
 
 class ConfirmationRiskDetailsTests(unittest.TestCase):
     """P1.5: pending confirmation carries C1 canonical, reasons and risk."""
@@ -387,6 +434,7 @@ class ConfirmationRiskDetailsTests(unittest.TestCase):
         self.assertEqual(item["verdict"], "ALLOW")
         self.assertLessEqual(item["risk_score"], 30)
         self.assertEqual(item["canonical_form"], "ls /tmp")
+
 
 if __name__ == "__main__":
     unittest.main()

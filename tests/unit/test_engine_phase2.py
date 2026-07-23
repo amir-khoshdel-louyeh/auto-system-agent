@@ -13,8 +13,10 @@ from engine.executor.result import RunCancelled  # noqa: E402
 from engine.executor.scheduler import compute_levels, run_dag  # noqa: E402
 from storage.audit import AuditStore, audit_sink  # noqa: E402
 
+
 def run(coro):
     return asyncio.run(coro)
+
 
 class SchedulerTests(unittest.TestCase):
     def test_three_node_parallel_dag(self):
@@ -54,8 +56,7 @@ class SchedulerTests(unittest.TestCase):
                 raise RuntimeError("install killed")
             return {"ok": nid}
 
-        dag = {"nodes": {"a": {}, "b": {}, "c": {}},
-               "edges": [("a", "b"), ("b", "c")]}
+        dag = {"nodes": {"a": {}, "b": {}, "c": {}}, "edges": [("a", "b"), ("b", "c")]}
         result = run(run_dag(dag, handler, timeout_s=5))
         self.assertEqual(result.status, "FAILED")
         self.assertEqual(result.nodes["a"].status, "OK")
@@ -78,11 +79,11 @@ class SchedulerTests(unittest.TestCase):
             called.append(nid)
             return {}
 
-        dag = {"nodes": {"a": {}, "b": {}},
-               "edges": [("a", "b"), ("b", "a")]}
+        dag = {"nodes": {"a": {}, "b": {}}, "edges": [("a", "b"), ("b", "a")]}
         with self.assertRaises(ValueError):
             run(run_dag(dag, handler))
         self.assertEqual(called, [])
+
 
 class GateTests(unittest.TestCase):
     def test_deny_blocks_node_and_downstream(self):
@@ -90,8 +91,10 @@ class GateTests(unittest.TestCase):
             return {"ok": nid}  # must never run for the denied node
 
         dag = {
-            "nodes": {"wipe": {"type": "shell", "run": "rm -rf /"},
-                      "next": {"type": "shell", "run": "echo hi"}},
+            "nodes": {
+                "wipe": {"type": "shell", "run": "rm -rf /"},
+                "next": {"type": "shell", "run": "echo hi"},
+            },
             "edges": [("wipe", "next")],
         }
         result = run(run_dag(dag, handler, gate=decide))
@@ -110,11 +113,13 @@ class GateTests(unittest.TestCase):
         self.assertEqual(result.nodes["g"].status, "SKIPPED")
         self.assertIn("approval", result.nodes["g"].error)
 
+
 def _ok():
     async def _inner():
         return {"ok": True}
 
     return _inner()
+
 
 class KillCompensateTests(unittest.TestCase):
     def test_kill_mid_run_then_compensate(self):
@@ -148,6 +153,7 @@ class KillCompensateTests(unittest.TestCase):
         self.assertEqual(outcomes, [("fast", "OK")])
         self.assertEqual(undone, ["fast"])
 
+
 class ChaosTests(unittest.TestCase):
     def test_chaos_failure_is_data_and_audited(self):
         db = init_db(Path(tempfile.mkdtemp()) / "chaos.db")
@@ -158,17 +164,15 @@ class ChaosTests(unittest.TestCase):
                 raise ValueError("x" * 5000)  # oversized error must truncate
             return {"ok": nid}
 
-        dag = {"nodes": {"poison": {}, "after": {}},
-               "edges": [("poison", "after")]}
-        result = run(
-            run_dag(dag, handler, timeout_s=5, on_event=audit_sink(store, "chaos-1"))
-        )
+        dag = {"nodes": {"poison": {}, "after": {}}, "edges": [("poison", "after")]}
+        result = run(run_dag(dag, handler, timeout_s=5, on_event=audit_sink(store, "chaos-1")))
         self.assertEqual(result.status, "FAILED")
         self.assertLessEqual(len(result.nodes["poison"].error), 2000)
         self.assertEqual(result.nodes["after"].status, "SKIPPED")
         self.assertTrue(store.verify("chaos-1"))
         names = [row["event"] for row in store.events("chaos-1")]
         self.assertIn("run.finished", names)
+
 
 if __name__ == "__main__":
     unittest.main()

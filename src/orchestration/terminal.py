@@ -1,12 +1,19 @@
-import subprocess
 import shlex
+import subprocess
 import sys
-import os
 import threading
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from models import ExecutionResult
+
+
+def _isatty(stream: Any) -> bool:
+    """True only when the stream is a live terminal (streams may be None)."""
+    try:
+        return bool(stream is not None and stream.isatty())
+    except Exception:
+        return False
 
 
 class TerminalSession:
@@ -17,7 +24,11 @@ class TerminalSession:
     """
 
     def __init__(self, initial_cwd: Path | None = None) -> None:
-        self._cwd = (initial_cwd or Path.home()).resolve() if (initial_cwd or Path.home()).exists() else Path.home().resolve()
+        self._cwd = (
+            (initial_cwd or Path.home()).resolve()
+            if (initial_cwd or Path.home()).exists()
+            else Path.home().resolve()
+        )
         if not self._cwd.exists():
             self._cwd = Path.cwd().resolve()
         self._history: list[str] = []
@@ -113,12 +124,12 @@ class TerminalSession:
             needs_tty = any(k in cmd.lower() for k in ("sudo", "passwd", "ssh", "su "))
             has_tty = False
             try:
-                has_tty = sys.stdin.isatty() and sys.stdout.isatty()
+                has_tty = _isatty(sys.stdin) and _isatty(sys.stdout)
             except Exception:
                 has_tty = False
             # Also consider the original launcher stdout (sys.__stdout__)
             try:
-                if not has_tty and sys.__stdout__.isatty():
+                if not has_tty and _isatty(sys.__stdout__):
                     has_tty = True
             except Exception:
                 pass
@@ -126,7 +137,7 @@ class TerminalSession:
             if needs_tty and has_tty:
                 try:
                     # Inherit launcher terminal's stdio – prompt appears there and user types there
-                    result = subprocess.run(
+                    tty_result = subprocess.run(
                         ["bash", "-lc", cmd],
                         cwd=str(self._cwd),
                         stdin=sys.stdin,
@@ -137,15 +148,19 @@ class TerminalSession:
                 except FileNotFoundError:
                     return ExecutionResult(success=False, message="bash not found on this system.")
                 except subprocess.TimeoutExpired:
-                    return ExecutionResult(success=False, message=f"Command timed out after {timeout}s: {cmd}")
+                    return ExecutionResult(
+                        success=False, message=f"Command timed out after {timeout}s: {cmd}"
+                    )
                 except OSError as exc:
-                    return ExecutionResult(success=False, message=f"Could not execute command: {exc}")
+                    return ExecutionResult(
+                        success=False, message=f"Could not execute command: {exc}"
+                    )
                 # Also mirror to GUI terminal via returned message
-                if result.returncode != 0:
+                if tty_result.returncode != 0:
                     return ExecutionResult(
                         success=False,
-                        message=f"Command executed in launcher terminal (exit {result.returncode}): {cmd}",
-                        data={"exit_code": result.returncode, "command": cmd},
+                        message=f"Command executed in launcher terminal (exit {tty_result.returncode}): {cmd}",
+                        data={"exit_code": tty_result.returncode, "command": cmd},
                     )
                 return ExecutionResult(
                     success=True,
@@ -164,7 +179,9 @@ class TerminalSession:
             except FileNotFoundError:
                 return ExecutionResult(success=False, message="bash not found on this system.")
             except subprocess.TimeoutExpired:
-                return ExecutionResult(success=False, message=f"Command timed out after {timeout}s: {cmd}")
+                return ExecutionResult(
+                    success=False, message=f"Command timed out after {timeout}s: {cmd}"
+                )
             except OSError as exc:
                 return ExecutionResult(success=False, message=f"Could not execute command: {exc}")
 
@@ -172,7 +189,7 @@ class TerminalSession:
             output = output.strip()
             # Echo to launcher terminal so user sees progress/commands there as well
             try:
-                if sys.__stdout__.isatty():
+                if _isatty(sys.__stdout__):
                     print(f"\n$ {cmd}", file=sys.__stdout__, flush=True)
                     if output:
                         print(output, file=sys.__stdout__, flush=True)
@@ -181,7 +198,7 @@ class TerminalSession:
             except Exception:
                 pass
             try:
-                if sys.__stderr__.isatty() and result.stderr:
+                if _isatty(sys.__stderr__) and result.stderr:
                     print(result.stderr.strip(), file=sys.__stderr__, flush=True)
             except Exception:
                 pass

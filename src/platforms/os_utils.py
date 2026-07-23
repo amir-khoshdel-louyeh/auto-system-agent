@@ -4,7 +4,6 @@ from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 
-
 # ---------------------------------------------------------------------------
 # P2.1a: install capability knowledge-graph (data only; resolution follows
 # in P2.1b). Native managers carry fidelity 1.0, universal fallbacks lower.
@@ -271,8 +270,15 @@ def extract_install_package(command_text: str) -> str | None:
         return None
     verb_at = lowered.index("install")
     skip_flags = {
-        "-y", "--yes", "-e", "--exact", "--noconfirm", "--id", "-e",
-        "--silent", "-q", "--quiet",
+        "-y",
+        "--yes",
+        "-e",
+        "--exact",
+        "--noconfirm",
+        "--id",
+        "--silent",
+        "-q",
+        "--quiet",
     }
     for token in parts[verb_at + 1 :]:
         if not token or token in skip_flags or token.startswith("-"):
@@ -305,8 +311,17 @@ REMOVE_VERBS = ("remove", "uninstall", "erase", "purge", "del", "-rns", "-r", "-
 #: Programs whose remove verbs trigger uninstall handling (short flags
 #: like -r only count for these managers; rm/zip/ls never enter).
 UNINSTALL_MANAGERS = {
-    "apt", "dnf", "pacman", "zypper", "apk", "brew", "winget",
-    "snap", "choco", "flatpak", "uninstall",
+    "apt",
+    "dnf",
+    "pacman",
+    "zypper",
+    "apk",
+    "brew",
+    "winget",
+    "snap",
+    "choco",
+    "flatpak",
+    "uninstall",
 }
 
 
@@ -371,8 +386,17 @@ def extract_uninstall_package(command_text: str) -> str | None:
     if verb_at is None:
         return None
     skip_flags = {
-        "-y", "--yes", "-e", "--exact", "--noconfirm", "--id",
-        "--silent", "-q", "--quiet", "--delete-data", "--all",
+        "-y",
+        "--yes",
+        "-e",
+        "--exact",
+        "--noconfirm",
+        "--id",
+        "--silent",
+        "-q",
+        "--quiet",
+        "--delete-data",
+        "--all",
     }
     for token in parts[verb_at + 1 :]:
         if not token or token in skip_flags or token.startswith("-"):
@@ -449,7 +473,7 @@ def snapshot_system(
     set or a live PATH probe.
     """
     cfg = system_config if isinstance(system_config, dict) else {}
-    resolved_os = (os_name or str(cfg.get("os_name") or "").strip().lower() or detect_os())
+    resolved_os = os_name or str(cfg.get("os_name") or "").strip().lower() or detect_os()
     if distro_id is not None:
         resolved_distro = distro_id
     elif str(cfg.get("distro_id") or "").strip():
@@ -458,8 +482,12 @@ def snapshot_system(
         resolved_distro = detect_linux_distro()
     else:
         resolved_distro = resolved_os
-    resolved_available = frozenset(available) if available is not None else live_available_binaries()
-    return SystemSnapshot(os_name=resolved_os, distro_id=resolved_distro, available=resolved_available)
+    resolved_available = (
+        frozenset(available) if available is not None else live_available_binaries()
+    )
+    return SystemSnapshot(
+        os_name=resolved_os, distro_id=resolved_distro, available=resolved_available
+    )
 
 
 def resolve_install_chain(
@@ -469,4 +497,6 @@ def resolve_install_chain(
 ) -> list[str]:
     """Rewrite a package into a fallback chain from a snapshot (or live)."""
     snap = snapshot if snapshot is not None else snapshot_system(**overrides)  # type: ignore[arg-type]
-    return rewrite_install(package, os_name=snap.os_name, distro_id=snap.distro_id, available=snap.available)
+    return rewrite_install(
+        package, os_name=snap.os_name, distro_id=snap.distro_id, available=snap.available
+    )

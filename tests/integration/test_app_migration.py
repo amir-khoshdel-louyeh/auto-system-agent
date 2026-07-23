@@ -7,6 +7,7 @@ from pathlib import Path
 
 from app.db import hash_password, init_db
 
+
 class AppMigrationTests(unittest.TestCase):
     def test_init_db_idempotent_and_users_usable(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -22,6 +23,7 @@ class AppMigrationTests(unittest.TestCase):
                     "SELECT username, is_active FROM users WHERE id = ?", ("u1",)
                 ).fetchone()
         self.assertEqual(row, ("admin", 1))
+
 
 if __name__ == "__main__":
     unittest.main()

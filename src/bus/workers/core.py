@@ -8,8 +8,6 @@ and replays stay deterministic.
 
 from __future__ import annotations
 
-from typing import Any
-
 from ..backend import Backend
 from ..consumer import Runner
 from ..events import new_event
@@ -39,8 +37,9 @@ def make_step_worker(
     max_retries: int = 2,
 ) -> Runner:
     """Build the Runner that serves one node.type (exec_fn may raise)."""
-    runner = Runner(backend, group, [steps_stream(node_type)], max_retries=max_retries,
-                    base_delay_ms=10)
+    runner = Runner(
+        backend, group, [steps_stream(node_type)], max_retries=max_retries, base_delay_ms=10
+    )
 
     @runner.on("step.dispatched")
     async def handle(event) -> None:
@@ -56,16 +55,22 @@ def make_step_worker(
                 output = {"output": output}
             await backend.publish(
                 RESULTS_STREAM,
-                new_event("step.finished", {"node_id": node_id, "output": output},
-                          correlation_id=run_id,
-                          idempotency_key=f"{run_id}:{node_id}:finished"),
+                new_event(
+                    "step.finished",
+                    {"node_id": node_id, "output": output},
+                    correlation_id=run_id,
+                    idempotency_key=f"{run_id}:{node_id}:finished",
+                ),
             )
         except Exception as exc:  # noqa: BLE001 - worker failure is a verdict
             await backend.publish(
                 RESULTS_STREAM,
-                new_event("step.failed", {"node_id": node_id, "error": str(exc)[:2000]},
-                          correlation_id=run_id,
-                          idempotency_key=f"{run_id}:{node_id}:failed"),
+                new_event(
+                    "step.failed",
+                    {"node_id": node_id, "error": str(exc)[:2000]},
+                    correlation_id=run_id,
+                    idempotency_key=f"{run_id}:{node_id}:failed",
+                ),
             )
 
     return runner

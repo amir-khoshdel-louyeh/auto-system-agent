@@ -1,17 +1,30 @@
-import queue
 import os
+import queue
 import tempfile
 import time
+import tkinter as tk
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-import tkinter as tk
+from models import ExecutionResult, PlannedTask, StepStatus
+from orchestration.agent import AutoSystemAgent
+from ui.gui import AgentChatGUI
+
+
+class InMemoryLogger:
+    def __init__(self) -> None:
+        self.events = []
+
+    def log(self, event):
+        self.events.append(event)
+
 
 _TEST_HOME = None
 _OLD_HOME = None
 _LLM_BLOCK = None
 _DB_PATH_BLOCK = None
+
 
 def setUpModule():
     """No real LLM calls; no writes outside a temp HOME in these tests."""
@@ -21,10 +34,9 @@ def setUpModule():
     os.environ["HOME"] = _TEST_HOME.name
     _LLM_BLOCK = patch("services.llm_ollama_client.ollama_chat", return_value=None)
     _LLM_BLOCK.start()
-    _DB_PATH_BLOCK = patch(
-        "storage.repository.DEFAULT_DB_PATH", Path(_TEST_HOME.name) / "audit.db"
-    )
+    _DB_PATH_BLOCK = patch("storage.repository.DEFAULT_DB_PATH", Path(_TEST_HOME.name) / "audit.db")
     _DB_PATH_BLOCK.start()
+
 
 def tearDownModule():
     global _TEST_HOME, _OLD_HOME, _LLM_BLOCK, _DB_PATH_BLOCK
@@ -39,20 +51,11 @@ def tearDownModule():
     if _TEST_HOME is not None:
         _TEST_HOME.cleanup()
 
-from orchestration.agent import AutoSystemAgent
-from ui.gui import AgentChatGUI
-from models import ExecutionResult, PlannedTask, StepStatus
-
-class InMemoryLogger:
-    def __init__(self) -> None:
-        self.events = []
-
-    def log(self, event):
-        self.events.append(event)
 
 class FakeAssistant:
     def resolve(self, user_text, allowed_actions, history):
         return None
+
 
 class DummyAgent:
     def has_pending_confirmation(self):
@@ -63,6 +66,7 @@ class DummyAgent:
 
     def cancel_pending(self):
         return ""
+
 
 class FakeRoot:
     def __init__(self):
@@ -77,6 +81,7 @@ class FakeRoot:
     def clipboard_append(self, text):
         self.clipboard_text = text
 
+
 class FakeButton:
     def __init__(self, state=tk.NORMAL):
         self._state = state
@@ -89,6 +94,7 @@ class FakeButton:
         if key == "state":
             return self._state
         raise KeyError(key)
+
 
 class FakeEntry:
     def __init__(self, text=""):
@@ -112,6 +118,7 @@ class FakeEntry:
     def focus_set(self):
         self.focus_calls += 1
 
+
 class FakeLabel:
     def __init__(self):
         self.text = ""
@@ -123,6 +130,7 @@ class FakeLabel:
         if "fg" in kwargs:
             self.fg = kwargs["fg"]
 
+
 class FakeVar:
     def __init__(self, value=""):
         self._value = value
@@ -132,6 +140,7 @@ class FakeVar:
 
     def set(self, value):
         self._value = value
+
 
 class FakeListbox:
     def __init__(self):
@@ -154,6 +163,7 @@ class FakeListbox:
     def see(self, _index):
         return None
 
+
 class SingleStepPlanner:
     def __init__(self):
         self.calls = []
@@ -161,6 +171,7 @@ class SingleStepPlanner:
     def plan_tasks(self, user_input):
         self.calls.append(user_input)
         return [PlannedTask(action="create_folder", target="demo", raw_input=user_input)]
+
 
 class MultiStepPlanner:
     def __init__(self):
@@ -172,6 +183,7 @@ class MultiStepPlanner:
             PlannedTask(action="create_folder", target="demo", raw_input=user_input),
             PlannedTask(action="list_files", target="demo", raw_input=user_input),
         ]
+
 
 class SpySelector:
     SUPPORTED_ACTIONS = {
@@ -186,6 +198,7 @@ class SpySelector:
         self.calls.append((task.action, task.target))
         return task.action
 
+
 class SpyExecutor:
     def __init__(self):
         self.calls = []
@@ -193,6 +206,7 @@ class SpyExecutor:
     def execute(self, tool_key, task):
         self.calls.append((tool_key, task.target))
         return ExecutionResult(success=True, message=f"{tool_key}:{task.target}")
+
 
 class SpyFormatter:
     def __init__(self):
@@ -205,7 +219,10 @@ class SpyFormatter:
 
     def format_many(self, results):
         self.format_many_calls.append([item.message for item in results])
-        return "\n".join(f"Step {idx + 1}: [SUCCESS] {item.message}" for idx, item in enumerate(results))
+        return "\n".join(
+            f"Step {idx + 1}: [SUCCESS] {item.message}" for idx, item in enumerate(results)
+        )
+
 
 def build_gui_harness(agent, user_text):
     gui = AgentChatGUI.__new__(AgentChatGUI)
@@ -245,6 +262,7 @@ def build_gui_harness(agent, user_text):
 
     return gui, messages, progress_updates
 
+
 def drain_until_idle(gui, timeout=1.0):
     deadline = time.time() + timeout
     while gui._is_busy and time.time() < deadline:
@@ -253,6 +271,7 @@ def drain_until_idle(gui, timeout=1.0):
 
     gui._drain_ui_queue()
     return not gui._is_busy
+
 
 class GUIWorkflowIntegrationTests(unittest.TestCase):
     def test_on_send_runs_single_step_pipeline_and_displays_response(self):
@@ -299,7 +318,9 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
             assistant=FakeAssistant(),
             event_logger=InMemoryLogger(),
         )
-        gui, messages, progress_updates = build_gui_harness(agent, "create folder demo then list files in demo")
+        gui, messages, progress_updates = build_gui_harness(
+            agent, "create folder demo then list files in demo"
+        )
 
         gui._on_send()
         self.assertTrue(drain_until_idle(gui), "GUI worker did not finish in time")
@@ -316,9 +337,24 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(formatter.format_calls, [])
         self.assertEqual(formatter.format_many_calls, [["create_folder:demo", "list_files:demo"]])
 
-        self.assertTrue(any(isinstance(item, StepStatus) and item.step == 1 and item.state == "running" for item in progress_updates))
-        self.assertTrue(any(isinstance(item, StepStatus) and item.step == 2 and item.tool == "list_files" for item in progress_updates))
-        self.assertTrue(any(speaker == "Agent" and "Step 2: [SUCCESS] list_files:demo" in text for speaker, text in messages))
+        self.assertTrue(
+            any(
+                isinstance(item, StepStatus) and item.step == 1 and item.state == "running"
+                for item in progress_updates
+            )
+        )
+        self.assertTrue(
+            any(
+                isinstance(item, StepStatus) and item.step == 2 and item.tool == "list_files"
+                for item in progress_updates
+            )
+        )
+        self.assertTrue(
+            any(
+                speaker == "Agent" and "Step 2: [SUCCESS] list_files:demo" in text
+                for speaker, text in messages
+            )
+        )
         # Timeline removed – no timeline entries expected (kept harness for compat)
         self.assertEqual(gui.timeline_list.size(), 0)
 
@@ -329,7 +365,11 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
 
         class InstallPlanner:
             def plan_tasks(self, user_input):
-                return [PlannedTask(action="run_command", target="sudo apt install -y vlc", raw_input=user_input)]
+                return [
+                    PlannedTask(
+                        action="run_command", target="sudo apt install -y vlc", raw_input=user_input
+                    )
+                ]
 
         agent = AutoSystemAgent(
             planner=InstallPlanner(),
@@ -353,7 +393,12 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(gui.command_preview_var.get().strip(), "")
         self.assertEqual(gui.copy_preview_button["state"], tk.DISABLED)
         # Direct execution occurred without confirmation gate
-        self.assertTrue(any(speaker == "Agent" and "run_command:sudo apt install -y vlc" in text for speaker, text in messages))
+        self.assertTrue(
+            any(
+                speaker == "Agent" and "run_command:sudo apt install -y vlc" in text
+                for speaker, text in messages
+            )
+        )
 
     def test_confirmation_card_shows_canonical_risk_and_reasons(self):
         # Pending confirmation populates the risk card; Confirm executes it.
@@ -361,7 +406,11 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
 
         class InstallPlanner:
             def plan_tasks(self, user_input):
-                return [PlannedTask(action="run_command", target="sudo apt install -y vlc", raw_input=user_input)]
+                return [
+                    PlannedTask(
+                        action="run_command", target="sudo apt install -y vlc", raw_input=user_input
+                    )
+                ]
 
         agent = AutoSystemAgent(
             planner=InstallPlanner(),
@@ -391,7 +440,12 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         gui._on_confirm()
         self.assertTrue(drain_until_idle(gui), "GUI worker did not finish in time")
         self.assertFalse(agent.has_pending_confirmation())
-        self.assertTrue(any(speaker == "Agent" and "run_command:sudo apt install -y vlc" in text for speaker, text in messages))
+        self.assertTrue(
+            any(
+                speaker == "Agent" and "run_command:sudo apt install -y vlc" in text
+                for speaker, text in messages
+            )
+        )
         self.assertEqual(gui.confirm_button["state"], tk.DISABLED)
         self.assertEqual(gui.confirmation_status_label.text, "")
 
@@ -405,8 +459,12 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         gui._start_background_task(long_task)
         gui._on_cancel()
         self.assertTrue(drain_until_idle(gui), "GUI worker did not settle after cancel")
-        self.assertTrue(any(speaker == "Agent" and "Cancelled" in text for speaker, text in messages))
-        self.assertFalse(any(speaker == "Agent" and "should be ignored" in text for speaker, text in messages))
+        self.assertTrue(
+            any(speaker == "Agent" and "Cancelled" in text for speaker, text in messages)
+        )
+        self.assertFalse(
+            any(speaker == "Agent" and "should be ignored" in text for speaker, text in messages)
+        )
 
     def test_timeout_stops_waiting_for_running_request(self):
         gui, messages, _progress = build_gui_harness(agent=DummyAgent(), user_text="")
@@ -418,8 +476,12 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
 
         gui._start_background_task(long_task)
         self.assertTrue(drain_until_idle(gui), "GUI worker did not settle after timeout")
-        self.assertTrue(any(speaker == "Agent" and "timed out" in text.lower() for speaker, text in messages))
-        self.assertFalse(any(speaker == "Agent" and "late response" in text for speaker, text in messages))
+        self.assertTrue(
+            any(speaker == "Agent" and "timed out" in text.lower() for speaker, text in messages)
+        )
+        self.assertFalse(
+            any(speaker == "Agent" and "late response" in text for speaker, text in messages)
+        )
 
     def test_insert_tool_command_populates_entry(self):
         gui, _messages, _progress = build_gui_harness(agent=DummyAgent(), user_text="")
@@ -439,6 +501,7 @@ class GUIWorkflowIntegrationTests(unittest.TestCase):
         self.assertEqual(gui._task_timeout_seconds, 12.0)
         self.assertEqual(os.environ.get("AUTO_AGENT_GUI_TASK_TIMEOUT"), "12.0")
         self.assertEqual(os.environ.get("AUTO_AGENT_INSTALL_RETRIES"), "5")
+
 
 if __name__ == "__main__":
     unittest.main()

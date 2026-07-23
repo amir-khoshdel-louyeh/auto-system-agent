@@ -87,11 +87,7 @@ class LLMToolMapper:
         if "action" in response_json:
             return isinstance(response_json.get("action"), str)
 
-        content = (
-            response_json.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-        )
+        content = response_json.get("choices", [{}])[0].get("message", {}).get("content", "")
         if not isinstance(content, str) or not content.strip():
             # Also handle native Ollama shape
             content = response_json.get("message", {}).get("content", "")
@@ -128,7 +124,9 @@ class LLMToolMapper:
                     "stream": False,
                 }
                 native_body = json.dumps(native_payload).encode("utf-8")
-                native_req = request.Request(native_url, data=native_body, headers=headers, method="POST")
+                native_req = request.Request(
+                    native_url, data=native_body, headers=headers, method="POST"
+                )
                 try:
                     with request.urlopen(native_req, timeout=self._timeout) as resp:
                         native_raw = json.loads(resp.read().decode("utf-8"))
@@ -144,11 +142,7 @@ class LLMToolMapper:
         if "action" in response_json and isinstance(response_json["action"], str):
             return response_json["action"].strip()
 
-        content = (
-            response_json.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-        )
+        content = response_json.get("choices", [{}])[0].get("message", {}).get("content", "")
         if not isinstance(content, str) or not content.strip():
             content = response_json.get("message", {}).get("content", "")
             if not isinstance(content, str) or not content.strip():
