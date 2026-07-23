@@ -1,0 +1,63 @@
+import unittest
+from pathlib import Path
+
+from models import PlannedTask
+from platforms.tool_selector import ToolSelector
+
+class FakeMapper:
+    def __init__(self, value):
+        self.value = value
+        self.calls = 0
+
+    def map_intent(self, user_text, allowed_actions):
+        self.calls += 1
+        return self.value
+
+class ToolSelectorLLMTests(unittest.TestCase):
+    def test_deterministic_path_wins_for_known_action(self):
+        mapper = FakeMapper("help")
+        selector = ToolSelector(llm_mapper=mapper)
+
+        task = PlannedTask(action="run_command", target="touch ~/Downloads/test.py", raw_input="make a file")
+        self.assertEqual(selector.select(task), "run_command")
+        self.assertEqual(mapper.calls, 0)
+
+    def test_llm_is_used_for_unknown_action(self):
+        mapper = FakeMapper("run_command")
+        selector = ToolSelector(llm_mapper=mapper)
+
+        task = PlannedTask(action="unknown", raw_input="show me files")
+        self.assertEqual(selector.select(task), "run_command")
+        self.assertEqual(mapper.calls, 1)
+
+    def test_falls_back_to_unknown_when_llm_unavailable(self):
+        mapper = FakeMapper(None)
+        selector = ToolSelector(llm_mapper=mapper)
+
+        task = PlannedTask(action="unknown", raw_input="something random")
+        self.assertEqual(selector.select(task), "unknown")
+
+    def test_whitelist_blocks_untrusted_llm_action(self):
+        mapper = FakeMapper("format_disk")
+        selector = ToolSelector(llm_mapper=mapper)
+
+        task = PlannedTask(action="unknown", raw_input="wipe this machine")
+        self.assertEqual(selector.select(task), "unknown")
+
+    def test_no_guarded_fallback_when_llm_unavailable(self):
+        # Hard-coded guarded fallback was removed; OLLAMA only
+        mapper = FakeMapper(None)
+        selector = ToolSelector(llm_mapper=mapper)
+
+        task = PlannedTask(action="unknown", raw_input="run uname -a")
+        self.assertEqual(selector.select(task), "unknown")
+
+    def test_no_guarded_list_files_fallback(self):
+        mapper = FakeMapper(None)
+        selector = ToolSelector(llm_mapper=mapper)
+
+        task = PlannedTask(action="unknown", raw_input="show files in downloads")
+        self.assertEqual(selector.select(task), "unknown")
+
+if __name__ == "__main__":
+    unittest.main()
