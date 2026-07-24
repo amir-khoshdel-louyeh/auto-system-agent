@@ -14,6 +14,7 @@ import hmac
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
+from .deps import CurrentUser, get_current_user
 from .security import TokenError, decode_token, encode_token
 from .settings import Settings, get_settings
 
@@ -64,6 +65,12 @@ def login(body: LoginIn, settings: Settings = Depends(get_settings)) -> TokenOut
             role=settings.admin_role,
         )
     )
+
+
+@router.get("/me")
+def whoami(user: CurrentUser = Depends(get_current_user)) -> dict[str, object]:
+    """Identity + granted permissions of the presented bearer token."""
+    return {"username": user.username, "role": user.role.value, "permissions": user.permissions()}
 
 
 def _constant_time_eq(left: str, right: str) -> bool:

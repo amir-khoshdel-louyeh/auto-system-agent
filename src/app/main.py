@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from fastapi import FastAPI
 
+from .admin import router as admin_router
 from .auth import router as auth_router
 from .settings import Settings, get_settings
 
@@ -28,6 +29,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return {"status": "healthy", "version": settings.app_version}
 
     application.include_router(auth_router)
+    application.include_router(admin_router)
     return application
 
 

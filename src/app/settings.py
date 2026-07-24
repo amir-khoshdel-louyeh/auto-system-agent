@@ -57,6 +57,7 @@ class Settings:
     database_url_override: str = ""
     redis_url: str = "redis://localhost:6379/0"
     token_ttl_minutes: int = 60
+    sqlite_path: str = "data/app.db"  # auth/user database (items [11]-[15])
 
     def __post_init__(self) -> None:
         self.validate()
@@ -84,6 +85,8 @@ class Settings:
             raise SettingsError(f"POSTGRES_PORT out of range: {self.postgres_port}")
         if not self.redis_url.startswith(("redis://", "rediss://", "unix://")):
             raise SettingsError(f"REDIS_URL must be a redis scheme, got {self.redis_url!r}")
+        if not self.sqlite_path.strip():
+            raise SettingsError("SQLITE_PATH must not be empty")
         try:
             parse_role(self.admin_role)
         except ValueError as exc:
@@ -127,4 +130,5 @@ def get_settings() -> Settings:
         redis_url=_get("REDIS_URL", "redis://localhost:6379/0"),
         token_ttl_minutes=_get_int("TOKEN_TTL_MINUTES", 60),
         admin_role=_get("APP_ADMIN_ROLE", "OWNER"),
+        sqlite_path=_get("SQLITE_PATH", "data/app.db"),
     )
