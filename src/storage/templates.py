@@ -5,11 +5,16 @@ running success rate. Only validated plans are saved: every step parses
 and no step carries a DENY verdict.
 """
 
+from __future__ import annotations
+
 import json
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:  # pragma: no cover - typing only
+    from storage.repository import TemplateRepository
 
 _ALLOWED_ACTIONS = {"run_command", "help"}
 
@@ -65,8 +70,16 @@ def validate_plan(steps: list[dict]) -> tuple[bool, str]:
 class TemplateStore:
     """SQLite-backed template store (audit database template table)."""
 
-    repository: Any = None  # duck-typed AuditRepository; typed Protocol in item [16]
+    repository: TemplateRepository | None = field(default=None)
     db_path: Path | str | None = None
+
+    @property
+    def repo(self) -> TemplateRepository:
+        """Non-optional accessor (``__post_init__`` always initialises)."""
+        repo = self.repository
+        if repo is None:
+            raise RuntimeError("TemplateStore was not initialised")
+        return repo
 
     def __post_init__(self) -> None:
         if self.repository is None:
@@ -102,7 +115,7 @@ class TemplateStore:
             ]
         )
         existing = self.get(clean_name)
-        template_id = self.repository.upsert_template(
+        template_id = self.repo.upsert_template(
             name=clean_name,
             canonical_plan_json=canonical,
             success_rate=existing.success_rate if existing else 100.0,
@@ -119,11 +132,11 @@ class TemplateStore:
         )
 
     def get(self, name: str) -> Template | None:
-        row = self.repository.get_template((name or "").strip())
+        row = self.repo.get_template((name or "").strip())
         return self._row_to_template(row) if row is not None else None
 
     def list_names(self) -> list[str]:
-        return [str(row["name"]) for row in self.repository.list_templates()]
+        return [str(row["name"]) for row in self.repo.list_templates()]
 
     def replay(self, name: str, raw_input: str = "") -> list:
         """Rebuild validated PlannedTasks for a saved template."""
@@ -155,7 +168,7 @@ class TemplateStore:
         runs = template.runs + 1
         previous = template.success_rate * template.runs
         rate = round((previous + (100.0 if success else 0.0)) / runs, 1)
-        self.repository.upsert_template(
+        self.repo.upsert_template(
             name=template.name,
             canonical_plan_json=template.canonical_plan_json,
             success_rate=rate,

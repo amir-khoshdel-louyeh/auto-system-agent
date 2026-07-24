@@ -12,8 +12,34 @@ a handle. Logging callers must still guard writes (see event_logger).
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Protocol, runtime_checkable
 
 DEFAULT_DB_PATH = Path.home() / ".auto_system_agent" / "audit.db"
+
+
+@runtime_checkable
+class TemplateRepository(Protocol):
+    """Persistence contract consumed by ``storage.templates`` (item [16]).
+
+    ``TemplateStore`` depends on this interface, not on AuditRepository:
+    any object with these three methods (sqlite today, Postgres later) can
+    back the template store.
+    """
+
+    def upsert_template(
+        self,
+        *,
+        name: str,
+        canonical_plan_json: str,
+        success_rate: float = 100.0,
+        runs: int = 0,
+        created_ts: float = 0.0,
+    ) -> int: ...
+
+    def get_template(self, name: str) -> dict | None: ...
+
+    def list_templates(self) -> list[dict]: ...
+
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS execution (

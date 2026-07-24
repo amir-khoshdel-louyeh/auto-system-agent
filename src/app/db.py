@@ -42,10 +42,12 @@ __all__ = [
     "create_workspace",
     "effective_role",
     "get_role",
+    "grant_role_row",
     "hash_password",
     "init_db",
     "list_team_members",
     "list_teams",
+    "list_users",
     "list_workspace_members",
     "list_workspaces",
     "migration_files",
@@ -85,17 +87,35 @@ def create_user(path: str | Path, username: str, password: str) -> str:
     Raises ``sqlite3.IntegrityError`` for a duplicate username (the UNIQUE
     constraint stays the single source of truth).
     """
+    with sqlite3.connect(path) as conn:
+        return create_user_row(conn, username, password)
+
+
+def create_user_row(conn: Any, username: str, password: str) -> str:
+    """Insert a user on an *existing* connection (caller owns the boundary)."""
     if not username.strip() or not password:
         raise ValueError("username and password must be non-empty")
     user_id = uuid.uuid4().hex
     created = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    with sqlite3.connect(path) as conn:
-        conn.execute(
-            "INSERT INTO users (id, username, password_hash, is_active, created_at)"
-            " VALUES (?, ?, ?, 1, ?)",
-            (user_id, username, hash_password(password), created),
-        )
+    conn.execute(
+        "INSERT INTO users (id, username, password_hash, is_active, created_at)"
+        " VALUES (?, ?, ?, 1, ?)",
+        (user_id, username, hash_password(password), created),
+    )
     return user_id
+
+
+def grant_role_row(conn: Any, user_id: str, role: Role | str, granted_by: str = "") -> Role:
+    """Upsert a role on an *existing* connection (caller owns the boundary)."""
+    parsed = parse_role(role)
+    conn.execute(
+        "INSERT INTO user_roles (user_id, role, granted_at, granted_by)"
+        " VALUES (?, ?, ?, ?)"
+        " ON CONFLICT(user_id) DO UPDATE SET role = excluded.role,"
+        " granted_at = excluded.granted_at, granted_by = excluded.granted_by",
+        (user_id, parsed.value, _utc_now(), granted_by),
+    )
+    return parsed
 
 
 def authenticate_user(path: str | Path, username: str, password: str) -> str | None:
@@ -116,17 +136,8 @@ def authenticate_user(path: str | Path, username: str, password: str) -> str | N
 
 def set_role(path: str | Path, user_id: str, role: Role | str, granted_by: str = "") -> Role:
     """Grant ``role`` to a user (item [12]); returns the parsed role."""
-    parsed = parse_role(role)
-    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
     with sqlite3.connect(path) as conn:
-        conn.execute(
-            "INSERT INTO user_roles (user_id, role, granted_at, granted_by)"
-            " VALUES (?, ?, ?, ?)"
-            " ON CONFLICT(user_id) DO UPDATE SET role = excluded.role,"
-            " granted_at = excluded.granted_at, granted_by = excluded.granted_by",
-            (user_id, parsed.value, now, granted_by),
-        )
-    return parsed
+        return grant_role_row(conn, user_id, role, granted_by)
 
 
 def get_role(path: str | Path, user_id: str) -> Role:
@@ -143,6 +154,24 @@ def user_id_by_username(path: str | Path, username: str) -> str | None:
     with sqlite3.connect(path) as conn:
         row = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
     return row[0] if row else None
+
+
+def list_users(path: str | Path) -> list[dict]:
+    """All users with their effective global role (VIEWER when ungranted)."""
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            "SELECT id, username, is_active FROM users ORDER BY username"
+        ).fetchall()
+        roles = dict(conn.execute("SELECT user_id, role FROM user_roles").fetchall())
+    return [
+        {
+            "id": row[0],
+            "username": row[1],
+            "is_active": bool(row[2]),
+            "role": roles.get(row[0], Role.VIEWER.value),
+        }
+        for row in rows
+    ]
 
 
 # --------------------------------------------------------------------------
