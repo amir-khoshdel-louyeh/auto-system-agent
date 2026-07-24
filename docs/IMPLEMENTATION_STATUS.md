@@ -8,7 +8,7 @@ Legend: `WIP` = in progress, `OK` = all items done **and** gate passed.
 | Phase | Scope | Status | Gate evidence |
 |---|---|---|---|
 | 0 | Scope, repository and quality baseline | **OK** | install `requirements*.txt` clean; 215 tests + 194 subtests green; `GET /health` 200; ruff/mypy/coverage/bandit/pip-audit/docker build all pass locally |
-| 1 | API, authentication and database foundation | TODO | — |
+| 1 | API, authentication and database foundation | **OK** | 26 integration tests: 401/403 on protected routes for unauthorized callers, 201/200 for OWNER; clean DB applies all 4 migrations exactly once via the checksum-tracked runner; full suite green (66.2% coverage) |
 | 2 | Workflow DSL and validator | TODO | — |
 | 3 | DAG executor, policy and approvals | TODO | — |
 | 4 | Redis event bus and workers | TODO | — |
@@ -32,3 +32,16 @@ Legend: `WIP` = in progress, `OK` = all items done **and** gate passed.
 | 7 | Add CI workflow for tests and Docker build | OK | `3617a66` ci(phase0): add CI workflow for quality gates and Docker build |
 | 8 | Update README with clean setup and architecture | OK | `f971668` docs(phase0): rewrite README with clean setup and architecture |
 | 9 | Create requirements traceability matrix | OK | `42b29b8` docs(phase0): add requirements traceability matrix |
+
+## Phase 1 item log (closed 2026-10-15)
+
+| # | Item | Status | Commit |
+|---|---|---|---|
+| 10 | Finalize settings and environment validation | OK | `aa2d56e` feat(app): validate settings and environment at startup |
+| 11 | Implement password hashing and short-lived JWT | OK | `961f56c` feat(app): real HS256 JWT and salted PBKDF2 password hashing |
+| 12 | Implement OWNER, OPERATOR, APPROVER and VIEWER roles | OK | `d9b101e` feat(app): RBAC roles with frozen permission matrix |
+| 13 | Add authorization dependencies to protected routes | OK | `1e001f5` feat(app): authorization dependencies on protected routes |
+| 14 | Add teams, members and workspaces | OK | `e642cb0` feat(app): teams, members and workspaces with scoped roles |
+| 15 | Add reproducible migration runner | OK | `0103b9d` feat(app): reproducible migration runner with drift detection |
+| 16 | Add repository interfaces and transaction boundaries | OK | `0b6a32c` feat(app): repository interfaces and transaction boundaries |
+| 17 | Add migration and RBAC integration tests | OK | `f971a2e` test(phase1): migration and RBAC integration tests |
