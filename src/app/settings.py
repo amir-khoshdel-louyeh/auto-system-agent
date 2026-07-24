@@ -4,12 +4,25 @@ Mirrors the shape of source_MIT/FastAPI-boilerplate backend settings
 (DatabaseSettings/AuthSettings/AppSettings) without pydantic-settings,
 crudauth or taskiq. Every value has a dev default so `pytest` and
 `docker compose up` both work; production overrides via environment.
+
+Phase 1 item [10]: settings are now *validated* - unknown environments,
+out-of-range values and, in production, development default secrets are
+rejected at startup (`SettingsError`) instead of shipping silently.
 """
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+
+#: Values that must never appear in a production deployment.
+DEFAULT_SECRET_KEY = "insecure-secret-key-change-this"
+DEFAULT_PASSWORDS = frozenset({"admin", "change-me", "password", "changeme", "postgres"})
+ENVIRONMENTS = frozenset({"development", "staging", "production", "pytest"})
+
+
+class SettingsError(RuntimeError):
+    """Configuration is invalid; fail closed at startup, never at request time."""
 
 
 def _get(name: str, default: str) -> str:
@@ -30,7 +43,7 @@ class Settings:
     app_name: str = "Auto System Agent API"
     app_version: str = "0.1.0"
     environment: str = "development"  # development | staging | production | pytest
-    secret_key: str = "insecure-secret-key-change-this"
+    secret_key: str = DEFAULT_SECRET_KEY
     admin_user: str = "admin"
     admin_password: str = "admin"  # dev default only; override APP_ADMIN_PASSWORD
     postgres_user: str = "postgres"
@@ -41,6 +54,42 @@ class Settings:
     database_url_override: str = ""
     redis_url: str = "redis://localhost:6379/0"
     token_ttl_minutes: int = 60
+
+    def __post_init__(self) -> None:
+        self.validate()
+
+    @property
+    def is_production(self) -> bool:
+        return self.environment == "production"
+
+    def validate(self) -> None:
+        """Fail fast on impossible or unsafe configuration.
+
+        Development keeps working defaults (proposal: clean `pytest` and
+        `docker compose up` from a clone); production must be configured
+        explicitly and may not reuse development defaults.
+        """
+        if self.environment not in ENVIRONMENTS:
+            raise SettingsError(
+                f"ENVIRONMENT must be one of {sorted(ENVIRONMENTS)}, got {self.environment!r}"
+            )
+        if not self.secret_key.strip():
+            raise SettingsError("SECRET_KEY must not be empty")
+        if self.token_ttl_minutes < 1:
+            raise SettingsError("TOKEN_TTL_MINUTES must be >= 1")
+        if not 1 <= self.postgres_port <= 65535:
+            raise SettingsError(f"POSTGRES_PORT out of range: {self.postgres_port}")
+        if not self.redis_url.startswith(("redis://", "rediss://", "unix://")):
+            raise SettingsError(f"REDIS_URL must be a redis scheme, got {self.redis_url!r}")
+        if self.is_production:
+            if self.secret_key == DEFAULT_SECRET_KEY or len(self.secret_key) < 32:
+                raise SettingsError(
+                    "SECRET_KEY must be replaced with a >=32 char random value in production"
+                )
+            if self.admin_password.lower() in DEFAULT_PASSWORDS:
+                raise SettingsError("APP_ADMIN_PASSWORD still uses a development default")
+            if self.postgres_password.lower() in DEFAULT_PASSWORDS:
+                raise SettingsError("POSTGRES_PASSWORD still uses a development default")
 
     @property
     def database_url(self) -> str:
