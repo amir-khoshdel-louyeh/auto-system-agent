@@ -1,22 +1,20 @@
-"""Phase 0 auth: env-admin JSON login with stdlib HMAC token.
+"""Phase 0-1 auth: env-admin JSON login minting a short-lived HS256 JWT.
 
-Boilerplate uses crudauth sessions + rate-limit + CSRF cookies; Phase 0 keeps
-only the Done surface (POST /auth/login) with a bearer token signed by
-SECRET_KEY. DB-backed users arrive with the migration-backed auth phase.
+The JWT codec and password hashing live in ``app.security`` (Phase 1 item
+[11], FR-01); this module keeps the HTTP surface (``POST /auth/login``)
+plus the token helpers reused by tests and by the authorization
+dependencies added in item [13]. ``Settings`` (item [10]) supplies the
+secret and TTL.
 """
 
 from __future__ import annotations
 
-import base64
-import binascii
-import hashlib
 import hmac
-import json
-import time
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
+from .security import TokenError, decode_token, encode_token
 from .settings import Settings, get_settings
 
 
@@ -30,36 +28,18 @@ class TokenOut(BaseModel):
     token_type: str = "bearer"
 
 
-def _b64u_encode(raw: bytes) -> str:
-    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
-
-
-def _b64u_decode(data: str) -> bytes:
-    return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
-
-
 def create_token(username: str, secret: str, ttl_minutes: int) -> str:
-    """Mint `payload.signature` where payload carries sub + exp (epoch seconds)."""
-    payload = {"sub": username, "exp": int(time.time()) + ttl_minutes * 60}
-    body = _b64u_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
-    sig = hmac.new(secret.encode("utf-8"), body.encode("ascii"), hashlib.sha256).digest()
-    return f"{body}.{_b64u_encode(sig)}"
+    """Mint an HS256 JWT for ``username``; ``exp`` comes from the TTL."""
+    return encode_token({"sub": username}, secret, ttl_seconds=ttl_minutes * 60)
 
 
 def verify_token(token: str, secret: str) -> str | None:
-    """Return the subject username when signature + expiry check out, else None."""
+    """Return the subject when alg/signature/expiry all verify, else ``None``."""
     try:
-        body, sig = token.split(".", 1)
-        expected = hmac.new(secret.encode("utf-8"), body.encode("ascii"), hashlib.sha256).digest()
-        if not hmac.compare_digest(_b64u_decode(sig), expected):
-            return None
-        payload = json.loads(_b64u_decode(body).decode("utf-8"))
-        if not isinstance(payload, dict) or payload.get("exp", 0) < time.time():
-            return None
-        sub = payload.get("sub")
-        return sub if isinstance(sub, str) and sub else None
-    except (ValueError, json.JSONDecodeError, binascii.Error):
+        claims = decode_token(token, secret)
+    except TokenError:
         return None
+    return claims["sub"]
 
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
@@ -67,11 +47,15 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 @router.post("/login", response_model=TokenOut)
 def login(body: LoginIn, settings: Settings = Depends(get_settings)) -> TokenOut:
-    """Verify env-admin credentials (constant-time) and mint a bearer token."""
-    if body.username != settings.admin_user or not hmac.compare_digest(
+    """Verify env-admin credentials (constant-time) and mint a bearer JWT."""
+    if body.username != settings.admin_user or not _constant_time_eq(
         body.password, settings.admin_password
     ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     return TokenOut(
         access_token=create_token(body.username, settings.secret_key, settings.token_ttl_minutes)
     )
+
+
+def _constant_time_eq(left: str, right: str) -> bool:
+    return hmac.compare_digest(left, right)
