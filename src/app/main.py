@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from .admin import router as admin_router
 from .auth import router as auth_router
 from .settings import Settings, get_settings
+from .workspaces import teams_router, workspaces_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -30,6 +31,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     application.include_router(auth_router)
     application.include_router(admin_router)
+    application.include_router(teams_router)
+    application.include_router(workspaces_router)
     return application
 
 

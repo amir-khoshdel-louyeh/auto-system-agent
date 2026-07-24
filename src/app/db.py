@@ -20,14 +20,29 @@ from pathlib import Path
 from .roles import Role, parse_role
 from .security import hash_password, verify_password
 
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
 __all__ = [
+    "add_team_member",
+    "add_workspace_member",
     "authenticate_user",
+    "create_team",
     "create_user",
+    "create_workspace",
+    "effective_role",
     "get_role",
     "hash_password",
     "init_db",
+    "list_team_members",
+    "list_teams",
+    "list_workspace_members",
+    "list_workspaces",
     "migration_files",
     "set_role",
+    "user_id_by_username",
 ]
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
@@ -95,6 +110,144 @@ def get_role(path: str | Path, user_id: str) -> Role:
     if row is None:
         return Role.VIEWER
     return parse_role(row[0])
+
+
+def user_id_by_username(path: str | Path, username: str) -> str | None:
+    """Resolve a username to its user id (``None`` when unknown)."""
+    with sqlite3.connect(path) as conn:
+        row = conn.execute("SELECT id FROM users WHERE username = ?", (username,)).fetchone()
+    return row[0] if row else None
+
+
+# --------------------------------------------------------------------------
+# Teams and workspaces (item [14])
+# --------------------------------------------------------------------------
+def create_team(path: str | Path, name: str, created_by: str = "") -> str:
+    """Insert a team; ValueError on empty name, IntegrityError on duplicate."""
+    clean = (name or "").strip()
+    if not clean:
+        raise ValueError("team name is empty")
+    team_id = uuid.uuid4().hex
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO teams (id, name, created_at, created_by) VALUES (?, ?, ?, ?)",
+            (team_id, clean, _utc_now(), created_by),
+        )
+    return team_id
+
+
+def list_teams(path: str | Path) -> list[dict]:
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            "SELECT id, name, created_at, created_by FROM teams ORDER BY name"
+        ).fetchall()
+    return [{"id": r[0], "name": r[1], "created_at": r[2], "created_by": r[3]} for r in rows]
+
+
+def add_team_member(path: str | Path, team_id: str, user_id: str, role: Role | str) -> Role:
+    """Add/replace a team membership (idempotent upsert)."""
+    parsed = parse_role(role)
+    with sqlite3.connect(path) as conn:
+        exists = conn.execute("SELECT 1 FROM teams WHERE id = ?", (team_id,)).fetchone()
+        if not exists:
+            raise LookupError(f"unknown team: {team_id}")
+        conn.execute(
+            "INSERT INTO team_members (team_id, user_id, role, joined_at)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(team_id, user_id) DO UPDATE SET role = excluded.role,"
+            " joined_at = excluded.joined_at",
+            (team_id, user_id, parsed.value, _utc_now()),
+        )
+    return parsed
+
+
+def list_team_members(path: str | Path, team_id: str) -> list[dict]:
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            "SELECT tm.user_id, tm.role, tm.joined_at, u.username"
+            " FROM team_members tm JOIN users u ON u.id = tm.user_id"
+            " WHERE tm.team_id = ? ORDER BY u.username",
+            (team_id,),
+        ).fetchall()
+    return [{"user_id": r[0], "role": r[1], "joined_at": r[2], "username": r[3]} for r in rows]
+
+
+def create_workspace(path: str | Path, name: str, created_by: str = "", team_id: str = "") -> str:
+    """Insert a workspace; ValueError on empty name, IntegrityError on duplicate."""
+    clean = (name or "").strip()
+    if not clean:
+        raise ValueError("workspace name is empty")
+    workspace_id = uuid.uuid4().hex
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO workspaces (id, name, team_id, created_at, created_by)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (workspace_id, clean, team_id, _utc_now(), created_by),
+        )
+    return workspace_id
+
+
+def list_workspaces(path: str | Path) -> list[dict]:
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            "SELECT id, name, team_id, created_at, created_by FROM workspaces ORDER BY name"
+        ).fetchall()
+    return [
+        {
+            "id": r[0],
+            "name": r[1],
+            "team_id": r[2],
+            "created_at": r[3],
+            "created_by": r[4],
+        }
+        for r in rows
+    ]
+
+
+def add_workspace_member(
+    path: str | Path, workspace_id: str, user_id: str, role: Role | str
+) -> Role:
+    """Add/replace a workspace membership (idempotent upsert)."""
+    parsed = parse_role(role)
+    with sqlite3.connect(path) as conn:
+        exists = conn.execute("SELECT 1 FROM workspaces WHERE id = ?", (workspace_id,)).fetchone()
+        if not exists:
+            raise LookupError(f"unknown workspace: {workspace_id}")
+        conn.execute(
+            "INSERT INTO workspace_members (workspace_id, user_id, role, joined_at)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(workspace_id, user_id) DO UPDATE SET role = excluded.role,"
+            " joined_at = excluded.joined_at",
+            (workspace_id, user_id, parsed.value, _utc_now()),
+        )
+    return parsed
+
+
+def list_workspace_members(path: str | Path, workspace_id: str) -> list[dict]:
+    with sqlite3.connect(path) as conn:
+        rows = conn.execute(
+            "SELECT wm.user_id, wm.role, wm.joined_at, u.username"
+            " FROM workspace_members wm JOIN users u ON u.id = wm.user_id"
+            " WHERE wm.workspace_id = ? ORDER BY u.username",
+            (workspace_id,),
+        ).fetchall()
+    return [{"user_id": r[0], "role": r[1], "joined_at": r[2], "username": r[3]} for r in rows]
+
+
+def effective_role(path: str | Path, user_id: str, workspace_id: str) -> Role:
+    """Workspace-scoped role: membership overrides the global role.
+
+    Precedence (fail closed to VIEWER): workspace membership, then the
+    global ``user_roles`` row, then least privilege.
+    """
+    with sqlite3.connect(path) as conn:
+        row = conn.execute(
+            "SELECT role FROM workspace_members WHERE workspace_id = ? AND user_id = ?",
+            (workspace_id, user_id),
+        ).fetchone()
+    if row is not None:
+        return parse_role(row[0])
+    return get_role(path, user_id)
 
 
 def init_db(path: str | Path) -> Path:
