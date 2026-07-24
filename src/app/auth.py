@@ -28,9 +28,13 @@ class TokenOut(BaseModel):
     token_type: str = "bearer"
 
 
-def create_token(username: str, secret: str, ttl_minutes: int) -> str:
-    """Mint an HS256 JWT for ``username``; ``exp`` comes from the TTL."""
-    return encode_token({"sub": username}, secret, ttl_seconds=ttl_minutes * 60)
+def create_token(username: str, secret: str, ttl_minutes: int, *, role: str = "VIEWER") -> str:
+    """Mint an HS256 JWT carrying ``sub`` + ``role`` (item [12]).
+
+    ``role`` defaults to the least-privileged VIEWER so a token minted
+    without an explicit role can never authorize a privileged action.
+    """
+    return encode_token({"sub": username, "role": role}, secret, ttl_seconds=ttl_minutes * 60)
 
 
 def verify_token(token: str, secret: str) -> str | None:
@@ -53,7 +57,12 @@ def login(body: LoginIn, settings: Settings = Depends(get_settings)) -> TokenOut
     ):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     return TokenOut(
-        access_token=create_token(body.username, settings.secret_key, settings.token_ttl_minutes)
+        access_token=create_token(
+            body.username,
+            settings.secret_key,
+            settings.token_ttl_minutes,
+            role=settings.admin_role,
+        )
     )
 
 

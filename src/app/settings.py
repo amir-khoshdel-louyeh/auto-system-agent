@@ -15,6 +15,8 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 
+from .roles import parse_role
+
 #: Values that must never appear in a production deployment.
 DEFAULT_SECRET_KEY = "insecure-secret-key-change-this"
 DEFAULT_PASSWORDS = frozenset({"admin", "change-me", "password", "changeme", "postgres"})
@@ -46,6 +48,7 @@ class Settings:
     secret_key: str = DEFAULT_SECRET_KEY
     admin_user: str = "admin"
     admin_password: str = "admin"  # dev default only; override APP_ADMIN_PASSWORD
+    admin_role: str = "OWNER"  # role minted into env-admin JWTs (item [12])
     postgres_user: str = "postgres"
     postgres_password: str = "postgres"
     postgres_server: str = "localhost"
@@ -81,6 +84,10 @@ class Settings:
             raise SettingsError(f"POSTGRES_PORT out of range: {self.postgres_port}")
         if not self.redis_url.startswith(("redis://", "rediss://", "unix://")):
             raise SettingsError(f"REDIS_URL must be a redis scheme, got {self.redis_url!r}")
+        try:
+            parse_role(self.admin_role)
+        except ValueError as exc:
+            raise SettingsError(str(exc)) from exc
         if self.is_production:
             if self.secret_key == DEFAULT_SECRET_KEY or len(self.secret_key) < 32:
                 raise SettingsError(
@@ -119,4 +126,5 @@ def get_settings() -> Settings:
         database_url_override=_get("DATABASE_URL", ""),
         redis_url=_get("REDIS_URL", "redis://localhost:6379/0"),
         token_ttl_minutes=_get_int("TOKEN_TTL_MINUTES", 60),
+        admin_role=_get("APP_ADMIN_ROLE", "OWNER"),
     )

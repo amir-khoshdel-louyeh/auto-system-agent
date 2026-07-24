@@ -17,9 +17,18 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
+from .roles import Role, parse_role
 from .security import hash_password, verify_password
 
-__all__ = ["create_user", "authenticate_user", "hash_password", "init_db", "migration_files"]
+__all__ = [
+    "authenticate_user",
+    "create_user",
+    "get_role",
+    "hash_password",
+    "init_db",
+    "migration_files",
+    "set_role",
+]
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent / "migrations"
 
@@ -62,6 +71,30 @@ def authenticate_user(path: str | Path, username: str, password: str) -> str | N
     if row is None or not row[2]:
         return None
     return row[0] if verify_password(password, row[1]) else None
+
+
+def set_role(path: str | Path, user_id: str, role: Role | str, granted_by: str = "") -> Role:
+    """Grant ``role`` to a user (item [12]); returns the parsed role."""
+    parsed = parse_role(role)
+    now = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            "INSERT INTO user_roles (user_id, role, granted_at, granted_by)"
+            " VALUES (?, ?, ?, ?)"
+            " ON CONFLICT(user_id) DO UPDATE SET role = excluded.role,"
+            " granted_at = excluded.granted_at, granted_by = excluded.granted_by",
+            (user_id, parsed.value, now, granted_by),
+        )
+    return parsed
+
+
+def get_role(path: str | Path, user_id: str) -> Role:
+    """Current role of a user; no row means least privilege (VIEWER)."""
+    with sqlite3.connect(path) as conn:
+        row = conn.execute("SELECT role FROM user_roles WHERE user_id = ?", (user_id,)).fetchone()
+    if row is None:
+        return Role.VIEWER
+    return parse_role(row[0])
 
 
 def init_db(path: str | Path) -> Path:
