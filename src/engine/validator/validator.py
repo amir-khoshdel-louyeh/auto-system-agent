@@ -275,7 +275,15 @@ DANGEROUS_SHELL_PATTERNS: tuple[str, ...] = (
 
 
 def _is_dangerous(node_type: str, params: dict) -> bool:
-    if node_type == "custom":
+    """Static danger classes (FR-04, item [23]).
+
+    - `custom` runs SDK code -> always gated;
+    - `shell` with a dangerous fragment -> gated;
+    - `gui_click`/`gui_type` mutate OS state and are `NEED_APPROVAL` at
+      runtime (executor gate), so they must declare an approval node too
+      or the run would silently never reach them.
+    """
+    if node_type in ("custom", "gui_click", "gui_type"):
         return True
     if node_type == "shell":
         run = str(params.get("run", "")).lower()
@@ -299,7 +307,12 @@ def _ancestors(workflow: Workflow, target: str) -> set[str]:
 
 
 def check_policy(workflow: Workflow) -> list[ValidationError]:
-    """Policy stage: dangerous nodes need an approval ancestor (C6 gate)."""
+    """Policy stage: dangerous nodes need an approval ancestor (C6 gate).
+
+    Two failure modes are reported distinctly: the workflow has no
+    approval node at all, or the approval exists but is not on the
+    dangerous node's path (e.g. only downstream of it).
+    """
     errors: list[ValidationError] = []
     approvals = {n.id for n in workflow.nodes if n.type == "approval"}
     for node in workflow.nodes:

@@ -292,6 +292,69 @@ class TopologicalOrderTests(unittest.TestCase):
         self.assertIsNone(self._order([("a", "b"), ("b", "a")]))
 
 
+class StaticPolicyTests(unittest.TestCase):
+    """Item [23]: dangerous nodes require an approval node on their path."""
+
+    def _validate(self, text):
+        return validate(load_text(text))
+
+    def test_gui_node_without_approval_is_a_policy_error(self):
+        doc = (
+            "workflow: w\nversion: 1\nnodes:\n"
+            "  - id: g\n    type: gui_click\n    target: 'Settings > Dark'\n"
+        )
+        errors = self._validate(doc)
+        self.assertTrue(
+            any(e.code == "policy" and "no approval node" in e.message for e in errors),
+            [str(e) for e in errors],
+        )
+
+    def test_approval_must_be_upstream_of_the_dangerous_node(self):
+        doc = (
+            "workflow: w\nversion: 1\nnodes:\n"
+            "  - id: wipe\n    type: shell\n    run: rm -rf /tmp/data\n"
+            "  - id: gate\n    type: approval\n    quorum: 1\n"
+            "edges: [[wipe, gate]]\n"  # approval comes AFTER the damage
+        )
+        errors = self._validate(doc)
+        self.assertTrue(
+            any(
+                e.code == "policy" and "without an approval gate on its path" in e.message
+                for e in errors
+            ),
+            [str(e) for e in errors],
+        )
+
+    def test_approval_upstream_satisfies_the_policy_stage(self):
+        doc = (
+            "workflow: w\nversion: 1\nnodes:\n"
+            "  - id: gate\n    type: approval\n    quorum: 1\n"
+            "  - id: wipe\n    type: shell\n    run: rm -rf /tmp/data\n"
+            "edges: [[gate, wipe]]\n"
+        )
+        errors = self._validate(doc)
+        self.assertFalse(any(e.code == "policy" for e in errors), [str(e) for e in errors])
+
+    def test_benign_shell_needs_no_approval(self):
+        doc = "workflow: w\nversion: 1\nnodes:\n  - id: a\n    type: shell\n    run: echo hello\n"
+        errors = self._validate(doc)
+        self.assertFalse(any(e.code == "policy" for e in errors), [str(e) for e in errors])
+
+    def test_unrelated_approval_node_does_not_count(self):
+        doc = (
+            "workflow: w\nversion: 1\nnodes:\n"
+            "  - id: wipe\n    type: shell\n    run: mkfs.ext4 /dev/sdb1\n"
+            "  - id: gate\n    type: approval\n    quorum: 1\n"
+            "  - id: other\n    type: shell\n    run: echo hi\n"
+            "edges: [[other, gate]]\n"  # gate belongs to a different branch
+        )
+        errors = self._validate(doc)
+        self.assertTrue(
+            any(e.code == "policy" and "wipe" in e.message for e in errors),
+            [str(e) for e in errors],
+        )
+
+
 class W4NovalidateProbe(unittest.TestCase):
     """W4 without LLM/bus: manual DSL -> validate -> compile -> triggers."""
 
