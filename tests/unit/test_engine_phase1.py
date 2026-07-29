@@ -255,6 +255,43 @@ class EdgeAndPlaceholderTests(unittest.TestCase):
         self.assertEqual(self._validate(doc), [])
 
 
+class TopologicalOrderTests(unittest.TestCase):
+    """Item [22]: Kahn's algorithm is correct and deterministic."""
+
+    def _order(self, edges):
+        lines = ["workflow: w", "version: 1", "nodes:"]
+        for nid in ("a", "b", "c", "d"):
+            lines += [f"  - id: {nid}", "    type: shell", f"    run: echo {nid}"]
+        lines.append("edges:")
+        lines += [f"  - [{src}, {dst}]" for src, dst in edges]
+        return topological_order(load_text("\n".join(lines) + "\n"))
+
+    def test_independent_nodes_come_out_lexicographically(self):
+        self.assertEqual(self._order([]), ["a", "b", "c", "d"])
+
+    def test_edge_order_does_not_change_the_result(self):
+        graph = [("a", "c"), ("a", "b"), ("b", "d"), ("c", "d")]
+        forward = self._order(graph)
+        backward = self._order(list(reversed(graph)))
+        self.assertEqual(forward, backward)
+        self.assertEqual(forward, ["a", "b", "c", "d"])
+
+    def test_repeated_runs_are_stable(self):
+        graph = [("a", "c"), ("a", "b"), ("b", "d"), ("c", "d")]
+        first = self._order(graph)
+        for _ in range(5):
+            self.assertEqual(self._order(graph), first)
+
+    def test_dependent_nodes_follow_their_parents(self):
+        # ready set is always the lexicographic minimum: after c frees b,
+        # b (not d) is next even though d was already ready.
+        order = self._order([("d", "a"), ("b", "a"), ("c", "b")])
+        self.assertEqual(order, ["c", "b", "d", "a"])
+
+    def test_cycle_still_returns_none(self):
+        self.assertIsNone(self._order([("a", "b"), ("b", "a")]))
+
+
 class W4NovalidateProbe(unittest.TestCase):
     """W4 without LLM/bus: manual DSL -> validate -> compile -> triggers."""
 

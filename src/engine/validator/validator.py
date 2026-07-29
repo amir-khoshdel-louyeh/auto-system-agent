@@ -8,6 +8,8 @@ cycle); every other stage is our C9 grammar. Invalid DSL returns precise
 
 from __future__ import annotations
 
+import heapq
+
 from ..dsl.compiler import normalize_edges
 from ..dsl.grammar import ALLOWED_EVENTS, NODE_TYPES, REQUIRED_PARAMS, TRIGGER_KEYS
 from ..dsl.loader import Workflow, find_line
@@ -215,9 +217,12 @@ def check_edges(workflow: Workflow) -> list[ValidationError]:
 
 
 def topological_order(workflow: Workflow) -> list[str] | None:
-    """Kahn's algorithm; returns None when a cycle exists.
+    """Kahn's algorithm with a deterministic lexicographic tie-break.
 
-    Same shape as source_MIT/flow-forge `backend/main.py::topological_order`.
+    Same shape as source_MIT/flow-forge `backend/main.py::topological_order`
+    (returns None on a cycle); the ready set is a min-heap instead of a
+    plain list, so independent nodes always come out in sorted order no
+    matter how edges were written down (item [22]).
     """
     nodes = {node.id for node in workflow.nodes if node.id}
     adj: dict[str, list[str]] = {nid: [] for nid in nodes}
@@ -228,15 +233,16 @@ def topological_order(workflow: Workflow) -> list[str] | None:
     for targets in adj.values():
         for tgt in targets:
             in_degree[tgt] += 1
-    queue = sorted(nid for nid, deg in in_degree.items() if deg == 0)
+    ready = [nid for nid, deg in in_degree.items() if deg == 0]
+    heapq.heapify(ready)
     order: list[str] = []
-    while queue:
-        current = queue.pop(0)
+    while ready:
+        current = heapq.heappop(ready)
         order.append(current)
         for nxt in adj.get(current, []):
             in_degree[nxt] -= 1
             if in_degree[nxt] == 0:
-                queue.append(nxt)
+                heapq.heappush(ready, nxt)
     return order if len(order) == len(nodes) else None
 
 
