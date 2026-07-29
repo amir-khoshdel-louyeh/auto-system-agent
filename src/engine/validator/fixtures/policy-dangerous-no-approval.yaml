@@ -1,4 +1,4 @@
-# Fixture 10/10 (invalid/policy): dangerous shell with no approval gate.
+# Fixture 10/13 (invalid/policy): dangerous shell with no approval gate.
 workflow: dangerous
 version: 3
 nodes:

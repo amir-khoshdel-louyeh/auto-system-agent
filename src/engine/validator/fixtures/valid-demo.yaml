@@ -1,4 +1,4 @@
-# Fixture 02/10 (valid): onboarding demo (== workflows/examples/onboarding-demo.yaml).
+# Fixture 02/13 (valid): onboarding demo (== workflows/examples/onboarding-demo.yaml).
 workflow: onboarding-demo
 version: 3
 triggers:

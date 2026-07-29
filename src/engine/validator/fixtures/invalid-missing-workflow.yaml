@@ -1,4 +1,4 @@
-# Fixture 04/10 (invalid/schema): missing 'workflow' name.
+# Fixture 04/13 (invalid/schema): missing 'workflow' name.
 version: 3
 nodes:
   - id: a

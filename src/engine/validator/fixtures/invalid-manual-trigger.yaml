@@ -1,0 +1,10 @@
+# Fixture 12/13 (invalid/type): `manual` trigger must be boolean true.
+workflow: bad-manual-trigger
+version: 3
+triggers:
+  - manual: /hooks/x
+nodes:
+  - id: only
+    type: shell
+    run: echo hi
+edges: []

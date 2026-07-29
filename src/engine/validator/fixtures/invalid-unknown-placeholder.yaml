@@ -1,4 +1,4 @@
-# Fixture 08/10 (invalid/edge): placeholder references an unknown node.
+# Fixture 08/13 (invalid/edge): placeholder references an unknown node.
 workflow: unknown-ref
 version: 3
 nodes:

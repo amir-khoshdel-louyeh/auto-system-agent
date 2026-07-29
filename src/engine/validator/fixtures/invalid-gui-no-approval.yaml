@@ -1,0 +1,8 @@
+# Fixture 13/13 (invalid/policy): gui_click without any approval node.
+workflow: unguarded-gui
+version: 3
+nodes:
+  - id: darkmode
+    type: gui_click
+    target: "Settings > Appearance > Dark"
+edges: []

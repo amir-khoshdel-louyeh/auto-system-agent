@@ -1,4 +1,4 @@
-# Fixture 09/10 (invalid/cycle): two nodes depend on each other.
+# Fixture 09/13 (invalid/cycle): two nodes depend on each other.
 workflow: cyclic
 version: 3
 nodes:

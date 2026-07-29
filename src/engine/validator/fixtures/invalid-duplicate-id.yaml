@@ -1,0 +1,11 @@
+# Fixture 11/13 (invalid/schema): two nodes share the id `a`.
+workflow: duplicate-id
+version: 3
+nodes:
+  - id: a
+    type: shell
+    run: first.sh
+  - id: a
+    type: shell
+    run: second.sh
+edges: []

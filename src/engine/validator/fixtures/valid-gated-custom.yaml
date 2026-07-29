@@ -1,4 +1,4 @@
-# Fixture 03/10 (valid): custom node gated by an approval ancestor + ${ref}.
+# Fixture 03/13 (valid): custom node gated by an approval ancestor + ${ref}.
 workflow: gated-custom
 version: 3
 triggers:

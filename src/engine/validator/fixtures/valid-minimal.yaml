@@ -1,4 +1,4 @@
-# Fixture 01/10 (valid): minimal single shell node.
+# Fixture 01/13 (valid): minimal single shell node.
 workflow: minimal
 version: 3
 triggers:

@@ -1,4 +1,4 @@
-# Fixture 05/10 (invalid/type): unknown node type.
+# Fixture 05/13 (invalid/type): unknown node type.
 workflow: bad-type
 version: 3
 nodes:

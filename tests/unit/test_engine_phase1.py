@@ -92,8 +92,48 @@ class ValidatorFixtureTests(unittest.TestCase):
         errors = validate(load_fixture("policy-dangerous-no-approval.yaml"))
         self.assertTrue(any(e.code == "policy" for e in errors))
 
-    def test_ten_fixtures_present(self):
-        self.assertEqual(len(sorted(FIXTURES.glob("*.yaml"))), 10)
+    def test_fixture_duplicate_id_rejected(self):
+        errors = validate(load_fixture("invalid-duplicate-id.yaml"))
+        self.assertTrue(
+            any(e.code == "schema" and "duplicate node id" in e.message for e in errors),
+            [str(e) for e in errors],
+        )
+
+    def test_fixture_manual_trigger_rejected(self):
+        errors = validate(load_fixture("invalid-manual-trigger.yaml"))
+        self.assertTrue(
+            any(e.code == "type" and "trigger 'manual'" in e.message for e in errors),
+            [str(e) for e in errors],
+        )
+
+    def test_fixture_gui_without_approval_rejected(self):
+        errors = validate(load_fixture("invalid-gui-no-approval.yaml"))
+        self.assertTrue(any(e.code == "policy" for e in errors), [str(e) for e in errors])
+
+    def test_fixture_set_is_complete(self):
+        expected = {
+            "cyclic-two-node.yaml",
+            "invalid-bad-type.yaml",
+            "invalid-duplicate-id.yaml",
+            "invalid-gui-no-approval.yaml",
+            "invalid-manual-trigger.yaml",
+            "invalid-missing-param.yaml",
+            "invalid-missing-workflow.yaml",
+            "invalid-unknown-edge.yaml",
+            "invalid-unknown-placeholder.yaml",
+            "policy-dangerous-no-approval.yaml",
+            "valid-demo.yaml",
+            "valid-gated-custom.yaml",
+            "valid-minimal.yaml",
+        }
+        actual = {p.name for p in FIXTURES.glob("*.yaml")}
+        self.assertEqual(actual, expected)
+        self.assertGreaterEqual(len(actual), 10, "proposal requires >= 10 fixtures")
+        self.assertEqual(
+            len([n for n in actual if n.startswith("valid-")]),
+            3,
+            "valid counterparts must stay green",
+        )
 
 
 class FrozenGrammarTests(unittest.TestCase):
