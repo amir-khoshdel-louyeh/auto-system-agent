@@ -70,6 +70,26 @@ def check_schema(workflow: Workflow) -> list[ValidationError]:
                     *_loc(workflow, "triggers"),
                 )
             )
+    # Container types from the original mapping: the loader coerces wrong
+    # types to empty defaults, which would silently hide authoring bugs.
+    for key, expected in (("triggers", list), ("nodes", list), ("edges", list), ("policy", dict)):
+        if key in workflow.raw and not isinstance(workflow.raw[key], expected):
+            errors.append(
+                ValidationError(
+                    "schema",
+                    f"key '{key}' must be a {expected.__name__},"
+                    f" got {type(workflow.raw[key]).__name__}",
+                    *_loc(workflow, key),
+                )
+            )
+    if "version" in workflow.raw and not isinstance(workflow.raw["version"], int):
+        errors.append(
+            ValidationError(
+                "schema",
+                f"key 'version' must be an integer, got {type(workflow.raw['version']).__name__}",
+                *_loc(workflow, "version"),
+            )
+        )
     for src, dst in workflow.edges:
         if not src or not dst:
             errors.append(
@@ -104,6 +124,15 @@ def check_node_types(workflow: Workflow) -> list[ValidationError]:
                         *_loc(workflow, node.id),
                     )
                 )
+            elif key != "quorum" and not isinstance(node.params[key], str):
+                errors.append(
+                    ValidationError(
+                        "type",
+                        f"node '{node.id}' ({node.type}): param '{key}' must be a string,"
+                        f" got {type(node.params[key]).__name__}",
+                        *_loc(workflow, node.id),
+                    )
+                )
         if node.type == "approval":
             quorum = node.params.get("quorum", 0)
             if not isinstance(quorum, int) or quorum < 1:
@@ -115,13 +144,32 @@ def check_node_types(workflow: Workflow) -> list[ValidationError]:
                     )
                 )
     for trigger in workflow.triggers:
-        if isinstance(trigger, dict) and set(trigger) == {"event"}:
-            if trigger["event"] not in ALLOWED_EVENTS:
+        if not isinstance(trigger, dict) or len(trigger) != 1:
+            continue  # schema stage owns the shape complaint
+        kind, value = next(iter(trigger.items()))
+        if kind == "manual" and not isinstance(value, bool):
+            errors.append(
+                ValidationError(
+                    "type",
+                    f"trigger 'manual' must be true (got {value!r})",
+                    *_loc(workflow, "manual"),
+                )
+            )
+        elif kind == "cron" and (not isinstance(value, str) or not value.strip()):
+            errors.append(
+                ValidationError(
+                    "type",
+                    "trigger 'cron' must be a non-empty cron expression string",
+                    *_loc(workflow, "cron"),
+                )
+            )
+        elif kind == "event":
+            if not isinstance(value, str) or value not in ALLOWED_EVENTS:
                 errors.append(
                     ValidationError(
                         "type",
-                        f"unknown event '{trigger['event']}', expected one of {list(ALLOWED_EVENTS)}",
-                        *_loc(workflow, str(trigger["event"])),
+                        f"unknown event {value!r}, expected one of {list(ALLOWED_EVENTS)}",
+                        *_loc(workflow, str(value)),
                     )
                 )
     return errors

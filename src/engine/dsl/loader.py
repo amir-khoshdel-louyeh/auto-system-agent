@@ -69,6 +69,9 @@ class Workflow:
     edges: list[tuple[str, str]] = field(default_factory=list)
     policy: dict[str, Any] = field(default_factory=dict)
     raw_text: str = ""
+    #: original parsed mapping, so the schema stage can flag wrong container
+    #: types that the coercive constructors above would otherwise swallow
+    raw: dict[str, Any] = field(default_factory=dict)
 
 
 def parse_text(text: str, dsl_type: str = "yaml") -> dict[str, Any]:
@@ -153,6 +156,7 @@ def load_workflow(obj: dict[str, Any], raw_text: str = "") -> Workflow:
         edges=_as_edges(obj.get("edges", [])),
         policy=policy if isinstance(policy, dict) else {},
         raw_text=raw_text,
+        raw=obj,
     )
 
 

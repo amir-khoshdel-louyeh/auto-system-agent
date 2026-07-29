@@ -115,6 +115,98 @@ class FrozenGrammarTests(unittest.TestCase):
         self.assertTrue(any(e.code == "schema" and "trigger" in e.message for e in errors))
 
 
+class SchemaAndParamTests(unittest.TestCase):
+    """Item [20]: top-level schema, container types and param contracts."""
+
+    def _validate(self, text):
+        return validate(load_text(text))
+
+    def test_wrong_container_types_are_flagged(self):
+        node_block = "nodes:\n  - id: a\n    type: shell\n    run: echo hi\n"
+        cases = {
+            "triggers": (
+                f"workflow: w\nversion: 1\ntriggers: nope\n{node_block}",
+                "key 'triggers' must be a list",
+            ),
+            "edges": (
+                f"workflow: w\nversion: 1\n{node_block}edges: 5\n",
+                "key 'edges' must be a list",
+            ),
+            "policy": (
+                f"workflow: w\nversion: 1\n{node_block}policy: 5\n",
+                "key 'policy' must be a dict",
+            ),
+            "nodes": (
+                "workflow: w\nversion: 1\nnodes: nope\n",
+                "key 'nodes' must be a list",
+            ),
+            "version": (
+                f'workflow: w\nversion: "3"\n{node_block}',
+                "key 'version' must be an integer",
+            ),
+        }
+        for label, (doc, needle) in cases.items():
+            with self.subTest(label=label):
+                errors = self._validate(doc)
+                self.assertTrue(
+                    any(e.code == "schema" and needle in e.message for e in errors),
+                    [str(e) for e in errors],
+                )
+                self.assertTrue(all(e.line > 0 for e in errors))
+
+    def test_non_string_params_are_type_errors(self):
+        doc = "workflow: w\nversion: 1\nnodes:\n  - id: a\n    type: shell\n    run: [1, 2]\n"
+        errors = self._validate(doc)
+        self.assertTrue(
+            any(e.code == "type" and "'run' must be a string" in e.message for e in errors),
+            [str(e) for e in errors],
+        )
+
+    def test_manual_trigger_must_be_boolean(self):
+        doc = (
+            "workflow: w\nversion: 1\ntriggers:\n  - manual: /hooks/x\n"
+            "nodes:\n  - id: a\n    type: shell\n    run: echo hi\n"
+        )
+        errors = self._validate(doc)
+        self.assertTrue(
+            any(e.code == "type" and "trigger 'manual'" in e.message for e in errors),
+            [str(e) for e in errors],
+        )
+
+    def test_cron_trigger_must_be_non_empty_string(self):
+        doc = (
+            "workflow: w\nversion: 1\ntriggers:\n  - cron: 5\n"
+            "nodes:\n  - id: a\n    type: shell\n    run: echo hi\n"
+        )
+        errors = self._validate(doc)
+        self.assertTrue(
+            any(e.code == "type" and "cron" in e.message for e in errors),
+            [str(e) for e in errors],
+        )
+
+    def test_event_trigger_value_must_be_allowed(self):
+        doc = (
+            "workflow: w\nversion: 1\ntriggers:\n  - event: mail.arrived\n"
+            "nodes:\n  - id: a\n    type: shell\n    run: echo hi\n"
+        )
+        errors = self._validate(doc)
+        self.assertTrue(
+            any(e.code == "type" and "mail.arrived" in e.message for e in errors),
+            [str(e) for e in errors],
+        )
+
+    def test_wrong_param_types_for_gui_nodes(self):
+        doc = (
+            "workflow: w\nversion: 1\nnodes:\n"
+            "  - id: g\n    type: gui_type\n    target: 42\n    text: hello\n"
+        )
+        errors = self._validate(doc)
+        self.assertTrue(
+            any(e.code == "type" and "'target' must be a string" in e.message for e in errors),
+            [str(e) for e in errors],
+        )
+
+
 class W4NovalidateProbe(unittest.TestCase):
     """W4 without LLM/bus: manual DSL -> validate -> compile -> triggers."""
 
