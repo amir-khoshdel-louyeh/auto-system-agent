@@ -5,7 +5,7 @@ from pathlib import Path
 
 from engine.dsl.compiler import compile as compile_wf  # noqa: E402
 from engine.dsl.grammar import ALLOWED_EVENTS, NODE_TYPES, TRIGGER_KEYS  # noqa: E402
-from engine.dsl.loader import load_text  # noqa: E402
+from engine.dsl.loader import DSLParseError, load_text  # noqa: E402
 from engine.validator.validator import (  # noqa: E402
     is_valid,
     topological_order,
@@ -27,6 +27,33 @@ class DslLoaderTests(unittest.TestCase):
         self.assertEqual(wf.version, 3)
         wf_json = load_text('{"workflow":"j","version":3,"nodes":[]}', "json")
         self.assertEqual(wf_json.name, "j")
+
+    def test_yaml_syntax_error_reports_line_and_col(self):
+        broken = "workflow: w\nversion: 1\nnodes:\n  - id: a\n   type: shell\n"
+        with self.assertRaises(DSLParseError) as ctx:
+            load_text(broken)
+        self.assertGreaterEqual(ctx.exception.line, 4)
+        self.assertGreaterEqual(ctx.exception.col, 1)
+        self.assertIn("YAML syntax error", str(ctx.exception))
+        # still a ValueError so older call sites keep catching it
+        self.assertIsInstance(ctx.exception, ValueError)
+
+    def test_json_syntax_error_reports_line_and_col(self):
+        with self.assertRaises(DSLParseError) as ctx:
+            load_text('{"workflow": "w",,}', dsl_type="json")
+        self.assertGreaterEqual(ctx.exception.line, 1)
+        self.assertGreaterEqual(ctx.exception.col, 1)
+        self.assertIn("JSON syntax error", str(ctx.exception))
+
+    def test_non_mapping_top_level_is_a_parse_error(self):
+        with self.assertRaises(DSLParseError) as ctx:
+            load_text("- just\n- a list\n")
+        self.assertIn("mapping", str(ctx.exception))
+        self.assertEqual(ctx.exception.line, 1)
+
+    def test_invalid_dsl_type_rejected(self):
+        with self.assertRaises(ValueError):
+            load_text("workflow: w", dsl_type="toml")
 
 
 class ValidatorFixtureTests(unittest.TestCase):

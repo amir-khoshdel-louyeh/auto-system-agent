@@ -34,6 +34,21 @@ except ImportError:  # pragma: no cover - env without PyYAML
     yaml = None
 
 
+class DSLParseError(ValueError):
+    """DSL text could not be parsed; carries 1-based line/col (item [19]).
+
+    Subclasses ``ValueError`` so existing call sites keep working, while
+    the API layer can surface `stage: yaml`, `line` and `column` instead of
+    a bare parser traceback.
+    """
+
+    def __init__(self, message: str, line: int = 0, col: int = 0) -> None:
+        super().__init__(message)
+        self.message = message
+        self.line = line
+        self.col = col
+
+
 @dataclass(frozen=True)
 class Node:
     """One workflow step; extra keys hold per-type params (run/target/...)."""
@@ -57,17 +72,36 @@ class Workflow:
 
 
 def parse_text(text: str, dsl_type: str = "yaml") -> dict[str, Any]:
-    """Parse DSL text into a plain dict (yaml default, json optional)."""
+    """Parse DSL text into a plain dict; syntax errors become DSLParseError.
+
+    The parser never leaks framework exceptions: YAML and JSON failures
+    are normalised to :class:`DSLParseError` with the offending line and
+    column (FR-04 diagnostics start before validation even runs).
+    """
     if dsl_type == "yaml":
         if yaml is None:
             raise ImportError("PyYAML is required for YAML DSL: pip install pyyaml")
-        obj = yaml.safe_load(text)
+        try:
+            obj = yaml.safe_load(text)
+        except yaml.YAMLError as exc:
+            mark = getattr(exc, "problem_mark", None)
+            problem = getattr(exc, "problem", None) or str(exc)
+            raise DSLParseError(
+                f"YAML syntax error: {problem}",
+                line=mark.line + 1 if mark else 0,
+                col=mark.column + 1 if mark else 0,
+            ) from exc
     elif dsl_type == "json":
-        obj = json.loads(text)
+        try:
+            obj = json.loads(text)
+        except json.JSONDecodeError as exc:
+            raise DSLParseError(
+                f"JSON syntax error: {exc.msg}", line=exc.lineno, col=exc.colno
+            ) from exc
     else:
         raise ValueError("dsl_type must be 'yaml' or 'json'")
     if not isinstance(obj, dict):
-        raise ValueError("DSL top-level must be a mapping")
+        raise DSLParseError("DSL top-level must be a mapping", line=1, col=1)
     return obj
 
 
