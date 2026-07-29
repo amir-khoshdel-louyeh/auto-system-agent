@@ -9,7 +9,7 @@ Legend: `WIP` = in progress, `OK` = all items done **and** gate passed.
 |---|---|---|---|
 | 0 | Scope, repository and quality baseline | **OK** | install `requirements*.txt` clean; 215 tests + 194 subtests green; `GET /health` 200; ruff/mypy/coverage/bandit/pip-audit/docker build all pass locally |
 | 1 | API, authentication and database foundation | **OK** | 26 integration tests: 401/403 on protected routes for unauthorized callers, 201/200 for OWNER; clean DB applies all 4 migrations exactly once via the checksum-tracked runner; full suite green (66.2% coverage) |
-| 2 | Workflow DSL and validator | TODO | — |
+| 2 | Workflow DSL and validator | **OK** | 13 valid/invalid fixtures green; `POST /workflows/validate` → 200 valid / 422 `{stage,message,line,column}` invalid with a frozen stage vocabulary and 1-based positions; read-only (nothing persisted) + W4-novalidate probe |
 | 3 | DAG executor, policy and approvals | TODO | — |
 | 4 | Redis event bus and workers | TODO | — |
 | 5 | Audit, metrics and replay | TODO | — |
@@ -45,3 +45,17 @@ Legend: `WIP` = in progress, `OK` = all items done **and** gate passed.
 | 15 | Add reproducible migration runner | OK | `0103b9d` feat(app): reproducible migration runner with drift detection |
 | 16 | Add repository interfaces and transaction boundaries | OK | `0b6a32c` feat(app): repository interfaces and transaction boundaries |
 | 17 | Add migration and RBAC integration tests | OK | `f971a2e` test(phase1): migration and RBAC integration tests |
+
+## Phase 2 item log (closed 2026-10-16)
+
+| # | Item | Status | Commit |
+|---|---|---|---|
+| 18 | Freeze the five node types and three trigger types | OK | `1cb58de` feat(engine-dsl): freeze five node types and three trigger types |
+| 19 | Implement typed YAML loader with source locations | OK | `de51f28` feat(engine-dsl): typed loader reports YAML/JSON syntax locations |
+| 20 | Implement schema and parameter validation | OK | `dc9f119` feat(engine-validator): schema and parameter contracts |
+| 21 | Implement duplicate ID, edge and placeholder checks | OK | `0125fa0` feat(engine-validator): duplicate id, edge and placeholder checks |
+| 22 | Implement Kahn cycle detection and deterministic topological order | OK | `bb62e68` feat(engine-validator): deterministic Kahn topological order |
+| 23 | Implement static dangerous-node approval validation | OK | `8ac093f` feat(engine-validator): static dangerous-node approval validation |
+| 24 | Add at least ten valid/invalid fixtures | OK | `dd87511` test(engine-validator): grow fixture set to thirteen valid/invalid YAMLs |
+| 25 | Expose `POST /workflows/validate` | OK | `85ae6b2` feat(app): expose POST /workflows/validate |
+| 26 | Add precise validation error responses | OK | `5be1075` feat(app): precise validation error responses with frozen stages |
