@@ -5,7 +5,7 @@ frozen C9 grammar (proposal §6 C9)::
 
     workflow: onboarding-demo
     version: 3
-    triggers: [{cron|event|webhook} ...]
+    triggers: [{manual|cron|event: file.arrived} ...]
     nodes: [{id, type, ...params}]
     edges: [[src, dst], ...]
     policy: {max_retries, on_ground_fail, ...}

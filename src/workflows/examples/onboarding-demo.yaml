@@ -1,11 +1,11 @@
 # Frozen MVP example (proposal §6 C9): onboarding-demo.
-# 5 node types only; 3 trigger kinds (cron / file.arrived / webhook).
+# 5 node types only; 3 trigger types (manual / cron / file.arrived).
 workflow: onboarding-demo
 version: 3
 triggers:
   - cron: "0 9 * * *"
   - event: file.arrived
-  - webhook: /hooks/onboarding
+  - manual: true
 nodes:
   - id: setup
     type: shell

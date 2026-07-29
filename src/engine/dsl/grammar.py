@@ -1,7 +1,8 @@
 """Frozen C9 MVP grammar (proposal §6 C9, plan.tmp phase 1).
 
 - 5 node types: `shell`, `gui_click`, `gui_type`, `approval`, `custom`.
-- 3 trigger kinds: `cron`, `webhook`, `event: file.arrived`.
+- 3 trigger types (proposal §4.1, item [18]): `manual: true`,
+  `cron: <expr>`, `event: file.arrived`.
 - New node types are out-of-scope (scope guard S2–S3).
 
 Per-type required params (validator enforces):
@@ -16,7 +17,7 @@ from __future__ import annotations
 
 NODE_TYPES: tuple[str, ...] = ("shell", "gui_click", "gui_type", "approval", "custom")
 
-TRIGGER_KEYS: tuple[str, ...] = ("cron", "webhook", "event")
+TRIGGER_KEYS: tuple[str, ...] = ("manual", "cron", "event")
 
 ALLOWED_EVENTS: tuple[str, ...] = ("file.arrived",)
 

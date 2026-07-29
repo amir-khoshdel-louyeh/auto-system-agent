@@ -2,7 +2,7 @@
 workflow: gated-custom
 version: 3
 triggers:
-  - webhook: /hooks/rename
+  - manual: true
 nodes:
   - id: fetch
     type: shell

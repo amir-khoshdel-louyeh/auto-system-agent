@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from engine.dsl.compiler import compile as compile_wf  # noqa: E402
+from engine.dsl.grammar import ALLOWED_EVENTS, NODE_TYPES, TRIGGER_KEYS  # noqa: E402
 from engine.dsl.loader import load_text  # noqa: E402
 from engine.validator.validator import (  # noqa: E402
     is_valid,
@@ -68,6 +69,25 @@ class ValidatorFixtureTests(unittest.TestCase):
         self.assertEqual(len(sorted(FIXTURES.glob("*.yaml"))), 10)
 
 
+class FrozenGrammarTests(unittest.TestCase):
+    """Item [18]: the five node types and three trigger types are frozen."""
+
+    def test_five_node_types_frozen(self):
+        self.assertEqual(NODE_TYPES, ("shell", "gui_click", "gui_type", "approval", "custom"))
+
+    def test_three_trigger_types_frozen(self):
+        self.assertEqual(TRIGGER_KEYS, ("manual", "cron", "event"))
+        self.assertEqual(ALLOWED_EVENTS, ("file.arrived",))
+
+    def test_webhook_trigger_is_out_of_scope(self):
+        wf = load_text(
+            "workflow: w\nversion: 1\ntriggers:\n  - webhook: /hooks/x\n"
+            "nodes:\n  - id: only\n    type: shell\n    run: echo hi\n"
+        )
+        errors = validate(wf)
+        self.assertTrue(any(e.code == "schema" and "trigger" in e.message for e in errors))
+
+
 class W4NovalidateProbe(unittest.TestCase):
     """W4 without LLM/bus: manual DSL -> validate -> compile -> triggers."""
 
@@ -83,7 +103,7 @@ class W4NovalidateProbe(unittest.TestCase):
         )
         self.assertEqual(topological_order(wf), ["setup", "gate", "darkmode"])
         kinds = {next(iter(t)) for t in wf.triggers}
-        self.assertEqual(kinds, {"cron", "event", "webhook"})
+        self.assertEqual(kinds, {"cron", "event", "manual"})
         self.assertIn({"event": "file.arrived"}, wf.triggers)
 
 
