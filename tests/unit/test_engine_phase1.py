@@ -207,6 +207,54 @@ class SchemaAndParamTests(unittest.TestCase):
         )
 
 
+class EdgeAndPlaceholderTests(unittest.TestCase):
+    """Item [21]: duplicate ids, edge endpoints and placeholder refs."""
+
+    def _validate(self, text):
+        return validate(load_text(text))
+
+    def test_duplicate_node_id_is_rejected(self):
+        doc = (
+            "workflow: w\nversion: 1\nnodes:\n"
+            "  - id: a\n    type: shell\n    run: echo one\n"
+            "  - id: a\n    type: shell\n    run: echo two\n"
+        )
+        errors = self._validate(doc)
+        dup = [e for e in errors if e.code == "schema" and "duplicate node id 'a'" in e.message]
+        self.assertEqual(len(dup), 1, [str(e) for e in errors])
+        self.assertGreater(dup[0].line, 0)
+
+    def test_unknown_depends_on_ref_is_an_edge_error(self):
+        doc = (
+            "workflow: w\nversion: 1\nnodes:\n"
+            "  - id: a\n    type: shell\n    run: echo hi\n"
+            "    depends_on: [ghost]\n"
+        )
+        errors = self._validate(doc)
+        self.assertTrue(
+            any(e.code == "edge" and "ghost" in e.message for e in errors),
+            [str(e) for e in errors],
+        )
+
+    def test_valid_placeholder_ref_produces_no_error(self):
+        doc = (
+            "workflow: w\nversion: 1\nnodes:\n"
+            "  - id: a\n    type: shell\n    run: echo hi\n"
+            "  - id: b\n    type: shell\n    run: echo ${a.out}\n"
+            "edges: [[a, b]]\n"
+        )
+        self.assertEqual(self._validate(doc), [])
+
+    def test_duplicated_edge_is_deduplicated_not_rejected(self):
+        doc = (
+            "workflow: w\nversion: 1\nnodes:\n"
+            "  - id: a\n    type: shell\n    run: echo one\n"
+            "  - id: b\n    type: shell\n    run: echo two\n"
+            "edges: [[a, b], [a, b]]\n"
+        )
+        self.assertEqual(self._validate(doc), [])
+
+
 class W4NovalidateProbe(unittest.TestCase):
     """W4 without LLM/bus: manual DSL -> validate -> compile -> triggers."""
 

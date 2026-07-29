@@ -53,6 +53,17 @@ def check_schema(workflow: Workflow) -> list[ValidationError]:
                     "schema", "every node needs a non-empty string 'id'", *_loc(workflow, "id")
                 )
             )
+    seen_ids: set[str] = set()
+    for node in workflow.nodes:
+        if node.id and node.id in seen_ids:
+            errors.append(
+                ValidationError(
+                    "schema",
+                    f"duplicate node id '{node.id}' — ids must be unique",
+                    *_loc(workflow, node.id),
+                )
+            )
+        seen_ids.add(node.id)
         if not node.type:
             errors.append(
                 ValidationError(
