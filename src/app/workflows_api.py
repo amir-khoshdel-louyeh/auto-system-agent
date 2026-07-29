@@ -26,6 +26,18 @@ from .roles import Permission
 
 router = APIRouter(prefix="/workflows", tags=["Workflows"])
 
+#: Frozen stage vocabulary (item [26]): every finding reports exactly one
+#: of these, so clients can switch on `stage` without string guessing.
+STAGES: tuple[str, ...] = (
+    "yaml",  # DSL text is not parseable as YAML (parser line/col)
+    "json",  # DSL text is not parseable as JSON (parser line/col)
+    "schema",
+    "type",
+    "edge",
+    "cycle",
+    "policy",
+)
+
 
 class ValidateIn(BaseModel):
     dsl: str = Field(min_length=1, max_length=200_000)
@@ -33,7 +45,18 @@ class ValidateIn(BaseModel):
 
 
 def _error_out(stage: str, message: str, line: int, column: int) -> dict:
-    return {"stage": stage, "message": message, "line": line, "column": column}
+    """One finding with the frozen shape; positions are always >= 1.
+
+    The loader falls back to 0:0 when a parser cannot pinpoint the exact
+    column; we normalise to 1:1 (document start) so clients can rely on
+    ``line >= 1 and column >= 1`` for every entry.
+    """
+    return {
+        "stage": stage,
+        "message": str(message),
+        "line": max(int(line), 1),
+        "column": max(int(column), 1),
+    }
 
 
 def _response(body: dict, *, valid: bool) -> JSONResponse:

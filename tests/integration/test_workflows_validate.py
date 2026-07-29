@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from app.auth import create_token
 from app.main import create_app
 from app.settings import Settings
+from app.workflows_api import STAGES
 
 FIXTURES = Path(__file__).resolve().parents[2] / "src" / "engine" / "validator" / "fixtures"
 SECRET = "validate-secret-0123456789abcdef"
@@ -105,6 +106,90 @@ class ValidateEndpointTests(unittest.TestCase):
         resp = self._post('{"workflow": "j", "version": 1, "nodes": []}', dsl_type="json")
         self.assertEqual(resp.status_code, 422)  # nodes empty -> schema error
         self.assertTrue(any(e["stage"] == "schema" for e in resp.json()["errors"]))
+
+
+class PreciseErrorResponseTests(unittest.TestCase):
+    """Item [26]: every finding is `{stage, message, line, column}` and precise.
+
+    `stage` is drawn from a frozen vocabulary, positions are always 1-based
+    (parser errors included) and *all* findings are returned together so a
+    client never has to re-submit to discover the next problem.
+    """
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.client = make_client(self._tmp.name)
+        token = self.client.post(
+            "/auth/login",
+            json={"username": "admin", "password": "validate-admin-pw"},
+        ).json()["access_token"]
+        self.headers = {"Authorization": f"Bearer {token}"}
+
+    def _post(self, dsl, dsl_type="yaml"):
+        return self.client.post(
+            "/workflows/validate",
+            headers=self.headers,
+            json={"dsl": dsl, "dsl_type": dsl_type},
+        )
+
+    def _errors(self, resp):
+        return resp.json()["errors"]
+
+    def test_findings_carry_exactly_the_frozen_shape(self):
+        resp = self._post(fixture("invalid-bad-type.yaml"))
+        self.assertEqual(resp.status_code, 422)
+        self.assertTrue(self._errors(resp))
+        for err in self._errors(resp):
+            self.assertEqual(set(err), {"stage", "message", "line", "column"})
+            self.assertIsInstance(err["message"], str)
+            self.assertTrue(err["message"])
+
+    def test_every_stage_is_in_the_frozen_vocabulary(self):
+        for name in (
+            "invalid-bad-type.yaml",
+            "invalid-unknown-edge.yaml",
+            "cyclic-two-node.yaml",
+            "policy-dangerous-no-approval.yaml",
+        ):
+            with self.subTest(fixture=name):
+                for err in self._errors(self._post(fixture(name))):
+                    self.assertIn(err["stage"], STAGES, err)
+
+    def test_positions_are_always_one_based(self):
+        for name in ("invalid-bad-type.yaml", "cyclic-two-node.yaml"):
+            with self.subTest(fixture=name):
+                for err in self._errors(self._post(fixture(name))):
+                    self.assertGreaterEqual(err["line"], 1, err)
+                    self.assertGreaterEqual(err["column"], 1, err)
+
+    def test_yaml_parse_error_reports_yaml_stage_with_position(self):
+        broken = "workflow: w\nversion: 1\nnodes:\n  - id: a\n   type: shell\n"
+        resp = self._post(broken)
+        self.assertEqual(resp.status_code, 422)
+        (err,) = self._errors(resp)
+        self.assertEqual(err["stage"], "yaml")
+        self.assertGreaterEqual(err["line"], 4)
+        self.assertGreaterEqual(err["column"], 1)
+        self.assertIn("YAML syntax error", err["message"])
+
+    def test_json_parse_error_reports_json_stage_with_position(self):
+        resp = self._post('{"workflow": "w",,}', dsl_type="json")
+        self.assertEqual(resp.status_code, 422)
+        (err,) = self._errors(resp)
+        self.assertEqual(err["stage"], "json")
+        self.assertGreaterEqual(err["line"], 1)
+        self.assertGreaterEqual(err["column"], 1)
+
+    def test_all_findings_are_returned_together(self):
+        doc = (
+            "workflow: w\nversion: 1\nnodes:\n"
+            "  - id: wipe\n    type: shell\n    run: rm -rf /tmp/data\n"
+            "edges: [[wipe, ghost]]\n"
+        )
+        stages = {e["stage"] for e in self._errors(self._post(doc))}
+        self.assertIn("edge", stages)
+        self.assertIn("policy", stages)
 
 
 if __name__ == "__main__":
