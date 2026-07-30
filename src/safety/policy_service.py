@@ -12,11 +12,17 @@ numbers, and an unknown node type fails closed to ``DENY``.
 
 from __future__ import annotations
 
+import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
-from safety.command_guard import assess_command
+from safety.command_guard import (
+    CommandSyntaxError,
+    assess_command,
+    iter_command_nodes,
+    parse_command,
+)
 
 ALLOW = "ALLOW"
 NEED_APPROVAL = "NEED_APPROVAL"
@@ -44,6 +50,24 @@ _BLOB_RE = re.compile(r"[A-Za-z0-9+/=]{200,}")
 def looks_obfuscated(command: str) -> bool:
     """Light anomaly: True when the command embeds a long encoded blob."""
     return bool(_BLOB_RE.search(command or ""))
+
+
+#: Roles that may execute nodes by default (RBAC, item [34]).
+ALLOWED_EXECUTOR_ROLES: tuple[str, ...] = ("OWNER", "OPERATOR")
+
+
+@dataclass(frozen=True)
+class PolicyContext:
+    """Caller-supplied facts the decision needs (item [34]).
+
+    - ``role``: effective role of the caller (workspace-scoped);
+    - ``allowed_roles``: roles permitted to execute nodes;
+    - ``workspace_root``: approved directory a shell node may touch.
+    """
+
+    role: str = "OPERATOR"
+    allowed_roles: tuple[str, ...] = field(default_factory=lambda: ALLOWED_EXECUTOR_ROLES)
+    workspace_root: str = ""
 
 
 @dataclass(frozen=True)
@@ -88,11 +112,43 @@ class PolicyService:
     def __init__(self, *, policy_version: str = POLICY_VERSION) -> None:
         self.policy_version = policy_version
 
-    def decide(self, node_id: str, spec: dict[str, Any]) -> PolicyDecision:
-        """Return the frozen decision for one node spec."""
+    def decide(
+        self,
+        node_id: str,
+        spec: dict[str, Any],
+        *,
+        context: PolicyContext | None = None,
+    ) -> PolicyDecision:
+        """Return the frozen decision for one node spec.
+
+        With a :class:`PolicyContext`, a caller whose role may not execute
+        nodes is denied, and a shell node that references a path outside the
+        approved workspace is denied (fail closed, item [34]).
+        """
         node_type = str(spec.get("type", ""))
+        if context is not None and context.allowed_roles and context.role not in context.allowed_roles:
+            return self._make(
+                node_id,
+                node_type or "?",
+                DENY,
+                100,
+                (f"role '{context.role}' may not execute nodes",),
+                0,
+            )
         if node_type in _COMMAND_TYPES:
-            return self._decide_command(node_id, node_type, str(spec.get("run", "")))
+            decision = self._decide_command(node_id, node_type, str(spec.get("run", "")))
+            if context is not None and context.workspace_root:
+                violations = _path_violations(str(spec.get("run", "")), context.workspace_root)
+                if violations:
+                    return self._make(
+                        node_id,
+                        node_type,
+                        DENY,
+                        max(decision.score, MEDIUM_MAX + 1),
+                        violations,
+                        0,
+                    )
+            return decision
         if node_type == "approval":
             # The human quorum itself is the approval worker's job; the gate
             # must let the approval node run so it can collect it.
@@ -151,3 +207,39 @@ class PolicyService:
             quorum=quorum,
             policy_version=self.policy_version,
         )
+
+
+def _path_like(arg: str) -> bool:
+    """True when an argv token names a path rather than a plain value."""
+    return arg.startswith(("/", "~", "./", "../")) or "/" in arg
+
+
+def _path_violations(command: str, workspace_root: str) -> tuple[str, ...]:
+    """Reasons a command violates the workspace boundary (item [34]).
+
+    `..` traversal and absolute/`~` paths that resolve outside the approved
+    workspace root are reported; relative paths inside the workspace pass.
+    """
+    if not workspace_root:
+        return ()
+    try:
+        node = parse_command(command)
+    except CommandSyntaxError:
+        return ()
+    root = os.path.abspath(os.path.expanduser(workspace_root))
+    reasons: list[str] = []
+    for leaf in iter_command_nodes(node):
+        for arg in leaf.argv[1:]:
+            if not arg or arg.startswith("-"):
+                continue
+            cleaned = arg.strip().strip("'\"")
+            if not cleaned or not _path_like(cleaned):
+                continue
+            if ".." in cleaned.split("/"):
+                reasons.append(f"path traversal in '{cleaned}'")
+                continue
+            if cleaned.startswith(("/", "~")):
+                target = os.path.abspath(os.path.expanduser(cleaned))
+                if target != root and not target.startswith(root + os.sep):
+                    reasons.append(f"path '{cleaned}' is outside the workspace")
+    return tuple(reasons)
