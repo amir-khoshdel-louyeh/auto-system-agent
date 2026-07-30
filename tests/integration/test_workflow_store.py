@@ -14,11 +14,7 @@ from app.models import ImmutableVersionError, WorkflowStore, dsl_hash
 from engine.dsl.loader import load_text
 
 EXAMPLE = (
-    Path(__file__).resolve().parents[2]
-    / "src"
-    / "workflows"
-    / "examples"
-    / "onboarding-demo.yaml"
+    Path(__file__).resolve().parents[2] / "src" / "workflows" / "examples" / "onboarding-demo.yaml"
 )
 
 

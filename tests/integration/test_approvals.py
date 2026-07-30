@@ -134,9 +134,7 @@ class ApprovalServiceTests(unittest.TestCase):
             self.service.request(self.execution_id, "g", quorum=0)
         self._request(node_id="g")
         with self.assertRaises(ValueError):
-            self.service.decide(
-                self.execution_id, "g", approver="a", verdict="maybe", now=NOW
-            )
+            self.service.decide(self.execution_id, "g", approver="a", verdict="maybe", now=NOW)
 
     def test_decisions_are_queryable(self):
         self._request(quorum=2)

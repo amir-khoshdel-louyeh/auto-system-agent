@@ -430,9 +430,7 @@ class ExecutionStore:
                         now,
                     ),
                 )
-            step = conn.execute(
-                "SELECT * FROM execution_steps WHERE id = ?", (step_id,)
-            ).fetchone()
+            step = conn.execute("SELECT * FROM execution_steps WHERE id = ?", (step_id,)).fetchone()
         return dict(step)
 
     def list_steps(self, execution_id: str) -> list[dict]:

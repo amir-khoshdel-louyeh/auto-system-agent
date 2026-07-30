@@ -40,7 +40,9 @@ class WorkspacePathTests(unittest.TestCase):
         self.assertEqual(decision.verdict, ALLOW)
 
     def test_absolute_path_outside_workspace_is_denied(self):
-        decision = SERVICE.decide("a", {"type": "shell", "run": "cat /etc/passwd"}, context=self.ctx)
+        decision = SERVICE.decide(
+            "a", {"type": "shell", "run": "cat /etc/passwd"}, context=self.ctx
+        )
         self.assertEqual(decision.verdict, DENY)
         self.assertTrue(any("outside the workspace" in reason for reason in decision.reasons))
 

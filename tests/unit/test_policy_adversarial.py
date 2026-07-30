@@ -70,9 +70,7 @@ class FailClosedTests(unittest.TestCase):
     def test_unknown_type_denies_even_with_role_context(self):
         from safety.policy_service import PolicyContext
 
-        decision = SERVICE.decide(
-            "x", {"type": "nope"}, context=PolicyContext(role="OWNER")
-        )
+        decision = SERVICE.decide("x", {"type": "nope"}, context=PolicyContext(role="OWNER"))
         self.assertEqual(decision.verdict, DENY)
 
 

@@ -126,7 +126,11 @@ class PolicyService:
         approved workspace is denied (fail closed, item [34]).
         """
         node_type = str(spec.get("type", ""))
-        if context is not None and context.allowed_roles and context.role not in context.allowed_roles:
+        if (
+            context is not None
+            and context.allowed_roles
+            and context.role not in context.allowed_roles
+        ):
             return self._make(
                 node_id,
                 node_type or "?",
@@ -164,9 +168,7 @@ class PolicyService:
                 quorum,
             )
         # Unknown / missing node type: fail closed.
-        return self._make(
-            node_id, node_type or "?", DENY, 100, ("unknown node type",), 0
-        )
+        return self._make(node_id, node_type or "?", DENY, 100, ("unknown node type",), 0)
 
     def _decide_command(self, node_id: str, node_type: str, command: str) -> PolicyDecision:
         assessment = assess_command(command)
