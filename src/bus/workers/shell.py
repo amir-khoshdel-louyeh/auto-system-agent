@@ -21,7 +21,10 @@ async def execute_shell(node_id: str, node: dict[str, Any], ctx: dict[str, Any])
     """Gate, then record (or delegate to the injected `exec_fn`)."""
     from engine.executor.gate import ALLOW
 
-    verdict = await decide(node_id, node)
+    # Compiled nodes carry params nested (`{"type": .., "params": {"run": ..}}`);
+    # the policy service reads a flat spec, so normalise before re-deciding.
+    params = node.get("params", {}) if isinstance(node.get("params"), dict) else {}
+    verdict = await decide(node_id, {"type": "shell", "run": params.get("run", "")})
     if verdict == "DENY":
         raise PolicyDenied(f"policy DENY for shell node '{node_id}'")
     if verdict != ALLOW:
@@ -32,7 +35,7 @@ async def execute_shell(node_id: str, node: dict[str, Any], ctx: dict[str, Any])
     if exec_fn is not None:
         return await exec_fn(node_id, node, ctx)
     return {
-        "ran": node.get("params", {}).get("run", ""),
+        "ran": params.get("run", ""),
         "mode": "record-only (real bash: phase 6 sandbox)",
     }
 
