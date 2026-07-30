@@ -13,7 +13,7 @@ without its evidence.
 |---|---|---|---|
 | O1 | Execute OS tasks through safe, typed workers | `tests/unit/test_execution_safety.py`, `tests/acceptance/test_e2e_workflows.py`, `tests/unit/test_command_guard.py` | OK |
 | O2 | Versioned workflow DAGs (YAML DSL, validator, compiler, pin) | `tests/unit/test_engine_phase1.py` (13 fixtures, Kahn, placeholders), `tests/integration/test_workflows_validate.py` (endpoint) | OK (DSL/validator/fixtures); version pin → item 27 |
-| O3 | Deterministic policy prevents unsafe execution | `tests/unit/test_engine_phase2.py` (deny gate, approval gate), `tests/unit/test_command_guard.py` | Phase 3 items 33–36 |
+| O3 | Deterministic policy prevents unsafe execution | `tests/unit/test_policy_service.py`, `test_policy_context.py`, `test_policy_adversarial.py`, `tests/unit/test_command_guard.py` | OK |
 | O4 | Reliable event-driven execution (streams, retry, DLQ, idempotency, replay) | planned — `tests/integration/test_bus_*` | Phase 4 items 45, Phase 5 item 54 |
 | O5 | Team governance: JWT/RBAC, approvals, hash-chain audit | `tests/integration/test_app_auth.py` (login), `tests/unit/test_fsm.py` (hash chain), `tests/integration/test_repository.py` | Phase 1 items 12–17, Phase 5 items 46–54 |
 | O6 | Software engineering practice | this matrix, `docs/issues/BACKLOG.md`, `.github/workflows/ci.yml`, `docs/PROPOSAL_APPROVAL.md` | OK (baseline) |
@@ -24,13 +24,13 @@ without its evidence.
 | FR | Requirement | TODO item(s) | Module(s) | Test evidence | State |
 |---|---|---|---|---|---|
 | FR-01 | Password hash + short-lived JWT, no plaintext secrets | 11 | `src/app/auth.py`, `src/app/db.py` (PBKDF2) | `tests/integration/test_app_auth.py` | OK (env-admin); DB users → 11 |
-| FR-02 | RBAC at API **and** service layers | 12, 13, 16 | `src/app/auth.py`, `src/app/main.py` | `tests/integration/test_app_rbac.py` (planned) | planned(12,13) |
+| FR-02 | RBAC at API **and** service layers | 12, 13, 16, 34 | `src/app/auth.py`, `src/app/main.py`, `src/safety/policy_service.py` | `tests/integration/test_app_rbac.py`, `tests/unit/test_policy_context.py` | OK (API deps + policy-service role check) |
 | FR-03 | Workflow authoring from YAML/API with name/version/triggers/nodes/edges/policy | 18, 19, 27 | `src/engine/dsl/loader.py`, `src/app/models.py` | `tests/unit/test_engine_phase1.py` | partial |
 | FR-04 | Full validation (schema, contracts, dup IDs, edges, placeholders, triggers, Kahn, dangerous-node) with line/col | 20–23, 25, 26 | `src/engine/validator/validator.py`, `errors.py`, `src/app/workflows_api.py` | `tests/unit/test_engine_phase1.py::ValidatorFixtureTests`, `tests/integration/test_workflows_validate.py::PreciseErrorResponseTests` | OK |
-| FR-05 | Immutable versions; execution pins `(workflow_id, version)` | 27, 28 | `src/app/models.py` | planned integration test | planned(27,28) |
+| FR-05 | Immutable versions; execution pins `(workflow_id, version)` | 27, 28 | `src/app/models.py` | `tests/integration/test_workflow_store.py`, `tests/integration/test_execution_store.py` | OK |
 | FR-06 | Offline planner → typed plan through the same validator/policy path | 55–63 | `src/orchestration/planner.py` | `tests/unit/test_planner_varied_phrasing.py`, `test_agent_conversation.py` | partial; Phase 6 |
-| FR-07 | Policy returns exactly ALLOW / NEED_APPROVAL / DENY + score/reasons/quorum/policy version | 33, 34 | `src/safety/command_guard.py`, `src/engine/executor/gate.py` | `tests/unit/test_command_guard.py`, `test_engine_phase2.py::…deny…`, `test_engine_phase1.py::…policy…` | OK (core), service extract → 33 |
-| FR-08 | Approval request, quorum, expiry, final decision | 35 | `src/bus/workers/approval.py`, storage | `tests/unit/test_fsm.py` (states) + `tests/integration/test_approvals.py` (planned) | planned(35) |
+| FR-07 | Policy returns exactly ALLOW / NEED_APPROVAL / DENY + score/reasons/quorum/policy version | 33, 34 | `src/safety/policy_service.py`, `src/engine/executor/gate.py` | `tests/unit/test_policy_service.py`, `test_policy_context.py`, `test_policy_adversarial.py` | OK |
+| FR-08 | Approval request, quorum, expiry, final decision | 35 | `src/app/approvals.py` | `tests/integration/test_approvals.py` | OK |
 | FR-09 | Typed events with schema, correlation ID, idempotency key; duplicate-safe | 37–39 | `src/bus/events.py` | `tests/integration/test_bus_events.py` (planned) | planned(37–39) |
 | FR-10 | DAG scheduling: dependencies, concurrency, propagation, timeout/retry, compensation | 29–32 | `src/engine/executor/{scheduler,gate,compensate,result}.py` | `tests/unit/test_engine_phase2.py` (parallel, retry, skip, timeout, compensate, kill-mid-run) | OK |
 | FR-11 | Typed worker results; no raw secrets/unbounded output persisted | 40, 43 | `src/bus/workers/*`, `src/safety` | planned worker tests | planned(40,43) |
