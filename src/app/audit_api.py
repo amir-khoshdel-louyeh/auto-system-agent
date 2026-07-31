@@ -1,0 +1,87 @@
+"""Phase 5 items [49],[50]: audit query and execution timeline endpoints.
+
+- `GET /executions/{id}/audit`  — one page of the append-only audit chain
+  (with the total, so clients can paginate) for an execution.
+- `GET /executions/{id}/timeline` — the durable execution and its ordered
+  step transitions, the run timeline the UI/auditor reads.
+
+Both are read-only and require `audit:read`; an unknown execution is a 404.
+"""
+
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+
+from storage.audit import AuditStore
+
+from .deps import CurrentUser, require_permission
+from .models import ExecutionStore
+from .roles import Permission
+from .settings import Settings, get_settings
+
+router = APIRouter(prefix="/executions", tags=["Audit"])
+
+
+def _audit_store(settings: Settings) -> AuditStore:
+    from .db import init_db
+
+    return AuditStore(init_db(settings.sqlite_path))
+
+
+@router.get("/{execution_id}/audit")
+def query_audit(
+    execution_id: str,
+    limit: int = Query(50, ge=1, le=500),
+    offset: int = Query(0, ge=0),
+    settings: Settings = Depends(get_settings),
+    _: CurrentUser = Depends(require_permission(Permission.AUDIT_READ)),
+) -> dict:
+    """One page of the frozen audit chain for an execution."""
+    store = _audit_store(settings)
+    events = store.list_page(execution_id=execution_id, limit=limit, offset=offset)
+    return {
+        "execution_id": execution_id,
+        "total": store.count(execution_id),
+        "limit": limit,
+        "offset": offset,
+        "events": events,
+    }
+
+
+@router.get("/{execution_id}/timeline")
+def execution_timeline(
+    execution_id: str,
+    settings: Settings = Depends(get_settings),
+    _: CurrentUser = Depends(require_permission(Permission.RUN_READ)),
+) -> dict:
+    """The durable execution row plus its ordered step transitions."""
+    from .db import init_db
+
+    store = ExecutionStore(init_db(settings.sqlite_path))
+    try:
+        execution = store.get(execution_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"unknown execution '{execution_id}'"
+        ) from exc
+    steps = [
+        {
+            "node_id": step["node_id"],
+            "state": step["state"],
+            "attempt": step["attempt"],
+            "error": step["error"],
+            "updated_at": step["updated_at"],
+        }
+        for step in execution["steps"]
+    ]
+    return {
+        "execution_id": execution_id,
+        "workflow_id": execution["workflow_id"],
+        "version": execution["version"],
+        "status": execution["status"],
+        "triggered_by": execution["triggered_by"],
+        "started_at": execution["started_at"],
+        "finished_at": execution["finished_at"],
+        "error": execution["error"],
+        "steps": steps,
+    }
