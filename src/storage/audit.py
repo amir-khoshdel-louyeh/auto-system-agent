@@ -12,6 +12,7 @@ import hashlib
 import json
 import sqlite3
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -22,6 +23,29 @@ GENESIS_HASH = "0" * 64
 def utcnow() -> str:
     """ISO-8601 UTC timestamp."""
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def canonical_payload(payload: Any) -> str:
+    """Canonical JSON (sorted keys) — the exact bytes that get hashed.
+
+    Two logically equal payloads always serialise identically regardless of
+    insertion order, so a hash mismatch can only mean the content changed.
+    """
+    return json.dumps(payload or {}, sort_keys=True, default=str)
+
+
+@dataclass(frozen=True)
+class ChainVerification:
+    """Result of verifying one audit chain (FR-12).
+
+    ``first_broken_seq`` pinpoints the earliest tampered/missing row instead
+    of returning a generic failure.
+    """
+
+    ok: bool
+    checked: int
+    first_broken_seq: int | None = None
+    reason: str = ""
 
 
 def chain_hash(prev_hash: str, seq: int, event: str, payload_json: str) -> str:
@@ -43,7 +67,7 @@ class AuditStore:
 
     def append(self, execution_id: str, event: str, payload: dict[str, Any]) -> dict[str, Any]:
         """Append one event; returns the stored row as a dict."""
-        payload_json = json.dumps(payload, sort_keys=True, default=str)
+        payload_json = canonical_payload(payload)
         with self._connect() as conn:
             last = conn.execute(
                 "SELECT seq, hash FROM audit_events WHERE execution_id = ? ORDER BY seq DESC LIMIT 1",
@@ -112,14 +136,31 @@ class AuditStore:
 
     def verify(self, execution_id: str) -> bool:
         """True when the whole chain recomputes (genesis → tip)."""
+        return self.verify_chain(execution_id).ok
+
+    def verify_chain(self, execution_id: str) -> ChainVerification:
+        """Verify one chain, reporting the *first* broken link (FR-12)."""
         prev = GENESIS_HASH
+        checked = 0
         for row in self.events(execution_id):
             if row["prev_hash"] != prev:
-                return False
-            if row["hash"] != chain_hash(prev, row["seq"], row["event"], row["payload"]):
-                return False
+                return ChainVerification(
+                    ok=False,
+                    checked=checked,
+                    first_broken_seq=row["seq"],
+                    reason="previous hash does not match the prior row",
+                )
+            recomputed = chain_hash(prev, row["seq"], row["event"], row["payload"])
+            if row["hash"] != recomputed:
+                return ChainVerification(
+                    ok=False,
+                    checked=checked,
+                    first_broken_seq=row["seq"],
+                    reason="row hash does not match its content",
+                )
             prev = row["hash"]
-        return True
+            checked += 1
+        return ChainVerification(ok=True, checked=checked)
 
 
 def audit_sink(store: AuditStore, execution_id: str):
