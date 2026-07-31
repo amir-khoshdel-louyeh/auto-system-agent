@@ -82,10 +82,18 @@ async def run_workflow(
     trigger: str = "manual",
     step_timeout_s: float = 30.0,
     recorder=None,
+    dsl_text: str | None = None,
 ) -> RunResult:
-    """Load, validate and execute one workflow over the bus; returns the run."""
-    path = Path(workflows_dir) / f"{workflow_name}.yaml"
-    workflow = load_text(path.read_text(encoding="utf-8"))
+    """Load, validate and execute one workflow over the bus; returns the run.
+
+    ``dsl_text`` executes a *pinned* document (replay, item [52]) instead of
+    reading ``<workflow_name>.yaml`` from disk, so a replay never picks up a
+    newer mutable file.
+    """
+    if dsl_text is None:
+        path = Path(workflows_dir) / f"{workflow_name}.yaml"
+        dsl_text = path.read_text(encoding="utf-8")
+    workflow = load_text(dsl_text)
     errors = validate(workflow)
     if errors:
         raise ValueError(f"invalid workflow '{workflow_name}': {errors[0]}")
