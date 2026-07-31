@@ -79,6 +79,37 @@ class AuditStore:
             ).fetchall()
             return [dict(row) for row in rows]
 
+    def count(self, execution_id: str = "") -> int:
+        """Number of audit rows for one execution (all chains when empty)."""
+        with self._connect() as conn:
+            if execution_id:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS n FROM audit_events WHERE execution_id = ?",
+                    (execution_id,),
+                ).fetchone()
+            else:
+                row = conn.execute("SELECT COUNT(*) AS n FROM audit_events").fetchone()
+        return int(row["n"])
+
+    def list_page(
+        self,
+        *,
+        execution_id: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        """One page of rows, ordered by (execution_id, seq) for stable paging."""
+        query = "SELECT * FROM audit_events"
+        values: list[object] = []
+        if execution_id:
+            query += " WHERE execution_id = ?"
+            values.append(execution_id)
+        query += " ORDER BY execution_id, seq LIMIT ? OFFSET ?"
+        values.extend([max(1, int(limit)), max(0, int(offset))])
+        with self._connect() as conn:
+            rows = conn.execute(query, values).fetchall()
+        return [dict(row) for row in rows]
+
     def verify(self, execution_id: str) -> bool:
         """True when the whole chain recomputes (genesis → tip)."""
         prev = GENESIS_HASH
