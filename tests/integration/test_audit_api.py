@@ -90,6 +90,17 @@ class AuditApiTests(unittest.TestCase):
         resp = self.client.get("/executions/ghost/timeline", headers=self.headers)
         self.assertEqual(resp.status_code, 404)
 
+    def test_metrics_endpoint_aggregates_executions(self):
+        resp = self.client.get("/metrics/executions", headers=self.headers)
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertEqual(body["total"], 1)
+        self.assertEqual(body["failed"], 1)
+        self.assertEqual(body["retries"], 1)  # step 'b' reached attempt 2
+
+    def test_metrics_endpoint_requires_auth(self):
+        self.assertEqual(self.client.get("/metrics/executions").status_code, 401)
+
 
 if __name__ == "__main__":
     unittest.main()

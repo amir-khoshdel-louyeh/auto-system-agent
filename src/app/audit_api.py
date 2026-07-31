@@ -10,16 +10,21 @@ Both are read-only and require `audit:read`; an unknown execution is a 404.
 
 from __future__ import annotations
 
+from dataclasses import asdict
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from storage.audit import AuditStore
+from storage.run_metrics import summarize
 
+from .approvals import ApprovalService
 from .deps import CurrentUser, require_permission
 from .models import ExecutionStore
 from .roles import Permission
 from .settings import Settings, get_settings
 
 router = APIRouter(prefix="/executions", tags=["Audit"])
+metrics_router = APIRouter(prefix="/metrics", tags=["Metrics"])
 
 
 def _audit_store(settings: Settings) -> AuditStore:
@@ -85,3 +90,22 @@ def execution_timeline(
         "error": execution["error"],
         "steps": steps,
     }
+
+
+@metrics_router.get("/executions")
+def execution_metrics(
+    settings: Settings = Depends(get_settings),
+    _: CurrentUser = Depends(require_permission(Permission.AUDIT_READ)),
+) -> dict:
+    """Aggregate success/latency/retry/approval metrics (item [51], FR-16)."""
+    from .db import init_db
+
+    path = init_db(settings.sqlite_path)
+    stores = ExecutionStore(path)
+    approvals = ApprovalService(path)
+    return summarize(
+        stores.list_executions(),
+        steps=stores.list_all_steps(),
+        requests=[asdict(req) for req in approvals.list_requests()],
+        decisions=approvals.all_decisions(),
+    ).as_dict()

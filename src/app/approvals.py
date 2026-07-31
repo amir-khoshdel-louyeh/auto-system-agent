@@ -218,6 +218,16 @@ class ApprovalService:
             rows = conn.execute(query, values).fetchall()
         return [_to_request(dict(r)) for r in rows]
 
+    def all_decisions(self, *, limit: int = 10000) -> list[dict]:
+        """Every decision row across requests (metrics)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT execution_id, node_id, verdict, decided_by, decided_at, reason"
+                " FROM approvals ORDER BY decided_at LIMIT ?",
+                (max(1, int(limit)),),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def decisions(self, execution_id: str, node_id: str) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute(

@@ -441,6 +441,23 @@ class ExecutionStore:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def list_executions(self, *, limit: int = 1000) -> list[dict]:
+        """Newest executions first (metrics + reporting)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM executions ORDER BY started_at DESC LIMIT ?",
+                (max(1, int(limit)),),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def list_all_steps(self, *, limit: int = 10000) -> list[dict]:
+        """Every step row (metrics; ordering is emitted by the caller)."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM execution_steps ORDER BY rowid LIMIT ?", (max(1, int(limit)),)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     def get(self, execution_id: str) -> dict:
         """One execution row plus its ordered steps."""
         with self._connect() as conn:

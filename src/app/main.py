@@ -10,6 +10,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from .admin import router as admin_router
+from .audit_api import metrics_router
 from .audit_api import router as audit_router
 from .auth import router as auth_router
 from .settings import Settings, get_settings
@@ -37,6 +38,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(workspaces_router)
     application.include_router(workflows_router)
     application.include_router(audit_router)
+    application.include_router(metrics_router)
     return application
 
 
