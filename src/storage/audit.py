@@ -163,10 +163,107 @@ class AuditStore:
         return ChainVerification(ok=True, checked=checked)
 
 
+#: Audit event vocabulary (FR-12): every category the chain must record.
+RUN_STARTED = "run.started"
+RUN_FINISHED = "run.finished"
+POLICY_DECISION = "policy.decision"
+APPROVAL_DECISION = "approval.decision"
+NODE_DISPATCHED = "node.dispatched"
+NODE_RETRY = "node.retry"
+NODE_RESULT = "node.result"
+RUN_REPLAY = "run.replay"
+
+
+def _decision_payload(decision: Any) -> dict[str, Any]:
+    """Normalise a policy decision (dataclass, dict or plain object)."""
+    if hasattr(decision, "as_dict"):
+        return dict(decision.as_dict())
+    if isinstance(decision, dict):
+        return dict(decision)
+    return {"verdict": str(decision)}
+
+
+class AuditTrail:
+    """Records the FR-12 event vocabulary onto one execution's hash chain.
+
+    Callers pass *summaries*, never raw stdout or secrets; each method appends
+    one canonical-payload row so the chain stays verifiable.
+    """
+
+    def __init__(self, store: AuditStore, execution_id: str) -> None:
+        self.store = store
+        self.execution_id = execution_id
+
+    def _append(self, event: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return self.store.append(self.execution_id, event, payload)
+
+    def run_started(
+        self, workflow: str, version: int, *, trigger: str = "manual", run_id: str = ""
+    ) -> dict[str, Any]:
+        return self._append(
+            RUN_STARTED,
+            {"run_id": run_id, "workflow": workflow, "version": version, "trigger": trigger},
+        )
+
+    def run_finished(self, status: str, error: str = "") -> dict[str, Any]:
+        return self._append(RUN_FINISHED, {"status": status, "error": error[:2000]})
+
+    def policy(self, node_id: str, decision: Any) -> dict[str, Any]:
+        payload = _decision_payload(decision)
+        payload.setdefault("node_id", node_id)
+        return self._append(POLICY_DECISION, payload)
+
+    def approval(
+        self, node_id: str, status: str, *, decided_by: str = "", reason: str = ""
+    ) -> dict[str, Any]:
+        return self._append(
+            APPROVAL_DECISION,
+            {"node_id": node_id, "status": status, "decided_by": decided_by, "reason": reason},
+        )
+
+    def dispatch(self, node_id: str, *, run_id: str = "") -> dict[str, Any]:
+        return self._append(NODE_DISPATCHED, {"run_id": run_id, "node_id": node_id})
+
+    def retry(self, node_id: str, attempt: int, error: str = "", *, run_id: str = "") -> dict:
+        return self._append(
+            NODE_RETRY,
+            {"run_id": run_id, "node_id": node_id, "attempt": attempt, "error": error[:2000]},
+        )
+
+    def result(
+        self, node_id: str, status: str, *, output_summary: str = "", run_id: str = ""
+    ) -> dict[str, Any]:
+        return self._append(
+            NODE_RESULT,
+            {
+                "run_id": run_id,
+                "node_id": node_id,
+                "status": status,
+                "output_summary": output_summary[:2000],
+            },
+        )
+
+    def replay(
+        self, source_execution_id: str, replay_run_id: str, *, match: bool
+    ) -> dict[str, Any]:
+        return self._append(
+            RUN_REPLAY,
+            {
+                "source_execution_id": source_execution_id,
+                "replay_run_id": replay_run_id,
+                "match": match,
+            },
+        )
+
+    def sink(self):
+        """A scheduler `on_event` callback writing every emitted event row."""
+
+        def on_event(name: str, payload: dict[str, Any]) -> None:
+            self._append(name, payload)
+
+        return on_event
+
+
 def audit_sink(store: AuditStore, execution_id: str):
     """Build a scheduler `on_event` callback that audits run/node events."""
-
-    def sink(name: str, payload: dict[str, Any]) -> None:
-        store.append(execution_id, name, payload)
-
-    return sink
+    return AuditTrail(store, execution_id).sink()
