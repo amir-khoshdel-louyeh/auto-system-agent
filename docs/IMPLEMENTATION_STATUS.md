@@ -11,7 +11,7 @@ Legend: `WIP` = in progress, `OK` = all items done **and** gate passed.
 | 1 | API, authentication and database foundation | **OK** | 26 integration tests: 401/403 on protected routes for unauthorized callers, 201/200 for OWNER; clean DB applies all 4 migrations exactly once via the checksum-tracked runner; full suite green (66.2% coverage) |
 | 2 | Workflow DSL and validator | **OK** | 13 valid/invalid fixtures green; `POST /workflows/validate` → 200 valid / 422 `{stage,message,line,column}` invalid with a frozen stage vocabulary and 1-based positions; read-only (nothing persisted) + W4-novalidate probe |
 | 3 | DAG executor, policy and approvals | **OK** | immutable version + pinned-run persistence; three-node DAG runs concurrently with timeout/retry/propagation + reverse compensation; `safety.policy_service` decides ALLOW/NEED_APPROVAL/DENY with score/reasons/quorum/policy-version; approval quorum+expiry state machine; adversarial policy suite; full suite + ruff + mypy green |
-| 4 | Redis event bus and workers | TODO | — |
+| 4 | Redis event bus and workers | **OK** | frozen 5-type contract enforced in code; producer/consumer-group + idempotency + ordering + DLQ contract tests (real Redis guarded to skip); shell/approval workers real, GUI/custom explicit stubs; step state persisted before ack; manual/file.arrived/schedule.tick triggers share one run path; duplicate trigger causes no duplicate side effect |
 | 5 | Audit, metrics and replay | TODO | — |
 | 6 | Offline planner and optional LLM adapter | TODO | — |
 | 7 | Memory, consent and reputation | TODO | — |
@@ -74,3 +74,17 @@ Legend: `WIP` = in progress, `OK` = all items done **and** gate passed.
 | 34 | Add workspace, role, path and command checks | OK | `d335b61` feat(safety): workspace, role and path boundary checks |
 | 35 | Implement approval quorum and expiration | OK | `a53361c` feat(app): approval quorum and expiration state machine |
 | 36 | Add policy boundary and adversarial tests | OK | `c8af776` test(phase3): policy boundary and adversarial cases |
+
+## Phase 4 item log (closed 2026-10-16)
+
+| # | Item | Status | Commit |
+|---|---|---|---|
+| 37 | Freeze event JSON schemas | OK | `3a4ec2d` test(phase4): freeze the bus event JSON schemas |
+| 38 | Implement Redis Streams producer and consumer group | OK | `97aabba` test(phase4): broker producer and consumer group contract |
+| 39 | Add correlation and idempotency key handling | OK | `dbd5cd1` test(phase4): correlation and idempotency key handling |
+| 40 | Add shell and approval workers | OK | `d1bfca0` feat(bus): shell and approval workers with defense-in-depth gate |
+| 41 | Add GUI/custom contract workers as explicit non-production stubs | OK | `e990107` test(phase4): GUI/custom contract workers are explicit stubs |
+| 42 | Implement retry backoff and dead-letter stream | OK | `7f1028a` test(phase4): retry backoff and dead-letter stream |
+| 43 | Persist step state before acknowledging events | OK | `3afaaef` feat(bus): persist step state before acknowledging events |
+| 44 | Implement manual, file-arrival and schedule triggers | OK | `91c0ebc` feat(bus): manual, file.arrived and schedule.tick triggers |
+| 45 | Add duplicate-delivery, ordering and DLQ tests | OK | `7906156` test(phase4): duplicate-delivery, ordering and DLQ integration tests |
