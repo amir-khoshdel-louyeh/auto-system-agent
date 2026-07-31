@@ -55,8 +55,10 @@ def _strip_volatile(value: Any) -> Any:
 
 def normalize_output(output: Any, limit: int = MAX_SUMMARY) -> str:
     """Canonical, bounded serialisation of one node output."""
+    if output is None:
+        output = {}
     try:
-        text = json.dumps(_strip_volatile(output or {}), sort_keys=True, default=str)
+        text = json.dumps(_strip_volatile(output), sort_keys=True, default=str)
     except (TypeError, ValueError):  # pragma: no cover - defensive
         text = str(output)
     return text[:limit]
