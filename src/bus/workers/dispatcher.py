@@ -7,6 +7,10 @@ through the phase-2 scheduler with a bus-aware handler: every node becomes
 a `step.dispatched` task on its `steps:<type>` stream and the dispatcher
 waits for the worker verdict on `steps:results`. Runs and stub approvals
 are recorded via `app.models.Recorder` when one is provided.
+
+`run_workflow` is the single run path shared by every trigger (item [44]):
+`dispatch_trigger` wraps a `file.arrived` / `schedule.tick` event around it,
+while a manual trigger (the API) calls it directly.
 """
 
 from __future__ import annotations
@@ -69,24 +73,22 @@ async def pump_workers(workers: list[Runner], stop: asyncio.Event) -> None:
             await asyncio.sleep(0.02)
 
 
-async def dispatch_trigger(
+async def run_workflow(
     backend: Backend,
-    event: Event,
+    workflow_name: str,
     *,
     workflows_dir: str | Path,
     run_id: str = "",
+    trigger: str = "manual",
     step_timeout_s: float = 30.0,
     recorder=None,
 ) -> RunResult:
-    """Run one trigger event end-to-end; returns the scheduler RunResult."""
-    if event.type not in TRIGGER_TYPES:
-        raise ValueError(f"dispatcher handles {TRIGGER_TYPES}, got {event.type!r}")
-    name = event.data.get("workflow", "onboarding-demo")
-    path = Path(workflows_dir) / f"{name}.yaml"
+    """Load, validate and execute one workflow over the bus; returns the run."""
+    path = Path(workflows_dir) / f"{workflow_name}.yaml"
     workflow = load_text(path.read_text(encoding="utf-8"))
     errors = validate(workflow)
     if errors:
-        raise ValueError(f"invalid workflow '{name}': {errors[0]}")
+        raise ValueError(f"invalid workflow '{workflow_name}': {errors[0]}")
     dag = compile_wf(workflow)
     run_id = run_id or uuid.uuid4().hex
 
@@ -98,7 +100,7 @@ async def dispatch_trigger(
                 "run_id": run_id,
                 "workflow": workflow.name,
                 "version": workflow.version,
-                "trigger": event.type,
+                "trigger": trigger,
             },
             correlation_id=run_id,
             idempotency_key=f"plan:{run_id}",
@@ -110,7 +112,7 @@ async def dispatch_trigger(
         wid = recorder.ensure_workflow(workflow.name)
         dsl_hash = hashlib.sha256(workflow.raw_text.encode("utf-8")).hexdigest()
         recorder.add_version(wid, workflow.version, workflow.raw_text, dsl_hash)
-        execution_id = recorder.start_execution(wid, workflow.version, triggered_by=event.type).id
+        execution_id = recorder.start_execution(wid, workflow.version, triggered_by=trigger).id
 
     async def bus_handler(node_id: str, node: dict[str, Any]) -> dict[str, Any]:
         await backend.publish(
@@ -124,7 +126,7 @@ async def dispatch_trigger(
         )
         return await wait_verdict(backend, run_id, node_id, timeout_s=step_timeout_s)
 
-    run = await run_dag(dag, bus_handler, gate=decide)
+    run = await run_dag(dag, bus_handler, gate=decide, run_id=run_id)
     for nid, node in run.nodes.items():
         if node.status == "FAILED":
             await backend.publish(
@@ -139,3 +141,26 @@ async def dispatch_trigger(
     if recorder is not None and execution_id:
         recorder.finish_execution(execution_id, run.status, run.error)
     return run
+
+
+async def dispatch_trigger(
+    backend: Backend,
+    event: Event,
+    *,
+    workflows_dir: str | Path,
+    run_id: str = "",
+    step_timeout_s: float = 30.0,
+    recorder=None,
+) -> RunResult:
+    """Run one trigger event end-to-end; returns the scheduler RunResult."""
+    if event.type not in TRIGGER_TYPES:
+        raise ValueError(f"dispatcher handles {TRIGGER_TYPES}, got {event.type!r}")
+    return await run_workflow(
+        backend,
+        event.data.get("workflow", "onboarding-demo"),
+        workflows_dir=workflows_dir,
+        run_id=run_id,
+        trigger=event.type,
+        step_timeout_s=step_timeout_s,
+        recorder=recorder,
+    )
