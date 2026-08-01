@@ -12,12 +12,26 @@ Legend: `WIP` = in progress, `OK` = all items done **and** gate passed.
 | 2 | Workflow DSL and validator | **OK** | 13 valid/invalid fixtures green; `POST /workflows/validate` → 200 valid / 422 `{stage,message,line,column}` invalid with a frozen stage vocabulary and 1-based positions; read-only (nothing persisted) + W4-novalidate probe |
 | 3 | DAG executor, policy and approvals | **OK** | immutable version + pinned-run persistence; three-node DAG runs concurrently with timeout/retry/propagation + reverse compensation; `safety.policy_service` decides ALLOW/NEED_APPROVAL/DENY with score/reasons/quorum/policy-version; approval quorum+expiry state machine; adversarial policy suite; full suite + ruff + mypy green |
 | 4 | Redis event bus and workers | **OK** | frozen 5-type contract enforced in code; producer/consumer-group + idempotency + ordering + DLQ contract tests (real Redis guarded to skip); shell/approval workers real, GUI/custom explicit stubs; step state persisted before ack; manual/file.arrived/schedule.tick triggers share one run path; duplicate trigger causes no duplicate side effect |
-| 5 | Audit, metrics and replay | TODO | — |
+| 5 | Audit, metrics and replay | **OK** | append-only hash chain with canonical payloads; `GET /executions/{id}/audit` (paginated), `/timeline`, `/audit/verify` (first broken seq on tamper or deletion) and `/metrics/executions` (success/latency/p95/retries/approval time); real bus runs and approval decisions write their own chain keyed by execution id; replay re-executes the pinned version row (tampered pin refused) under a new correlation id and reports normalized per-node match/missing/unexpected; core coverage `src/engine|safety|storage|bus` = 85.3%; full suite + ruff + mypy green |
 | 6 | Offline planner and optional LLM adapter | TODO | — |
 | 7 | Memory, consent and reputation | TODO | — |
 | 8 | Sandbox and client experience | TODO | — |
 | 9 | Security, usability and deployment hardening | TODO | — |
 | 10 | Final SE package and defense rehearsal | TODO | — |
+
+## Phase 5 item log (closed 2026-10-17)
+
+| # | Item | Status | Commit |
+|---|---|---|---|
+| 46 | Add append-only audit repository | OK | `cdf611d` feat(storage): append-only audit repository with pagination |
+| 47 | Add canonical payload hashing and hash-chain verification | OK | `cbe8e49` feat(storage): canonical payload hashing and chain verification |
+| 48 | Record policy, approval, dispatch, retry, result and replay events | OK | `6d481d4` feat(storage): record policy/approval/dispatch/retry/result/replay, wired into the run path and approvals by `8aba175` |
+| 49 | Add audit query endpoint with pagination | OK | `9c5a8e1` feat(app): audit query and execution timeline endpoints |
+| 50 | Add execution timeline endpoint | OK | `9c5a8e1` feat(app): audit query and execution timeline endpoints |
+| 51 | Add metrics for success, latency, retries and approval time | OK | `d69bda6` feat(storage): execution metrics for success, latency, retries and approvals |
+| 52 | Implement replay with source-version pinning | OK | `cef01a0` feat(engine): replay runs from the pinned workflow version |
+| 53 | Implement normalized output comparison | OK | `4652150` feat(engine): normalized output comparison for replay |
+| 54 | Add tamper and replay tests | OK | `5b81543` test(phase5): audit verification endpoint plus tamper and replay evidence |
 
 ## Phase 0 item log (closed 2026-10-15)
 
