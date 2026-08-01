@@ -197,6 +197,10 @@ class AuditTrail:
     def _append(self, event: str, payload: dict[str, Any]) -> dict[str, Any]:
         return self.store.append(self.execution_id, event, payload)
 
+    def record(self, event: str, payload: dict[str, Any]) -> dict[str, Any]:
+        """Append one raw event (used for events with no dedicated helper)."""
+        return self._append(event, payload)
+
     def run_started(
         self, workflow: str, version: int, *, trigger: str = "manual", run_id: str = ""
     ) -> dict[str, Any]:

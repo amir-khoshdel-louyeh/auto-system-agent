@@ -52,6 +52,7 @@ async def trigger_manual(
     run_id: str = "",
     step_timeout_s: float = 30.0,
     recorder=None,
+    audit_store=None,
 ) -> RunResult:
     """Run a workflow directly (manual API trigger)."""
     return await run_workflow(
@@ -62,6 +63,7 @@ async def trigger_manual(
         trigger=MANUAL,
         step_timeout_s=step_timeout_s,
         recorder=recorder,
+        audit_store=audit_store,
     )
 
 
@@ -73,6 +75,7 @@ async def trigger_file_arrived(
     run_id: str = "",
     step_timeout_s: float = 30.0,
     recorder=None,
+    audit_store=None,
 ) -> RunResult:
     """Run a workflow from a `file.arrived` event."""
     event = build_trigger_event(
@@ -88,6 +91,7 @@ async def trigger_file_arrived(
         run_id=run_id,
         step_timeout_s=step_timeout_s,
         recorder=recorder,
+        audit_store=audit_store,
     )
 
 
@@ -99,6 +103,7 @@ async def trigger_schedule_tick(
     run_id: str = "",
     step_timeout_s: float = 30.0,
     recorder=None,
+    audit_store=None,
 ) -> RunResult:
     """Run a workflow from a `schedule.tick` (cron) event."""
     event = build_trigger_event(
@@ -114,4 +119,5 @@ async def trigger_schedule_tick(
         run_id=run_id,
         step_timeout_s=step_timeout_s,
         recorder=recorder,
+        audit_store=audit_store,
     )

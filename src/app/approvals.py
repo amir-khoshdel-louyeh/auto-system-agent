@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from storage.audit import AuditStore, AuditTrail
+
 from .models import new_id, utcnow
 
 PENDING = "PENDING"
@@ -58,10 +60,23 @@ def _is_expired(expires_at: str, now: str) -> bool:
 
 
 class ApprovalService:
-    """sqlite-backed approval request + decision store."""
+    """sqlite-backed approval request + decision store.
 
-    def __init__(self, path: str | Path) -> None:
+    With an ``audit`` store every decision and expiry is also appended to
+    the execution's hash chain (FR-12: every approval has an auditable
+    record). The chain is keyed by the execution id, so a decision is
+    tamper-evident next to the run it authorises.
+    """
+
+    def __init__(self, path: str | Path, audit: AuditStore | None = None) -> None:
         self.path = str(path)
+        self.audit = audit
+
+    def _audit(self, execution_id: str):
+        """Audit trail for one execution, or None when auditing is off."""
+        if self.audit is None:
+            return None
+        return AuditTrail(self.audit, execution_id)
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path)
@@ -165,7 +180,18 @@ class ApprovalService:
                 ).fetchone()
                 request = _to_request(dict(updated))
         if expired_request is not None:
+            trail = self._audit(execution_id)
+            if trail is not None:
+                trail.approval(node_id, EXPIRED, reason="expired before the decision")
             raise ApprovalError("approval request expired")
+        trail = self._audit(execution_id)
+        if trail is not None:
+            trail.approval(
+                node_id,
+                request.status,
+                decided_by=approver,
+                reason=reason or verdict.upper(),
+            )
         return request
 
     def cancel(self, execution_id: str, node_id: str) -> ApprovalRequest:
@@ -191,6 +217,10 @@ class ApprovalService:
                         "SELECT * FROM approval_requests WHERE id = ?", (request.id,)
                     ).fetchone()
                     expired.append(_to_request(dict(updated)))
+        for request in expired:
+            trail = self._audit(request.execution_id)
+            if trail is not None:
+                trail.approval(request.node_id, EXPIRED, reason="expired while pending")
         return expired
 
     # -- reads ------------------------------------------------------------

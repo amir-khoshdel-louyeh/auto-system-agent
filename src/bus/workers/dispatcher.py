@@ -23,10 +23,12 @@ from typing import Any
 
 from engine.dsl.compiler import compile as compile_wf
 from engine.dsl.loader import load_text
-from engine.executor.gate import decide
+from engine.executor.gate import flatten_node
 from engine.executor.result import RunResult
 from engine.executor.scheduler import run_dag
 from engine.validator.validator import validate
+from safety.policy_service import PolicyService
+from storage.audit import AuditStore, AuditTrail
 
 from ..backend import Backend
 from ..consumer import Runner
@@ -83,12 +85,17 @@ async def run_workflow(
     step_timeout_s: float = 30.0,
     recorder=None,
     dsl_text: str | None = None,
+    audit_store: AuditStore | None = None,
 ) -> RunResult:
     """Load, validate and execute one workflow over the bus; returns the run.
 
     ``dsl_text`` executes a *pinned* document (replay, item [52]) instead of
     reading ``<workflow_name>.yaml`` from disk, so a replay never picks up a
     newer mutable file.
+
+    With an ``audit_store`` the run writes its own hash-chain records
+    (run, policy, dispatch, retry, result) keyed by the execution id, so
+    every execution has an auditable trail (item [48], FR-12).
     """
     if dsl_text is None:
         path = Path(workflows_dir) / f"{workflow_name}.yaml"
@@ -122,6 +129,38 @@ async def run_workflow(
         recorder.add_version(wid, workflow.version, workflow.raw_text, dsl_hash)
         execution_id = recorder.start_execution(wid, workflow.version, triggered_by=trigger).id
 
+    trail = AuditTrail(audit_store, execution_id or run_id) if audit_store is not None else None
+    if trail is not None:
+        trail.run_started(workflow.name, workflow.version, trigger=trigger, run_id=run_id)
+
+    def audit_event(name: str, payload: dict[str, Any]) -> None:
+        """Map scheduler events onto the FR-12 audit vocabulary."""
+        if trail is None or name in ("run.started", "run.finished"):
+            return
+        node_id = str(payload.get("node_id", ""))
+        if name == "node.started":
+            trail.dispatch(node_id, run_id=run_id)
+        elif name == "node.retry":
+            trail.retry(
+                node_id,
+                int(payload.get("attempt", 1)),
+                str(payload.get("error", "")),
+                run_id=run_id,
+            )
+        elif name == "node.finished":
+            trail.result(node_id, str(payload.get("status", "")), run_id=run_id)
+        else:
+            trail.record(name, payload)
+
+    policy = PolicyService()
+
+    async def audited_gate(node_id: str, node: dict[str, Any]) -> str:
+        """Policy gate that also lands the decision on the audit chain."""
+        decision = policy.decide(node_id, flatten_node(node))
+        if trail is not None:
+            trail.policy(node_id, decision)
+        return decision.verdict
+
     async def bus_handler(node_id: str, node: dict[str, Any]) -> dict[str, Any]:
         await backend.publish(
             steps_stream(node.get("type", "")),
@@ -134,7 +173,13 @@ async def run_workflow(
         )
         return await wait_verdict(backend, run_id, node_id, timeout_s=step_timeout_s)
 
-    run = await run_dag(dag, bus_handler, gate=decide, run_id=run_id)
+    run = await run_dag(
+        dag,
+        bus_handler,
+        gate=audited_gate,
+        on_event=audit_event if trail is not None else None,
+        run_id=run_id,
+    )
     for nid, node in run.nodes.items():
         if node.status == "FAILED":
             await backend.publish(
@@ -148,6 +193,8 @@ async def run_workflow(
             )
     if recorder is not None and execution_id:
         recorder.finish_execution(execution_id, run.status, run.error)
+    if trail is not None:
+        trail.run_finished(run.status, run.error)
     return run
 
 
@@ -159,6 +206,7 @@ async def dispatch_trigger(
     run_id: str = "",
     step_timeout_s: float = 30.0,
     recorder=None,
+    audit_store: AuditStore | None = None,
 ) -> RunResult:
     """Run one trigger event end-to-end; returns the scheduler RunResult."""
     if event.type not in TRIGGER_TYPES:
@@ -171,4 +219,5 @@ async def dispatch_trigger(
         trigger=event.type,
         step_timeout_s=step_timeout_s,
         recorder=recorder,
+        audit_store=audit_store,
     )

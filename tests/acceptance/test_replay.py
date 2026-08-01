@@ -83,6 +83,7 @@ class ReplayAcceptanceTests(unittest.TestCase):
                     run_id=replay_id,
                     trigger="replay",
                     dsl_text=dsl_text,
+                    audit_store=self.audit,
                 )
             finally:
                 stop.set()
@@ -105,6 +106,7 @@ class ReplayAcceptanceTests(unittest.TestCase):
                     workflows_dir=self.dir,
                     run_id="w2-source",
                     trigger="file.arrived",
+                    audit_store=self.audit,
                 )
             finally:
                 stop.set()
@@ -152,11 +154,17 @@ class ReplayAcceptanceTests(unittest.TestCase):
 
     def test_w2_replay_is_recorded_on_the_source_audit_chain(self):
         self._source_run()
+        source_events = [row["event"] for row in self.audit.events("w2-source")]
+        self.assertIn("run.started", source_events)
+        self.assertIn("run.finished", source_events)
+
         result = asyncio.run(self.service.replay("w2-source", self._pinned_runner(), role="OWNER"))
         payload = self.audit.events("w2-source")[-1]
         self.assertEqual(payload["event"], "run.replay")
         self.assertIn(result.replay_execution_id, payload["payload"])
+        # Both chains verify: the rerun is audited under its own id too.
         self.assertTrue(self.audit.verify("w2-source"))
+        self.assertTrue(self.audit.verify(result.replay_execution_id))
 
     def test_source_run_is_not_modified_by_replay(self):
         self._source_run()
