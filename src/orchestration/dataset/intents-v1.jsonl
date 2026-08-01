@@ -1,0 +1,107 @@
+{"text": "create three folders called reports, logs and backups", "intent": "create_folder", "slots": {"folder_names": ["reports", "logs", "backups"]}}
+{"text": "make a folder named demo-app", "intent": "create_folder", "slots": {"folder_names": ["demo-app"]}}
+{"text": "mkdir reports", "intent": "create_folder", "slots": {"folder_names": ["reports"]}}
+{"text": "please create the folder archive", "intent": "create_folder", "slots": {"folder_names": ["archive"]}}
+{"text": "create a new directory called scratch", "intent": "create_folder", "slots": {"folder_names": ["scratch"]}}
+{"text": "make directories logs and tmp", "intent": "create_folder", "slots": {"folder_names": ["logs", "tmp"]}}
+{"text": "I need folders alpha and beta", "intent": "create_folder", "slots": {"folder_names": ["alpha", "beta"]}}
+{"text": "create folder sandbox", "intent": "create_folder", "slots": {"folder_names": ["sandbox"]}}
+{"text": "create the folders reports and backups", "intent": "create_folder", "slots": {"folder_names": ["reports", "backups"]}}
+{"text": "new folder named experiments", "intent": "create_folder", "slots": {"folder_names": ["experiments"]}}
+{"text": "set up folders: data, models, notebooks", "intent": "create_folder", "slots": {"folder_names": ["data", "models", "notebooks"]}, "split": "test"}
+{"text": "can you make a directory called staging", "intent": "create_folder", "slots": {"folder_names": ["staging"]}, "split": "test"}
+
+{"text": "write a README with the text hello team", "intent": "write_file", "slots": {"path": "README", "content": "hello team"}}
+{"text": "create notes.md containing meeting at ten", "intent": "write_file", "slots": {"path": "notes.md", "content": "meeting at ten"}}
+{"text": "put 'hello' into demo-app/README.md", "intent": "write_file", "slots": {"path": "demo-app/README.md", "content": "hello"}}
+{"text": "save the message done to status.txt", "intent": "write_file", "slots": {"path": "status.txt", "content": "done"}}
+{"text": "write the file report.txt with content summary of the run", "intent": "write_file", "slots": {"path": "report.txt", "content": "summary of the run"}}
+{"text": "create the file config.yaml containing name: demo", "intent": "write_file", "slots": {"path": "config.yaml", "content": "name: demo"}}
+{"text": "write hello world into greeting.txt", "intent": "write_file", "slots": {"path": "greeting.txt", "content": "hello world"}}
+{"text": "generate a README.md with the title Team Automation Hub", "intent": "write_file", "slots": {"path": "README.md", "content": "Team Automation Hub"}}
+{"text": "create index.html with the text welcome", "intent": "write_file", "slots": {"path": "index.html", "content": "welcome"}}
+{"text": "write to logs/run.log the content finished", "intent": "write_file", "slots": {"path": "logs/run.log", "content": "finished"}}
+{"text": "put 'ok' in result.txt", "intent": "write_file", "slots": {"path": "result.txt", "content": "ok"}, "split": "test"}
+{"text": "create a file named todo.md with the text buy milk", "intent": "write_file", "slots": {"path": "todo.md", "content": "buy milk"}, "split": "test"}
+
+{"text": "create a workspace called demo-app with three folders and a README", "intent": "create_workspace", "slots": {"workspace_name": "demo-app"}}
+{"text": "set up the alpha workspace", "intent": "create_workspace", "slots": {"workspace_name": "alpha"}}
+{"text": "please create workspace beta with folders logs and reports", "intent": "create_workspace", "slots": {"workspace_name": "beta", "folder_names": ["logs", "reports"]}}
+{"text": "scaffold a new workspace named project-x", "intent": "create_workspace", "slots": {"workspace_name": "project-x"}}
+{"text": "create a workspace for the team called hub", "intent": "create_workspace", "slots": {"workspace_name": "hub"}}
+{"text": "set up a workspace named demo with a README", "intent": "create_workspace", "slots": {"workspace_name": "demo"}}
+{"text": "create the workspace onboarding-demo", "intent": "create_workspace", "slots": {"workspace_name": "onboarding-demo"}}
+{"text": "scaffold workspace data-lab with folders data and models", "intent": "create_workspace", "slots": {"workspace_name": "data-lab", "folder_names": ["data", "models"]}}
+{"text": "create a new team workspace called analytics", "intent": "create_workspace", "slots": {"workspace_name": "analytics"}, "split": "test"}
+{"text": "set up project workspace cosmic with two folders", "intent": "create_workspace", "slots": {"workspace_name": "cosmic"}, "split": "test"}
+
+{"text": "install firefox", "intent": "install_app", "slots": {"app": "firefox"}}
+{"text": "please install vlc", "intent": "install_app", "slots": {"app": "vlc"}}
+{"text": "I need htop installed", "intent": "install_app", "slots": {"app": "htop"}}
+{"text": "install the app thunderbird", "intent": "install_app", "slots": {"app": "thunderbird"}}
+{"text": "can you install gimp", "intent": "install_app", "slots": {"app": "gimp"}}
+{"text": "install neovim please", "intent": "install_app", "slots": {"app": "neovim"}}
+{"text": "install the application ripgrep", "intent": "install_app", "slots": {"app": "ripgrep"}}
+{"text": "install git", "intent": "install_app", "slots": {"app": "git"}}
+{"text": "get me the app chromium", "intent": "install_app", "slots": {"app": "chromium"}}
+{"text": "install vlc on this machine", "intent": "install_app", "slots": {"app": "vlc"}}
+{"text": "I would like to install docker", "intent": "install_app", "slots": {"app": "docker"}, "split": "test"}
+{"text": "install tmux for me", "intent": "install_app", "slots": {"app": "tmux"}, "split": "test"}
+
+{"text": "run ls -la", "intent": "run_command", "slots": {"command": "ls -la"}}
+{"text": "execute: df -h", "intent": "run_command", "slots": {"command": "df -h"}}
+{"text": "please run git status", "intent": "run_command", "slots": {"command": "git status"}}
+{"text": "run the command pwd", "intent": "run_command", "slots": {"command": "pwd"}}
+{"text": "execute uptime", "intent": "run_command", "slots": {"command": "uptime"}}
+{"text": "run 'whoami'", "intent": "run_command", "slots": {"command": "whoami"}}
+{"text": "please execute ls -la /tmp", "intent": "run_command", "slots": {"command": "ls -la /tmp"}}
+{"text": "run command: echo hello", "intent": "run_command", "slots": {"command": "echo hello"}}
+{"text": "run cat /etc/os-release", "intent": "run_command", "slots": {"command": "cat /etc/os-release"}}
+{"text": "execute: git log --oneline -5", "intent": "run_command", "slots": {"command": "git log --oneline -5"}}
+{"text": "run date", "intent": "run_command", "slots": {"command": "date"}, "split": "test"}
+{"text": "please execute the command git branch", "intent": "run_command", "slots": {"command": "git branch"}, "split": "test"}
+
+{"text": "how much disk space is free", "intent": "system_info", "slots": {"metric": "disk"}}
+{"text": "show me the memory usage", "intent": "system_info", "slots": {"metric": "memory"}}
+{"text": "what is the uptime", "intent": "system_info", "slots": {"metric": "uptime"}}
+{"text": "how many cores does this machine have", "intent": "system_info", "slots": {"metric": "cpu"}}
+{"text": "what is the load average", "intent": "system_info", "slots": {"metric": "load"}}
+{"text": "show the running processes", "intent": "system_info", "slots": {"metric": "processes"}}
+{"text": "is the disk full", "intent": "system_info", "slots": {"metric": "disk"}}
+{"text": "how much ram is available", "intent": "system_info", "slots": {"metric": "memory"}}
+{"text": "when did this machine last reboot", "intent": "system_info", "slots": {"metric": "uptime"}}
+{"text": "which processes use the most cpu", "intent": "system_info", "slots": {"metric": "processes"}}
+{"text": "show the system load", "intent": "system_info", "slots": {"metric": "load"}, "split": "test"}
+{"text": "how much free space is left on the disk", "intent": "system_info", "slots": {"metric": "disk"}, "split": "test"}
+{"text": "report the memory available", "intent": "system_info", "slots": {"metric": "memory"}, "split": "test"}
+
+{"text": "list the files in ~/Downloads", "intent": "list_directory", "slots": {"path": "~/Downloads"}}
+{"text": "show what is in the reports folder", "intent": "list_directory", "slots": {"path": "reports"}}
+{"text": "ls ~/Documents", "intent": "list_directory", "slots": {"path": "~/Documents"}}
+{"text": "list directory /var/log", "intent": "list_directory", "slots": {"path": "/var/log"}}
+{"text": "what files are in the demo-app folder", "intent": "list_directory", "slots": {"path": "demo-app"}}
+{"text": "show the contents of ~/Downloads", "intent": "list_directory", "slots": {"path": "~/Downloads"}}
+{"text": "list the contents of logs", "intent": "list_directory", "slots": {"path": "logs"}}
+{"text": "display the files in the archive directory", "intent": "list_directory", "slots": {"path": "archive"}}
+{"text": "ls -la ~", "intent": "list_directory", "slots": {"path": "~"}, "split": "test"}
+{"text": "list the working directory", "intent": "list_directory", "slots": {"path": "."}, "split": "test"}
+
+{"text": "help", "intent": "help"}
+{"text": "what can you do", "intent": "help"}
+{"text": "show me the help", "intent": "help"}
+{"text": "what commands do you support", "intent": "help"}
+{"text": "how do I use this", "intent": "help"}
+{"text": "explain what you can do", "intent": "help"}
+{"text": "list your capabilities", "intent": "help"}
+{"text": "what can I ask you", "intent": "help", "split": "test"}
+
+{"text": "tell me a joke", "intent": "unknown"}
+{"text": "what is the capital of France", "intent": "unknown"}
+{"text": "who wrote hamlet", "intent": "unknown"}
+{"text": "how are you today", "intent": "unknown"}
+{"text": "what is the weather like", "intent": "unknown"}
+{"text": "explain quantum computing", "intent": "unknown"}
+{"text": "give me relationship advice", "intent": "unknown"}
+{"text": "what is 2+2", "intent": "unknown"}
+{"text": "thanks for the help", "intent": "unknown", "split": "test"}
+{"text": "who won the last world cup", "intent": "unknown", "split": "test"}
