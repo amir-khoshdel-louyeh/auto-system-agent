@@ -53,6 +53,23 @@ def query_audit(
     }
 
 
+@router.get("/{execution_id}/audit/verify")
+def verify_audit(
+    execution_id: str,
+    settings: Settings = Depends(get_settings),
+    _: CurrentUser = Depends(require_permission(Permission.AUDIT_READ)),
+) -> dict:
+    """Verify one audit chain and name the first broken link (FR-12, item [54])."""
+    result = _audit_store(settings).verify_chain(execution_id)
+    return {
+        "execution_id": execution_id,
+        "ok": result.ok,
+        "checked": result.checked,
+        "first_broken_seq": result.first_broken_seq,
+        "reason": result.reason,
+    }
+
+
 @router.get("/{execution_id}/timeline")
 def execution_timeline(
     execution_id: str,

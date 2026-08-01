@@ -5,6 +5,7 @@ durable execution timeline; evidence is seeded directly in the same SQLite
 database the API opens.
 """
 
+import sqlite3
 import tempfile
 import unittest
 from pathlib import Path
@@ -89,6 +90,37 @@ class AuditApiTests(unittest.TestCase):
     def test_timeline_unknown_execution_is_404(self):
         resp = self.client.get("/executions/ghost/timeline", headers=self.headers)
         self.assertEqual(resp.status_code, 404)
+
+    def test_verify_intact_chain(self):
+        resp = self.client.get("/executions/run-1/audit/verify", headers=self.headers)
+        self.assertEqual(resp.status_code, 200)
+        body = resp.json()
+        self.assertTrue(body["ok"])
+        self.assertEqual(body["checked"], 5)
+        self.assertIsNone(body["first_broken_seq"])
+
+    def test_verify_names_the_first_tampered_record(self):
+        with sqlite3.connect(self.settings.sqlite_path) as conn:
+            conn.execute(
+                "UPDATE audit_events SET payload = ? WHERE execution_id = ? AND seq = 2",
+                ('{"n": 999}', "run-1"),
+            )
+        body = self.client.get("/executions/run-1/audit/verify", headers=self.headers).json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["first_broken_seq"], 2)
+        self.assertIn("content", body["reason"])
+
+    def test_verify_detects_a_missing_record(self):
+        with sqlite3.connect(self.settings.sqlite_path) as conn:
+            conn.execute(
+                "DELETE FROM audit_events WHERE execution_id = ? AND seq = ?", ("run-1", 1)
+            )
+        body = self.client.get("/executions/run-1/audit/verify", headers=self.headers).json()
+        self.assertFalse(body["ok"])
+        self.assertEqual(body["first_broken_seq"], 2)
+
+    def test_verify_requires_authentication(self):
+        self.assertEqual(self.client.get("/executions/run-1/audit/verify").status_code, 401)
 
     def test_metrics_endpoint_aggregates_executions(self):
         resp = self.client.get("/metrics/executions", headers=self.headers)
