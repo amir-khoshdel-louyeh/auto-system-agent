@@ -25,10 +25,30 @@ __all__ = [
     "DENY",
     "decide",
     "decide_for_command",
+    "flatten_node",
     "looks_obfuscated",
 ]
 
 _SERVICE = PolicyService()
+
+
+def flatten_node(spec: dict[str, Any]) -> dict[str, Any]:
+    """Flatten a compiled node's `params` so the policy service sees its fields.
+
+    The compiled DAG nests node parameters (``{"type": "shell", "params":
+    {"run": "..."}}``) while :class:`~safety.policy_service.PolicyService`
+    reads a flat spec. Without this normalisation the scheduler gate would
+    inspect an *empty* command and allow a dangerous node through; the shell
+    worker re-checks, but the gate must fail closed first (item [34]).
+    """
+    if not isinstance(spec, dict):
+        return {}
+    params = spec.get("params")
+    if not isinstance(params, dict):
+        return dict(spec)
+    merged = {key: value for key, value in spec.items() if key != "params"}
+    merged.update(params)
+    return merged
 
 
 def decide_for_command(command: str) -> tuple[str, str]:
@@ -39,5 +59,5 @@ def decide_for_command(command: str) -> tuple[str, str]:
 
 
 async def decide(node_id: str, spec: dict[str, Any]) -> str:
-    """Scheduler gate entry: verdict for one node spec."""
-    return _SERVICE.decide(node_id, spec).verdict
+    """Scheduler gate entry: verdict for one compiled node spec."""
+    return _SERVICE.decide(node_id, flatten_node(spec)).verdict
