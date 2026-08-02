@@ -21,6 +21,7 @@ from __future__ import annotations
 import re
 import shlex
 from dataclasses import dataclass
+from typing import Any
 
 from .intents import (
     EXECUTABLE_INTENTS,
@@ -287,67 +288,74 @@ class OfflinePlanner:
                 message=capability_text(),
                 planner="offline",
             )
-
         slots = extract_slots(match.intent, raw)
-        missing = missing_slots(match.intent, slots)
+        return self.from_slots(
+            match.intent,
+            slots,
+            confidence=match.confidence,
+            raw_input=raw,
+            planner="offline",
+        )
+
+    def from_slots(
+        self,
+        intent: str,
+        slots: dict[str, Any],
+        *,
+        confidence: float,
+        raw_input: str,
+        planner: str = "offline",
+        metadata: dict[str, Any] | None = None,
+    ) -> Plan:
+        """Apply the shared trust rules to one intent + slot set.
+
+        Used by the offline path and by the LLM path (item [62]) so both are
+        subject to the same threshold, missing-slot and step-limit checks.
+        """
+        base: dict[str, Any] = {
+            "intent": intent,
+            "slots": slots,
+            "confidence": confidence,
+            "raw_input": raw_input,
+            "planner": planner,
+            "metadata": dict(metadata or {}),
+        }
+        missing = missing_slots(intent, slots)
         if missing:
             return Plan(
-                intent=match.intent,
-                slots=slots,
-                confidence=match.confidence,
-                raw_input=raw,
+                **base,
                 needs_clarification=True,
-                clarification=clarification_for(match.intent, missing[0]),
-                planner="offline",
+                clarification=clarification_for(intent, missing[0]),
             )
 
-        steps = build_steps(match.intent, slots, self.config)
-        if not steps and match.intent in EXECUTABLE_INTENTS:
-            required = spec_for(match.intent).required_slots
+        steps = build_steps(intent, slots, self.config)
+        if not steps and intent in EXECUTABLE_INTENTS:
+            required = spec_for(intent).required_slots
             return Plan(
-                intent=match.intent,
-                slots=slots,
-                confidence=match.confidence,
-                raw_input=raw,
+                **base,
                 needs_clarification=True,
-                clarification=clarification_for(match.intent, required[0] if required else "path"),
-                planner="offline",
+                clarification=clarification_for(intent, required[0] if required else "path"),
             )
         if len(steps) > self.config.max_steps:
             return Plan(
-                intent=match.intent,
-                slots=slots,
-                confidence=match.confidence,
-                raw_input=raw,
+                **base,
                 needs_clarification=True,
                 clarification=(
                     f"That plan needs {len(steps)} steps; please split it into"
                     f" smaller requests (limit {self.config.max_steps})."
                 ),
-                planner="offline",
             )
-        if match.confidence < self.config.confidence_threshold:
+        if confidence < self.config.confidence_threshold:
             return Plan(
-                intent=match.intent,
-                slots=slots,
+                **base,
                 steps=steps,
-                confidence=match.confidence,
-                raw_input=raw,
                 needs_clarification=True,
                 clarification=(
                     "I am not confident I understood that"
-                    f" (guess: {match.intent}). Could you rephrase it?"
+                    f" (guess: {intent}). Could you rephrase it?"
                 ),
-                planner="offline",
             )
-        return Plan(
-            intent=match.intent,
-            slots=slots,
-            steps=steps,
-            confidence=match.confidence,
-            raw_input=raw,
-            planner="offline",
-        )
+        return Plan(**base, steps=steps)
 
 
 def plan_intent(text: str) -> str:

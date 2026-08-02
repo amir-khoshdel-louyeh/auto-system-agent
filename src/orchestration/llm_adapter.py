@@ -162,6 +162,61 @@ class LLMAttempt:
         }
 
 
+#: Keys that must never appear in recorded metadata (item [62]).
+SECRET_KEY_HINTS: frozenset[str] = frozenset(
+    {
+        "api_key",
+        "apikey",
+        "authorization",
+        "auth",
+        "credential",
+        "password",
+        "secret",
+        "token",
+        "url",
+    }
+)
+
+
+@dataclass(frozen=True)
+class LLMMetadata:
+    """What the planner records about one model consultation (item [62]).
+
+    Only provider identity, attempts, outcome and timing: no endpoint, no
+    credential and no raw prompt or answer ever reaches the audit trail.
+    """
+
+    provider: str
+    model: str
+    attempts: int
+    outcome: str
+    latency_ms: float
+    fallback_used: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "attempts": self.attempts,
+            "outcome": self.outcome,
+            "latency_ms": self.latency_ms,
+            "fallback_used": self.fallback_used,
+        }
+
+
+def sanitize_metadata(value: Any) -> Any:
+    """Recursively drop secret-shaped keys before metadata is recorded."""
+    if isinstance(value, dict):
+        return {
+            str(key): sanitize_metadata(item)
+            for key, item in value.items()
+            if str(key).lower() not in SECRET_KEY_HINTS
+        }
+    if isinstance(value, (list, tuple)):
+        return [sanitize_metadata(item) for item in value]
+    return value
+
+
 class LLMPlanningAdapter:
     """Typed suggestions with timeout, retry, provider fallback (items [60], [61]).
 
@@ -260,6 +315,20 @@ class LLMPlanningAdapter:
                 )
                 return suggestion
         return None
+
+    def metadata(self) -> LLMMetadata:
+        """Aggregated, secret-free metadata for the last consultation (item [62])."""
+        last = self.attempts[-1] if self.attempts else None
+        payload = {
+            "provider": last.provider if last else self.provider,
+            "model": last.model if last else self.model,
+            "attempts": len(self.attempts),
+            "outcome": last.outcome if last else OUTCOME_OK,
+            "latency_ms": round(sum(attempt.latency_ms for attempt in self.attempts), 2),
+            "fallback_used": any(attempt.fallback_used for attempt in self.attempts),
+        }
+        clean = sanitize_metadata(payload)
+        return LLMMetadata(**clean)
 
     def _record(
         self,

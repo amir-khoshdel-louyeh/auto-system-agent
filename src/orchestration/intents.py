@@ -193,6 +193,8 @@ class Plan:
     #: User-facing reply for help/unsupported requests (item [59]).
     message: str = ""
     planner: str = "offline"
+    #: Provider/audit metadata for the plan — never secrets (item [62]).
+    metadata: dict[str, Any] = field(default_factory=dict)
 
     @property
     def executable(self) -> bool:
