@@ -106,13 +106,13 @@ class AdapterTests(unittest.TestCase):
         self.assertIn("how is the disk doing", client.prompts[0])
 
     def test_invalid_answer_is_not_a_suggestion(self):
-        adapter = LLMPlanningAdapter(FakeClient("no idea"))
+        adapter = LLMPlanningAdapter(FakeClient("no idea"), max_attempts=1)
         self.assertIsNone(adapter.suggest("do something"))
 
     def test_model_errors_are_swallowed_into_none(self):
         for error in (ModelTimeout("slow"), ModelError("boom")):
             with self.subTest(error=type(error).__name__):
-                adapter = LLMPlanningAdapter(FakeClient(error))
+                adapter = LLMPlanningAdapter(FakeClient(error), max_attempts=1)
                 self.assertIsNone(adapter.suggest("install vlc"))
 
     def test_unknown_client_identity_is_reported_safely(self):
@@ -123,6 +123,95 @@ class AdapterTests(unittest.TestCase):
         adapter = LLMPlanningAdapter(Anonymous())
         self.assertEqual(adapter.provider, "unknown")
         self.assertEqual(adapter.model, "unknown")
+
+
+class RetryAndFallbackTests(unittest.TestCase):
+    """Item [61]: timeouts, retries, provider failure and fallbacks."""
+
+    def test_timeout_is_retried_on_the_same_provider(self):
+        client = FakeClient(ModelTimeout("slow"), payload("install_app", {"app": "vlc"}))
+        adapter = LLMPlanningAdapter(client, max_attempts=3)
+        suggestion = adapter.suggest("install vlc")
+        self.assertEqual(suggestion.intent, "install_app")
+        self.assertEqual(
+            [attempt.outcome for attempt in adapter.attempts],
+            [
+                "timeout",
+                "ok",
+            ],
+        )
+        self.assertEqual(len(client.prompts), 2)
+
+    def test_retries_stop_at_max_attempts(self):
+        client = FakeClient(*[ModelTimeout("slow")] * 5)
+        adapter = LLMPlanningAdapter(client, max_attempts=2)
+        self.assertIsNone(adapter.suggest("install vlc"))
+        self.assertEqual([attempt.outcome for attempt in adapter.attempts], ["timeout", "timeout"])
+        self.assertEqual(len(client.prompts), 2)
+
+    def test_invalid_response_is_retried_then_gives_up(self):
+        client = FakeClient("not json", "still not json")
+        adapter = LLMPlanningAdapter(client, max_attempts=2)
+        self.assertIsNone(adapter.suggest("install vlc"))
+        self.assertEqual(
+            [attempt.outcome for attempt in adapter.attempts],
+            ["invalid_response", "invalid_response"],
+        )
+
+    def test_provider_error_moves_on_without_retrying(self):
+        primary = FakeClient(ModelError("connection refused"))
+        backup = FakeClient(payload("create_folder", {"folder_names": ["logs"]}))
+        backup.provider = "backup"
+        adapter = LLMPlanningAdapter(primary, fallbacks=(backup,), max_attempts=3)
+        suggestion = adapter.suggest("create a folder called logs")
+        self.assertEqual(suggestion.intent, "create_folder")
+        self.assertEqual(len(primary.prompts), 1, "no retry after a provider error")
+        outcomes = [attempt.outcome for attempt in adapter.attempts]
+        self.assertEqual(outcomes, ["provider_error", "ok"])
+        self.assertFalse(adapter.attempts[0].fallback_used)
+        self.assertTrue(adapter.attempts[1].fallback_used)
+        self.assertEqual(adapter.attempts[1].provider, "backup")
+
+    def test_timeout_falls_back_to_the_next_provider(self):
+        primary = FakeClient(ModelTimeout("slow"))
+        backup = FakeClient(payload("system_info", {"metric": "disk"}))
+        adapter = LLMPlanningAdapter(primary, fallbacks=(backup,), max_attempts=1)
+        suggestion = adapter.suggest("how much disk space is free")
+        self.assertEqual(suggestion.slots, {"metric": "disk"})
+        self.assertEqual([attempt.outcome for attempt in adapter.attempts], ["timeout", "ok"])
+
+    def test_every_provider_failing_returns_none(self):
+        adapter = LLMPlanningAdapter(
+            FakeClient(ModelError("down"), ModelError("down")),
+            fallbacks=(FakeClient(ModelTimeout("slow")),),
+            max_attempts=1,
+        )
+        self.assertIsNone(adapter.suggest("install vlc"))
+        self.assertTrue(adapter.attempts)
+
+    def test_backoff_sleeps_between_attempts(self):
+        slept: list[float] = []
+        client = FakeClient(ModelTimeout("slow"), payload("help"))
+        adapter = LLMPlanningAdapter(client, max_attempts=2, backoff_s=0.5, sleeper=slept.append)
+        adapter.suggest("install vlc")
+        self.assertEqual(slept, [0.5])
+
+    def test_timeout_is_passed_to_every_call(self):
+        client = FakeClient(ModelTimeout("slow"), payload("help"))
+        adapter = LLMPlanningAdapter(client, timeout_s=1.25, max_attempts=2)
+        adapter.suggest("install vlc")
+        self.assertEqual(client.timeouts, [1.25, 1.25])
+
+    def test_attempt_log_is_serialisable(self):
+        client = FakeClient(payload("install_app", {"app": "vlc"}))
+        adapter = LLMPlanningAdapter(client)
+        adapter.suggest("install vlc")
+        body = adapter.attempts[0].as_dict()
+        self.assertEqual(
+            set(body),
+            {"provider", "model", "attempt", "outcome", "latency_ms", "fallback_used"},
+        )
+        self.assertGreaterEqual(body["latency_ms"], 0.0)
 
 
 if __name__ == "__main__":

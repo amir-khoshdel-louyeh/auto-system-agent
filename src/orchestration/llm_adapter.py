@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
@@ -132,12 +133,70 @@ def parse_suggestion(raw: str) -> LLMSuggestion | None:
     return LLMSuggestion(intent=intent, slots=slots, raw=str(raw or ""))
 
 
-class LLMPlanningAdapter:
-    """One typed suggestion from a model client (single attempt, item [60])."""
+#: Attempt outcomes recorded for observability (item [62]).
+OUTCOME_OK = "ok"
+OUTCOME_TIMEOUT = "timeout"
+OUTCOME_PROVIDER_ERROR = "provider_error"
+OUTCOME_INVALID = "invalid_response"
 
-    def __init__(self, client: ModelClient, *, timeout_s: float = 5.0) -> None:
+
+@dataclass(frozen=True)
+class LLMAttempt:
+    """One call to one provider, with its measured latency and outcome."""
+
+    provider: str
+    model: str
+    attempt: int
+    outcome: str
+    latency_ms: float
+    fallback_used: bool = False
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "provider": self.provider,
+            "model": self.model,
+            "attempt": self.attempt,
+            "outcome": self.outcome,
+            "latency_ms": self.latency_ms,
+            "fallback_used": self.fallback_used,
+        }
+
+
+class LLMPlanningAdapter:
+    """Typed suggestions with timeout, retry, provider fallback (items [60], [61]).
+
+    Failure policy (item [61]):
+
+    - a *timeout* or an *invalid response* retries the same provider up to
+      ``max_attempts`` with ``backoff_s`` between tries;
+    - a *provider error* moves straight to the next configured provider;
+    - when every provider is exhausted the adapter returns ``None`` so the
+      caller keeps its deterministic offline answer — the model can never
+      turn a failure into a guessed command.
+    """
+
+    def __init__(
+        self,
+        client: ModelClient,
+        *,
+        timeout_s: float = 5.0,
+        max_attempts: int = 2,
+        backoff_s: float = 0.0,
+        fallbacks: tuple[ModelClient, ...] = (),
+        sleeper=None,
+    ) -> None:
         self.client = client
+        self.fallbacks = tuple(fallbacks)
         self.timeout_s = float(timeout_s)
+        self.max_attempts = max(1, int(max_attempts))
+        self.backoff_s = max(0.0, float(backoff_s))
+        self._sleep = sleeper
+        self.attempts: list[LLMAttempt] = []
+
+    @property
+    def clients(self) -> tuple[ModelClient, ...]:
+        """Primary provider first, then the configured fallbacks."""
+        return (self.client, *self.fallbacks)
 
     @property
     def provider(self) -> str:
@@ -147,10 +206,77 @@ class LLMPlanningAdapter:
     def model(self) -> str:
         return str(getattr(self.client, "model", "unknown"))
 
+    def _wait(self) -> None:
+        if self.backoff_s <= 0:
+            return
+        if self._sleep is not None:
+            self._sleep(self.backoff_s)
+        else:  # pragma: no cover - only in production, never in tests
+            import time
+
+            time.sleep(self.backoff_s)
+
     def suggest(self, text: str) -> LLMSuggestion | None:
-        """Ask the model once; return a schema-valid suggestion or None."""
-        try:
-            raw = self.client.complete(prompt_for(text), timeout_s=self.timeout_s)
-        except ModelError:
-            return None
-        return parse_suggestion(raw)
+        """Best schema-valid suggestion across providers, or None."""
+        prompt = prompt_for(text)
+        for index, client in enumerate(self.clients):
+            provider = str(getattr(client, "provider", "unknown"))
+            model = str(getattr(client, "model", "unknown"))
+            for attempt in range(1, self.max_attempts + 1):
+                if attempt > 1:
+                    self._wait()
+                started = time.monotonic()
+                try:
+                    raw = client.complete(prompt, timeout_s=self.timeout_s)
+                except ModelTimeout:
+                    self._record(provider, model, attempt, OUTCOME_TIMEOUT, started, index)
+                    continue
+                except ModelError:
+                    self._record(provider, model, attempt, OUTCOME_PROVIDER_ERROR, started, index)
+                    break
+                latency = (time.monotonic() - started) * 1000.0
+                suggestion = parse_suggestion(raw)
+                if suggestion is None:
+                    self.attempts.append(
+                        LLMAttempt(
+                            provider=provider,
+                            model=model,
+                            attempt=attempt,
+                            outcome=OUTCOME_INVALID,
+                            latency_ms=round(latency, 2),
+                            fallback_used=index > 0,
+                        )
+                    )
+                    continue
+                self.attempts.append(
+                    LLMAttempt(
+                        provider=provider,
+                        model=model,
+                        attempt=attempt,
+                        outcome=OUTCOME_OK,
+                        latency_ms=round(latency, 2),
+                        fallback_used=index > 0,
+                    )
+                )
+                return suggestion
+        return None
+
+    def _record(
+        self,
+        provider: str,
+        model: str,
+        attempt: int,
+        outcome: str,
+        started: float,
+        index: int,
+    ) -> None:
+        self.attempts.append(
+            LLMAttempt(
+                provider=provider,
+                model=model,
+                attempt=attempt,
+                outcome=outcome,
+                latency_ms=round((time.monotonic() - started) * 1000.0, 2),
+                fallback_used=index > 0,
+            )
+        )
