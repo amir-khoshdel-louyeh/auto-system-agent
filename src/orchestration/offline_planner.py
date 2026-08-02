@@ -22,7 +22,15 @@ import re
 import shlex
 from dataclasses import dataclass
 
-from .intents import METRIC_COMMANDS, Plan, PlanStep, spec_for
+from .intents import (
+    EXECUTABLE_INTENTS,
+    INTENT_SPECS,
+    METRIC_COMMANDS,
+    Plan,
+    PlanStep,
+    missing_slots,
+    spec_for,
+)
 from .rules import classify
 from .slots import extract_slots
 
@@ -31,6 +39,53 @@ MAX_STEPS = 16
 
 #: Confidence below this is not trusted without clarification (item [59]).
 DEFAULT_CONFIDENCE_THRESHOLD = 0.75
+
+#: Fallback question when no rule matched (the capability list is attached).
+UNSUPPORTED_QUESTION = (
+    "I could not map that request to a supported automation. What would you like to do?"
+)
+
+#: One question per missing slot, so the clarification is actionable.
+SLOT_QUESTIONS: dict[str, str] = {
+    "folder_names": "What should the folder(s) be called?",
+    "path": "Which file or directory should I use?",
+    "content": "What text should go into the file?",
+    "workspace_name": "What should the workspace be called?",
+    "app": "Which application should I install?",
+    "command": "Which command should I run?",
+    "metric": "Which metric do you want: disk, memory, cpu, uptime, load or processes?",
+}
+
+#: Questions for an intent whose detail is missing but whose slot is not the
+#: one the generic table describes (e.g. listing needs a directory).
+INTENT_SLOT_QUESTIONS: dict[tuple[str, str], str] = {
+    ("list_directory", "path"): "Which directory should I list?",
+    ("write_file", "path"): "Which file should I write?",
+}
+
+
+def capability_text() -> str:
+    """Human-readable list of the supported automations."""
+    lines = ["I can plan these automations:"]
+    lines += [
+        f"- {name}: {INTENT_SPECS[name].description}"
+        for name in EXECUTABLE_INTENTS
+        if name in INTENT_SPECS
+    ]
+    return "\n".join(lines)
+
+
+def clarification_for(intent: str, slot: str) -> str:
+    """The question that unblocks one missing required slot."""
+    return INTENT_SLOT_QUESTIONS.get((intent, slot)) or SLOT_QUESTIONS.get(
+        slot, f"I need one more detail: what should '{slot}' be?"
+    )
+
+
+def is_help(text: str) -> bool:
+    """True when the request asks for the capability list."""
+    match = classify(text)
+    return match is not None and match.intent == "help"
 
 
 @dataclass(frozen=True)
@@ -197,21 +252,94 @@ class OfflinePlanner:
     """Deterministic planner: rules + slots + canonical steps (FR-06).
 
     No network, no clock, no randomness: the same request always yields the
-    same plan. The confidence threshold and clarification flow arrive with
-    item [59]; :meth:`plan` returns the raw typed plan.
+    same plan, and anything the planner is not sure about comes back as a
+    clarification question instead of a guessed command.
     """
 
     def __init__(self, config: PlannerConfig | None = None) -> None:
         self.config = config or PlannerConfig()
 
     def plan(self, text: str) -> Plan:
-        """Typed plan for ``text`` (never raises; unknown stays unknown)."""
+        """Typed plan for ``text`` — never raises, never guesses silently.
+
+        Below the configured confidence threshold, with a required slot
+        missing, or when no rule matched, the plan carries a clarification
+        question (or the capability text) and is *not* executable: a caller
+        can only act on an explicit, validated plan (FR-06, item [59]).
+        """
         raw = "" if text is None else str(text)
         match = classify(raw)
         if match is None:
-            return Plan(intent="unknown", confidence=0.0, raw_input=raw, planner="offline")
+            return Plan(
+                intent="unknown",
+                confidence=0.0,
+                raw_input=raw,
+                needs_clarification=True,
+                clarification=UNSUPPORTED_QUESTION,
+                message=capability_text(),
+                planner="offline",
+            )
+        if match.intent == "help":
+            return Plan(
+                intent="help",
+                confidence=match.confidence,
+                raw_input=raw,
+                message=capability_text(),
+                planner="offline",
+            )
+
         slots = extract_slots(match.intent, raw)
+        missing = missing_slots(match.intent, slots)
+        if missing:
+            return Plan(
+                intent=match.intent,
+                slots=slots,
+                confidence=match.confidence,
+                raw_input=raw,
+                needs_clarification=True,
+                clarification=clarification_for(match.intent, missing[0]),
+                planner="offline",
+            )
+
         steps = build_steps(match.intent, slots, self.config)
+        if not steps and match.intent in EXECUTABLE_INTENTS:
+            required = spec_for(match.intent).required_slots
+            return Plan(
+                intent=match.intent,
+                slots=slots,
+                confidence=match.confidence,
+                raw_input=raw,
+                needs_clarification=True,
+                clarification=clarification_for(match.intent, required[0] if required else "path"),
+                planner="offline",
+            )
+        if len(steps) > self.config.max_steps:
+            return Plan(
+                intent=match.intent,
+                slots=slots,
+                confidence=match.confidence,
+                raw_input=raw,
+                needs_clarification=True,
+                clarification=(
+                    f"That plan needs {len(steps)} steps; please split it into"
+                    f" smaller requests (limit {self.config.max_steps})."
+                ),
+                planner="offline",
+            )
+        if match.confidence < self.config.confidence_threshold:
+            return Plan(
+                intent=match.intent,
+                slots=slots,
+                steps=steps,
+                confidence=match.confidence,
+                raw_input=raw,
+                needs_clarification=True,
+                clarification=(
+                    "I am not confident I understood that"
+                    f" (guess: {match.intent}). Could you rephrase it?"
+                ),
+                planner="offline",
+            )
         return Plan(
             intent=match.intent,
             slots=slots,

@@ -190,6 +190,8 @@ class Plan:
     raw_input: str = ""
     needs_clarification: bool = False
     clarification: str = ""
+    #: User-facing reply for help/unsupported requests (item [59]).
+    message: str = ""
     planner: str = "offline"
 
     @property
