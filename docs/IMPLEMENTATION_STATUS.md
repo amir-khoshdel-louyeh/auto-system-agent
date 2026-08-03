@@ -13,11 +13,25 @@ Legend: `WIP` = in progress, `OK` = all items done **and** gate passed.
 | 3 | DAG executor, policy and approvals | **OK** | immutable version + pinned-run persistence; three-node DAG runs concurrently with timeout/retry/propagation + reverse compensation; `safety.policy_service` decides ALLOW/NEED_APPROVAL/DENY with score/reasons/quorum/policy-version; approval quorum+expiry state machine; adversarial policy suite; full suite + ruff + mypy green |
 | 4 | Redis event bus and workers | **OK** | frozen 5-type contract enforced in code; producer/consumer-group + idempotency + ordering + DLQ contract tests (real Redis guarded to skip); shell/approval workers real, GUI/custom explicit stubs; step state persisted before ack; manual/file.arrived/schedule.tick triggers share one run path; duplicate trigger causes no duplicate side effect |
 | 5 | Audit, metrics and replay | **OK** | append-only hash chain with canonical payloads; `GET /executions/{id}/audit` (paginated), `/timeline`, `/audit/verify` (first broken seq on tamper or deletion) and `/metrics/executions` (success/latency/p95/retries/approval time); real bus runs and approval decisions write their own chain keyed by execution id; replay re-executes the pinned version row (tampered pin refused) under a new correlation id and reports normalized per-node match/missing/unexpected; core coverage `src/engine|safety|storage|bus` = 85.3%; full suite + ruff + mypy green |
-| 6 | Offline planner and optional LLM adapter | TODO | — |
+| 6 | Offline planner and optional LLM adapter | **OK** | frozen intents/slots + versioned `intents-v1` dataset (99 utterances); deterministic normalize→rules→slots pipeline measured at held-out accuracy 1.000, macro-F1 1.000, slot accuracy 1.000, 0.020 ms avg latency, 0.111 fallback rate (docs/PLANNER_EVAL.md); every plan goes through the shared loader/validator/policy (`compile_plan`, `policy_verdicts`); optional typed LLM adapter with timeout/retry/provider fallback and secret-free metadata; W1 acceptance test plans it, runs it over the bus and replays it |
 | 7 | Memory, consent and reputation | TODO | — |
 | 8 | Sandbox and client experience | TODO | — |
 | 9 | Security, usability and deployment hardening | TODO | — |
 | 10 | Final SE package and defense rehearsal | TODO | — |
+
+## Phase 6 item log (closed 2026-10-17)
+
+| # | Item | Status | Commit |
+|---|---|---|---|
+| 55 | Define supported intents and slots | OK | `d4c1874` feat(planner): freeze intents, slots and the canonical plan schema |
+| 56 | Create and version a small labeled dataset | OK | `4f6c508` feat(planner): versioned labeled dataset for supported intents |
+| 57 | Implement normalization and high-precision rules | OK | `b54bf5c` feat(planner): deterministic normalization and high-precision rules |
+| 58 | Implement slot extraction and canonical task schema | OK | `97cc372` feat(planner): slot extraction, canonical steps and the validated plan path |
+| 59 | Add confidence threshold and clarification response | OK | `f7bfa50` feat(planner): confidence threshold and clarification responses |
+| 60 | Add typed LLM adapter behind an interface | OK | `207ee5d` feat(planner): typed LLM adapter behind a model-client interface |
+| 61 | Add timeout, retry, provider failure and invalid-response handling | OK | `3dea7d5` feat(planner): timeouts, retries and provider fallback for the LLM adapter |
+| 62 | Record provider metadata without storing secrets | OK | `3a23786` feat(planner): planner service records provider metadata without secrets |
+| 63 | Measure precision, recall, F1, latency and fallback rate | OK | `e81699a` feat(planner): measure precision, recall, F1, latency and fallback rate |
 
 ## Phase 5 item log (closed 2026-10-17)
 
