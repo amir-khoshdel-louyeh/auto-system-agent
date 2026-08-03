@@ -6,6 +6,10 @@
   and quarantined by the store);
 - `GET /memory/items` and `GET /memory/search` — read side, filtered by
   risk/OS/state through `memory.retrieval`;
+- `POST /memory/items/{id}/episodes` — record a sandbox/reuse outcome, the
+  only path out of quarantine;
+- `GET /memory/metrics` — reuse hits and the generation calls they saved
+  (item [72]);
 - `DELETE /memory/items/{id}` — erasure: the item and its events disappear,
   the consent history stays.
 
@@ -21,8 +25,9 @@ from pydantic import BaseModel, Field
 
 from memory.consent import SCOPE_MEMORY_STORE, ConsentError, ConsentStore
 from memory.retrieval import RetrievalFilters, retrieve
-from memory.states import ALL_STATES
+from memory.states import ALL_STATES, InvalidStateTransition
 from memory.store import RISK_LEVELS, MemoryError, MemoryStore
+from memory.usage import list_retrievals, record_retrieval, summarize
 
 from .deps import CurrentUser, get_current_user, require_permission
 from .roles import Permission
@@ -49,6 +54,12 @@ class StoreItemIn(BaseModel):
     intent: str = Field(default="", max_length=64)
     risk: str = "LOW"
     os_name: str = Field(default="", max_length=64)
+
+
+class EpisodeIn(BaseModel):
+    success: bool
+    rating: float | None = Field(default=None, ge=0.0, le=5.0)
+    detail: str = Field(default="sandbox run", max_length=200)
 
 
 @router.post("/consent")
@@ -160,7 +171,50 @@ def search_items(
         top_k=top_k,
         filters=RetrievalFilters(max_risk=risk, os_name=os_name),
     )
+    best = result.best
+    record_retrieval(
+        store.path,
+        query=q,
+        hit=result.hit,
+        score=best.score if best is not None else 0.0,
+        hit_id=best.id if best is not None else "",
+    )
     return result.as_dict()
+
+
+@router.get("/metrics")
+def memory_metrics(
+    limit: int = Query(1000, ge=1, le=5000),
+    settings: Settings = Depends(get_settings),
+    _: CurrentUser = Depends(require_permission(Permission.AUDIT_READ)),
+) -> dict:
+    """Reuse hits and the planner calls they avoided (item [72])."""
+    store, _consents = _stores(settings)
+    return summarize(list_retrievals(store.path, limit=limit)).as_dict()
+
+
+@router.post("/items/{item_id}/episodes")
+def record_episode(
+    item_id: str,
+    body: EpisodeIn,
+    settings: Settings = Depends(get_settings),
+    _: CurrentUser = Depends(require_permission(Permission.WORKFLOW_RUN)),
+) -> dict:
+    """Record one sandbox/reuse outcome: counters, reputation and state.
+
+    This is the only way a plan moves out of quarantine, so an unproven or
+    failed plan can never become a reuse candidate by accident.
+    """
+    store, _consents = _stores(settings)
+    try:
+        item = store.record_episode(
+            item_id, success=body.success, rating=body.rating, detail=body.detail
+        )
+    except KeyError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except InvalidStateTransition as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return item.as_dict()
 
 
 @router.delete("/items/{item_id}")

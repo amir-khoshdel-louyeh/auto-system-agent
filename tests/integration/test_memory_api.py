@@ -52,6 +52,7 @@ class MemoryApiTests(unittest.TestCase):
         for method, url in (
             ("get", "/memory/items"),
             ("get", "/memory/search?q=workspace"),
+            ("get", "/memory/metrics"),
             ("get", "/memory/consent"),
             ("delete", "/memory/items/abc"),
             ("post", "/memory/consent"),
@@ -144,6 +145,31 @@ class MemoryApiTests(unittest.TestCase):
             ).status_code,
             422,
         )
+
+    # -- metrics ---------------------------------------------------------
+    def test_search_records_reuse_hit_and_no_generation_metrics(self):
+        self.client.post("/memory/consent", json={"granted": True}, headers=self.headers)
+        stored = self._store_plan().json()
+        db = init_db(self.settings.sqlite_path)
+        store = MemoryStore(db)
+        store.record_episode(stored["id"], success=True)
+        store.record_episode(stored["id"], success=True, rating=5)
+
+        self.client.get(
+            "/memory/search", params={"q": "create demo-app workspace"}, headers=self.headers
+        )
+        self.client.get(
+            "/memory/search", params={"q": "provision a kubernetes cluster"}, headers=self.headers
+        )
+
+        metrics = self.client.get("/memory/metrics", headers=self.headers).json()
+        self.assertEqual(metrics["requests"], 2)
+        self.assertEqual(metrics["reuse_hits"], 1)
+        self.assertEqual(metrics["memory_misses"], 1)
+        self.assertEqual(metrics["planner_generations"], 1)
+        self.assertEqual(metrics["planner_calls_avoided"], 1)
+        self.assertEqual(metrics["no_generation_rate"], 0.5)
+        self.assertGreater(metrics["avg_hit_score"], 0.0)
 
     # -- erasure ---------------------------------------------------------
     def test_erasure_removes_the_item_and_keeps_consent_history(self):
