@@ -83,7 +83,16 @@ class RankTests(unittest.TestCase):
         result = rank("anything", [])
         self.assertFalse(result.hit)
         self.assertIsNone(result.best)
-        self.assertEqual(result.as_dict(), {"query": "anything", "hits": []})
+        self.assertEqual(
+            result.as_dict(),
+            {
+                "query": "anything",
+                "considered": 0,
+                "filtered": 0,
+                "rejections": {},
+                "hits": [],
+            },
+        )
 
     def test_identical_text_scores_one(self):
         result = rank("install firefox", [Item("x", "install firefox")])

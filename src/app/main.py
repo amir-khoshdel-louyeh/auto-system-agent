@@ -13,6 +13,7 @@ from .admin import router as admin_router
 from .audit_api import metrics_router
 from .audit_api import router as audit_router
 from .auth import router as auth_router
+from .memory_api import router as memory_router
 from .settings import Settings, get_settings
 from .workflows_api import router as workflows_router
 from .workspaces import teams_router, workspaces_router
@@ -39,6 +40,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(workflows_router)
     application.include_router(audit_router)
     application.include_router(metrics_router)
+    application.include_router(memory_router)
     return application
 
 
