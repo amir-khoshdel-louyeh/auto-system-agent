@@ -13,9 +13,13 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from .embeddings import cosine, deserialize, embed
+from .states import PUBLIC, is_reusable
 
 #: Default number of candidates a caller sees.
 DEFAULT_TOP_K = 5
+
+#: Risk ordering for the `max_risk` filter (higher = more dangerous).
+RISK_ORDER: dict[str, int] = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "UNSAFE": 3}
 
 
 class Embeddable(Protocol):
@@ -55,11 +59,64 @@ class RetrievedItem:
 
 
 @dataclass(frozen=True)
+class RetrievalFilters:
+    """What a caller is willing to reuse (FR-14 filters, item [68]).
+
+    Defaults are the safe ones: only ``PUBLIC`` items, at most ``MEDIUM``
+    risk, any reputation above the floor and any operating system.
+    """
+
+    states: tuple[str, ...] = (PUBLIC,)
+    max_risk: str = "MEDIUM"
+    os_name: str = ""
+    min_reputation: float = 0.0
+    allowed_intents: tuple[str, ...] = ()
+    exclude_ids: tuple[str, ...] = ()
+
+    def rejects(self, item: Any) -> str:
+        """Empty string when the item passes, else the reason it was dropped."""
+        state = str(getattr(item, "state", ""))
+        if self.states and state not in self.states:
+            return f"state {state or '?'} not in {list(self.states)}"
+        if not self.states and not is_reusable(state):
+            return f"state {state or '?'} is not reusable"
+        risk = str(getattr(item, "risk", "LOW"))
+        if RISK_ORDER.get(risk, 3) > RISK_ORDER.get(self.max_risk, 1):
+            return f"risk {risk} above {self.max_risk}"
+        item_os = str(getattr(item, "os_name", ""))
+        if self.os_name and item_os and item_os != self.os_name:
+            return f"os {item_os} incompatible with {self.os_name}"
+        if float(getattr(item, "reputation", 0.0)) < self.min_reputation:
+            return f"reputation below {self.min_reputation}"
+        if self.allowed_intents and str(getattr(item, "intent", "")) not in self.allowed_intents:
+            return f"intent {getattr(item, 'intent', '?')} not allowed"
+        if str(getattr(item, "id", "")) in self.exclude_ids:
+            return "excluded by the caller"
+        return ""
+
+    def accepts(self, item: Any) -> bool:
+        return not self.rejects(item)
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "states": list(self.states),
+            "max_risk": self.max_risk,
+            "os_name": self.os_name,
+            "min_reputation": self.min_reputation,
+            "allowed_intents": list(self.allowed_intents),
+            "exclude_ids": list(self.exclude_ids),
+        }
+
+
+@dataclass(frozen=True)
 class RetrievalResult:
-    """Ranked hits plus the query that produced them (for the audit trail)."""
+    """Ranked hits plus the query and the filter bookkeeping."""
 
     query: str
     hits: tuple[RetrievedItem, ...] = field(default_factory=tuple)
+    considered: int = 0
+    filtered: int = 0
+    rejections: dict[str, int] = field(default_factory=dict)
 
     @property
     def hit(self) -> bool:
@@ -72,6 +129,9 @@ class RetrievalResult:
     def as_dict(self) -> dict[str, Any]:
         return {
             "query": self.query,
+            "considered": self.considered,
+            "filtered": self.filtered,
+            "rejections": dict(self.rejections),
             "hits": [hit.as_dict() for hit in self.hits],
         }
 
@@ -90,7 +150,51 @@ def rank(
     top_k: int = DEFAULT_TOP_K,
     min_score: float = 0.0,
 ) -> RetrievalResult:
-    """Rank candidates by similarity, keeping the best ``top_k``."""
+    """Rank candidates by similarity, keeping the best ``top_k`` (no filters)."""
+    return retrieve(query, items, top_k=top_k, min_score=min_score, filters=None)
+
+
+def retrieve(
+    query: str,
+    items: list[Any],
+    *,
+    top_k: int = DEFAULT_TOP_K,
+    min_score: float = 0.0,
+    filters: RetrievalFilters | None = None,
+) -> RetrievalResult:
+    """Filter candidates, then rank them by similarity (items [67], [68]).
+
+    Filtering happens *before* scoring so a quarantined or high-risk plan can
+    never be presented as a reuse candidate, whatever its similarity.
+    """
+    active = filters or RetrievalFilters()
+    rejections: dict[str, int] = {}
+    kept: list[Any] = []
+    for item in items:
+        reason = active.rejects(item)
+        if reason:
+            key = reason.split(" ")[0]
+            rejections[key] = rejections.get(key, 0) + 1
+            continue
+        kept.append(item)
+    ranked = _score(query, kept, top_k=top_k, min_score=min_score)
+    return RetrievalResult(
+        query=query,
+        hits=ranked.hits,
+        considered=len(items),
+        filtered=len(items) - len(kept),
+        rejections=rejections,
+    )
+
+
+def _score(
+    query: str,
+    items: list[Any],
+    *,
+    top_k: int = DEFAULT_TOP_K,
+    min_score: float = 0.0,
+) -> RetrievalResult:
+    """Similarity ranking of already-filtered candidates."""
     if top_k < 1:
         raise ValueError("top_k must be >= 1")
     query_vector = embed(query)
