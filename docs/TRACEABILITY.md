@@ -36,9 +36,9 @@ without its evidence.
 | FR-11 | Typed worker results; no raw secrets/unbounded output persisted | 40, 43 | `src/bus/workers/core.py`, `src/app/models.py` | `tests/unit/test_bus_workers.py`, `test_bus_persist.py` | OK (bounded summaries; redaction → 85) |
 | FR-12 | Append-only hash-chain audit; tamper detection pinpoints first broken link | 46–48, 54 | `src/storage/audit.py`, `event_logger.py`, `src/bus/workers/dispatcher.py`, `src/app/approvals.py` | `tests/unit/test_audit_chain.py` (canonical hash, tamper/relink/deleted row), `tests/unit/test_audit_trail.py` (every event category), `tests/integration/test_audit_api.py::…verify…`, `tests/integration/test_audit_run_path.py` | OK |
 | FR-13 | Replay with pinned version + correlation ID; report match vs original | 52, 53, 54 | `src/app/replay.py`, `src/engine/executor/replay.py`, `src/bus/workers/dispatcher.py` | `tests/integration/test_replay.py` (pinning, tampered pin, RBAC), `tests/unit/test_engine_replay.py` (normalisation), `tests/acceptance/test_replay.py` (W2 end-to-end) | OK |
-| FR-14 | Consent + PII-scrubbed shared memory; filtered retrieval | 64–68, 71 | `src/storage/templates.py` → `src/memory/` | planned | planned(64–68) |
-| FR-15 | Reputation/quarantine gates reuse | 69, 70 | planned `src/memory/` | planned | planned(69,70) |
-| FR-16 | Structured logs + metrics (count, success, latency, retries, approval time, replay, hits, decisions) | 51, 72 | `src/storage/metrics.py`, `run_metrics.py`, `event_logger.py` | `tests/unit/test_run_metrics.py`, `tests/integration/test_audit_api.py::…metrics…`, `tests/unit/test_p4_services.py::MetricsTests` | OK (51); memory hit-rate → 72 |
+| FR-14 | Consent + PII-scrubbed shared memory; filtered retrieval | 64–68, 71 | `src/memory/{consent,scrub,embeddings,retrieval,store}.py`, `src/app/memory_api.py` | `tests/unit/test_memory_{consent,scrub,embeddings,retrieval,filters}.py`, `tests/integration/test_memory_{store,api}.py` | OK |
+| FR-15 | Reputation/quarantine gates reuse | 69, 70 | `src/memory/{reputation,states,store}.py` | `tests/unit/test_memory_reputation.py`, `tests/integration/test_memory_store.py`, `tests/acceptance/test_memory_reuse_gate.py` | OK |
+| FR-16 | Structured logs + metrics (count, success, latency, retries, approval time, replay, hits, decisions) | 51, 72 | `src/storage/metrics.py`, `run_metrics.py`, `event_logger.py`, `src/memory/usage.py` | `tests/unit/test_run_metrics.py`, `tests/integration/test_audit_api.py::…metrics…`, `tests/unit/test_p4_services.py::MetricsTests`, `tests/unit/test_memory_usage.py`, `tests/integration/test_memory_api.py::…no_generation…` | OK |
 
 ## 3. Non-functional requirements → verification
 
@@ -49,7 +49,7 @@ without its evidence.
 | Maintainability | type hints, focused modules | `mypy src`, `ruff check .` in CI (items 6, 7) | OK |
 | Testability | ≥80% on planner/validator/policy/scheduler/audit | coverage floor in `pyproject.toml`; strict core gate command documented there | core gate `src/engine|safety|storage|bus` = 85.3% (≥80) as of item 54; planner quality floors asserted in `tests/unit/test_planner_eval.py`; global ratchet 63% → raise at item 91 |
 | Security | no arbitrary unapproved command; Bandit + pip-audit pass | `tests/unit/test_execution_safety.py` adversarial cases; CI `bandit -ll`, `pip-audit` | OK (medium+ = 0 findings) |
-| Privacy | PII scrub, consent/erasure tests | items 65, 71 | planned(65,71) |
+| Privacy | PII scrub, consent/erasure tests | `tests/unit/test_memory_scrub.py`, `tests/integration/test_memory_api.py::test_erasure_removes_the_item_and_keeps_consent_history`, `tests/acceptance/test_memory_reuse_gate.py::test_poisoned_plan_is_scrubbed_before_it_can_be_reused` (items 65, 71) | OK |
 | Usability | README demo < 10 min | README quickstart rehearsal (Phase 9 item 87/88) | baseline OK, study → 87 |
 | Deployability | one compose file | `docker compose up --build` (verified image build in item 7) | partial → 88 |
 | Recovery | worker crash/retry/DLQ observable | chaos tests (items 45, 88) | partial (kill-mid-run test OK) |

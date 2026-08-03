@@ -14,10 +14,24 @@ Legend: `WIP` = in progress, `OK` = all items done **and** gate passed.
 | 4 | Redis event bus and workers | **OK** | frozen 5-type contract enforced in code; producer/consumer-group + idempotency + ordering + DLQ contract tests (real Redis guarded to skip); shell/approval workers real, GUI/custom explicit stubs; step state persisted before ack; manual/file.arrived/schedule.tick triggers share one run path; duplicate trigger causes no duplicate side effect |
 | 5 | Audit, metrics and replay | **OK** | append-only hash chain with canonical payloads; `GET /executions/{id}/audit` (paginated), `/timeline`, `/audit/verify` (first broken seq on tamper or deletion) and `/metrics/executions` (success/latency/p95/retries/approval time); real bus runs and approval decisions write their own chain keyed by execution id; replay re-executes the pinned version row (tampered pin refused) under a new correlation id and reports normalized per-node match/missing/unexpected; core coverage `src/engine|safety|storage|bus` = 85.3%; full suite + ruff + mypy green |
 | 6 | Offline planner and optional LLM adapter | **OK** | frozen intents/slots + versioned `intents-v1` dataset (99 utterances); deterministic normalize→rules→slots pipeline measured at held-out accuracy 1.000, macro-F1 1.000, slot accuracy 1.000, 0.020 ms avg latency, 0.111 fallback rate (docs/PLANNER_EVAL.md); every plan goes through the shared loader/validator/policy (`compile_plan`, `policy_verdicts`); optional typed LLM adapter with timeout/retry/provider fallback and secret-free metadata; W1 acceptance test plans it, runs it over the bus and replays it |
-| 7 | Memory, consent and reputation | TODO | — |
+| 7 | Memory, consent and reputation | **OK** | 122 Phase 7 tests (unit + integration + acceptance): consent grant/revoke gates every write (409 without it), plans are PII-scrubbed before persistence and never store the raw value, deterministic hashing embeddings rank with a stable tie-break, filters drop quarantined/high-risk/incompatible-OS items *before* scoring, reputation follows the 0.7/0.3 formula, and QUARANTINED→SANDBOX→PUBLIC is the only promotion path; `POST /memory/items/{id}/episodes` is the only way out of quarantine; erasure removes item + events but keeps consent history; `GET /memory/metrics` reports reuse hits and the planner calls they avoided (raw queries are hashed, never stored); gate acceptance test proves a proven safe plan is reused while a failed plan returns to quarantine and a PII plan is reused scrubbed; migrations 006–007 apply once via the checksum runner; full suite (811 tests, 651 subtests) + ruff + mypy green |
 | 8 | Sandbox and client experience | TODO | — |
 | 9 | Security, usability and deployment hardening | TODO | — |
 | 10 | Final SE package and defense rehearsal | TODO | — |
+
+## Phase 7 item log (closed 2026-10-17)
+
+| # | Item | Status | Commit |
+|---|---|---|---|
+| 64 | Implement consent records and revocation | OK | `45c2e65` feat(memory): consent records with revocation and memory schema |
+| 65 | Implement PII scrub before persistence | OK | `3262a98` feat(memory): PII and secret scrubbing before persistence |
+| 66 | Add deterministic local embeddings for tests | OK | `6d450ae` feat(memory): deterministic local hashing embeddings |
+| 67 | Add similarity retrieval and top-k ranking | OK | `df2f8ab` feat(memory): similarity retrieval with deterministic top-k ranking |
+| 68 | Filter by risk, OS compatibility and quarantine state | OK | `d89eb06` feat(memory): filter reuse by risk, OS and quarantine state |
+| 69 | Implement reputation formula and update rules | OK | `474f670` feat(memory): explainable reputation formula and update rules |
+| 70 | Implement QUARANTINED, SANDBOX and PUBLIC states | OK | `14c0298` feat(memory): consent-gated store with quarantine, promotion and erasure |
+| 71 | Add erasure endpoint and erasure integration test | OK | `01a9708` feat(app): memory consent, store, search and erasure endpoints |
+| 72 | Add reuse-hit and no-generation-cost metrics | OK | `a6d33e2` feat(memory): reuse-hit, no-generation-cost metrics and outcome endpoint |
 
 ## Phase 6 item log (closed 2026-10-17)
 
