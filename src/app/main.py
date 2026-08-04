@@ -15,6 +15,7 @@ from .audit_api import metrics_router
 from .audit_api import router as audit_router
 from .auth import router as auth_router
 from .limits import RequestLimits
+from .logging import AccessLogMiddleware, configure_logging
 from .memory_api import router as memory_router
 from .policy_api import router as policy_router
 from .settings import Settings, get_settings
@@ -31,8 +32,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # the factory was built with, not a fresh env read.
     application.dependency_overrides[get_settings] = lambda: settings
 
-    # Phase 9 item [84]: body cap + per-client rate limits before any route.
+    # Phase 9 items [84]/[85]: rate limits inside, redacted access log outside,
+    # so even a rejected 429 is logged as one structured line.
     application.add_middleware(RequestLimits, settings=settings)
+    application.add_middleware(AccessLogMiddleware)
+    if settings.environment in ("staging", "production"):
+        configure_logging(settings.log_level)
 
     @application.get("/health", tags=["System"])
     def health_check() -> dict[str, str]:

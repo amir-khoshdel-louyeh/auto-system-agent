@@ -21,6 +21,7 @@ from .roles import parse_role
 DEFAULT_SECRET_KEY = "insecure-secret-key-change-this"
 DEFAULT_PASSWORDS = frozenset({"admin", "change-me", "password", "changeme", "postgres"})
 ENVIRONMENTS = frozenset({"development", "staging", "production", "pytest"})
+LOG_LEVELS = frozenset({"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"})
 
 
 class SettingsError(RuntimeError):
@@ -62,6 +63,8 @@ class Settings:
     max_request_bytes: int = 1_048_576
     rate_limit_per_minute: int = 1200
     login_rate_limit_per_minute: int = 10
+    # Phase 9 item [85]: JSON logging in non-development environments.
+    log_level: str = "INFO"
 
     def __post_init__(self) -> None:
         self.validate()
@@ -97,6 +100,8 @@ class Settings:
             raise SettingsError("RATE_LIMIT_PER_MINUTE must be >= 1")
         if self.login_rate_limit_per_minute < 1:
             raise SettingsError("LOGIN_RATE_LIMIT_PER_MINUTE must be >= 1")
+        if self.log_level.upper() not in LOG_LEVELS:
+            raise SettingsError(f"LOG_LEVEL must be one of {sorted(LOG_LEVELS)}")
         try:
             parse_role(self.admin_role)
         except ValueError as exc:
@@ -144,4 +149,5 @@ def get_settings() -> Settings:
         max_request_bytes=_get_int("MAX_REQUEST_BYTES", 1_048_576),
         rate_limit_per_minute=_get_int("RATE_LIMIT_PER_MINUTE", 1200),
         login_rate_limit_per_minute=_get_int("LOGIN_RATE_LIMIT_PER_MINUTE", 10),
+        log_level=_get("LOG_LEVEL", "INFO"),
     )
