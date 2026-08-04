@@ -1,7 +1,12 @@
 # Phase 0 API extras (Docker image + local `pip install -r requirements-api.txt`).
 # Base requirements.txt stays stdlib-only so the Tkinter client ships dependency-free.
-fastapi>=0.115
-uvicorn[standard]>=0.30
-httpx>=0.28
-redis>=5  # phase 3 event bus (Redis Streams broker); stdlib-only elsewhere
-asyncpg>=0.30  # reserved for the upcoming SQLAlchemy phase (DATABASE_URL target)
+#
+# Phase 9 item [82]: exact pins, taken from the dependency-audited environment
+# (2026-10-18, `pip-audit` clean). Ranges were replaced so the image, CI and a
+# developer machine resolve the same versions; upgrades are a deliberate commit
+# that re-runs the audit.
+fastapi==0.136.3
+uvicorn[standard]==0.40.0
+httpx==0.28.1
+redis==8.1.0  # phase 3 event bus (Redis Streams broker); stdlib-only elsewhere
+asyncpg==0.32.0  # reserved for the upcoming SQLAlchemy phase (DATABASE_URL target)
