@@ -26,8 +26,10 @@ from scripts.secret_scan import (
 #: Deliberately planted, well-known non-secret examples.
 AWS_EXAMPLE = "AKIA" + "IOSFODNN7EXAMPLE"
 GITHUB_EXAMPLE = "ghp_" + "0" * 36
-JWT_EXAMPLE = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiJ9.c2lnbmF0dXJl"
-PRIVATE_KEY_EXAMPLE = "-----BEGIN RSA PRIVATE KEY-----"
+JWT_EXAMPLE = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiJ9.c2lnbmF0dXJl"  # secret-scan: allow - dummy JWT fixture
+PRIVATE_KEY_EXAMPLE = (
+    "-----BEGIN RSA PRIVATE KEY-----"  # secret-scan: allow - header only, no key body
+)
 
 
 class RuleTests(unittest.TestCase):
