@@ -47,8 +47,6 @@ MAX_FILE_BYTES = 1_000_000
 #: Address-space cap for the child (512 MiB).
 MAX_ADDRESS_SPACE = 512 * 1024 * 1024
 
-BWRAP_PROBE_WORKSPACE = "/tmp"
-
 
 @lru_cache(maxsize=1)
 def bwrap_available() -> bool:
@@ -165,6 +163,10 @@ def _bwrap_argv(
         if Path(cache).exists():
             argv += ["--ro-bind", cache, cache]
     argv += [
+        # The sandbox gets its own private tmpfs, so a plugin cannot reach the
+        # host's /tmp (this is the opposite of an insecure temp directory).
+        "--tmpfs",
+        "/tmp",  # nosec B108 - namespaced mount target, not a host temp path
         "--bind",
         str(workspace),
         "/work",
@@ -174,8 +176,6 @@ def _bwrap_argv(
         "--ro-bind",
         str(HARNESS.parent),
         "/harness",
-        "--tmpfs",
-        "/tmp",
         "--proc",
         "/proc",
         "--dev",
@@ -375,7 +375,6 @@ def _summary(
 
 
 __all__ = [
-    "BWRAP_PROBE_WORKSPACE",
     "HARNESS",
     "MAX_ADDRESS_SPACE",
     "MAX_FILE_BYTES",

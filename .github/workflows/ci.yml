@@ -79,6 +79,11 @@ jobs:
       - name: Dependency vulnerability audit
         run: pip-audit -r requirements-api.txt
 
+      # Phase 9 item [82]: committed credentials fail the build. Fixture
+      # exemptions are explicit inline markers, never a config allow-list.
+      - name: Secret scan
+        run: python scripts/secret_scan.py
+
   docker:
     name: docker build
     runs-on: ubuntu-latest

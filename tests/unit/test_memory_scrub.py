@@ -23,7 +23,8 @@ class ScrubTextTests(unittest.TestCase):
         for secret, example in (
             ("sk-live-0123456789abcdef", "export KEY=sk-live-0123456789abcdef"),
             ("ghp_0123456789abcdefghij", "token ghp_0123456789abcdefghij"),
-            ("AKIAIOSFODNN7EXAMPLE", "aws AKIAIOSFODNN7EXAMPLE"),
+            # The AWS documentation example key, not a credential.
+            ("AKIAIOSFODNN7EXAMPLE", "aws AKIAIOSFODNN7EXAMPLE"),  # secret-scan: allow
         ):
             with self.subTest(secret=secret):
                 result = scrub(example)

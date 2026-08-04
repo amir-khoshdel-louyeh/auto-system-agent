@@ -27,7 +27,7 @@ from app.logging import (
     redact_value,
 )
 
-BEARER = "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiJ9.c2lnbmF0dXJl"
+BEARER = "Bearer eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiJ9.c2lnbmF0dXJl"  # secret-scan: allow - dummy JWT fixture
 
 
 class KeyRedactionTests(unittest.TestCase):
