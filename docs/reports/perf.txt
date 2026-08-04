@@ -1,0 +1,16 @@
+benchmark 2026-10-18T13:19:25+0200
+  python 3.14.8 on x86_64 (24 cpus, bwrap=True)
+
+API (milliseconds, lower is better):
+  endpoint        count  p50     p95     p99     max     mean    req/s
+  health            300     4.2    5.92    7.13    7.88    4.19  1862.1
+  executions        300   22.36   33.92    44.0   60.32    23.3   335.8
+  audit_page        300   18.15   29.46   58.35   81.21   19.82   395.4
+
+  worst p95 = 33.92 ms vs target 300.0 ms -> PASS
+
+Workers:
+  shell worker      200 events in 0.002s = 128883.1 events/s
+  sandbox worker    20 runs in 0.761s = 26.27 runs/s (38.1 ms/run, isolation=bwrap)
+
+raw result written to docs/reports/perf.json
