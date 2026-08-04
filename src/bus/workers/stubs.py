@@ -1,10 +1,11 @@
-"""Vision/custom stub workers: explicit not-implemented verdicts (MVP).
+"""Vision stub workers: explicit not-implemented verdicts (MVP).
 
-`gui_click`/`gui_type` need the OS-tree/VLM grounding loop (phase 6, C7a)
-and `custom` needs the sandboxed Plugin SDK (phase 6/7, C8/C9). Until then
-these stubs consume their `steps:<type>` tasks and answer `step.failed`
-with a precise reason instead of silently dropping work — fail-closed and
-auditable.
+`gui_click`/`gui_type` need the OS-tree/VLM grounding loop (C7a). They
+consume their `steps:<type>` tasks and answer `step.failed` with a precise
+reason instead of silently dropping work — fail-closed and auditable.
+
+The `custom` node type is no longer a stub: it runs registered plugins in
+the Phase 8 sandbox (`bus.workers.custom`).
 """
 
 from __future__ import annotations
@@ -18,7 +19,6 @@ from .core import make_step_worker
 STUB_REASONS = {
     "gui_click": "vision-worker stub: OS-tree/VLM grounding arrives phase 6 (C7a)",
     "gui_type": "vision-worker stub: OS-tree/VLM grounding arrives phase 6 (C7a)",
-    "custom": "custom-worker stub: sandboxed Plugin SDK arrives phase 6/7 (C8/C9)",
 }
 
 

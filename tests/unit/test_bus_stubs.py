@@ -1,9 +1,10 @@
-"""Phase 4 item [41]: GUI/custom contract workers are explicit stubs (FR-04).
+"""Phase 4 item [41]: GUI contract workers are explicit stubs (FR-04).
 
-`gui_click`, `gui_type` need OS-tree/VLM grounding and `custom` needs the
-sandboxed Plugin SDK. Until then their workers are deliberately
-non-production: they consume their tasks and answer `step.failed` with a
-precise reason (fail closed, never a silent drop or a fake success).
+`gui_click`/`gui_type` need OS-tree/VLM grounding. Until then their workers
+are deliberately non-production: they consume their tasks and answer
+`step.failed` with a precise reason (fail closed, never a silent drop or a
+fake success). `custom` left the stub set in Phase 8: it now runs registered
+plugins in the sandbox (`bus.workers.custom`).
 """
 
 import asyncio
@@ -40,10 +41,13 @@ class StubWorkerTests(unittest.TestCase):
         return _run(scenario())
 
     def test_every_future_worker_type_has_a_stub(self):
-        self.assertEqual(set(STUB_REASONS), {"gui_click", "gui_type", "custom"})
+        self.assertEqual(set(STUB_REASONS), {"gui_click", "gui_type"})
+
+    def test_custom_is_no_longer_a_stub(self):
+        self.assertNotIn("custom", STUB_REASONS)
 
     def test_stubs_fail_closed_with_an_explicit_reason(self):
-        for node_type in ("gui_click", "gui_type", "custom"):
+        for node_type in ("gui_click", "gui_type"):
             with self.subTest(node_type=node_type):
                 event = self._execute(node_type)
                 self.assertEqual(event.type, "step.failed")
@@ -51,7 +55,7 @@ class StubWorkerTests(unittest.TestCase):
                 self.assertIn("phase", event.data["error"])
 
     def test_stub_never_reports_success(self):
-        for node_type in ("gui_click", "gui_type", "custom"):
+        for node_type in ("gui_click", "gui_type"):
             with self.subTest(node_type=node_type):
                 event = self._execute(node_type)
                 self.assertNotEqual(event.type, "step.finished")
