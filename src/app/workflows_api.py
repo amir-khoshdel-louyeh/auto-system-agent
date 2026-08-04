@@ -1,4 +1,8 @@
-"""Phase 2 item [25]: `POST /workflows/validate` (FR-04, gate for Phase 2).
+"""Phase 2 item [25] / Phase 8 item [79]: workflow validation and dry run.
+
+`POST /workflows/validate` is the Phase 2 contract; `POST /workflows/dry-run`
+adds the Phase 8 safe preview (same validation, plus every node's policy
+verdict and explanation) without persisting or dispatching anything.
 
 Validates a DSL document without touching persistence: the report carries
 `valid`, the parsed `name`/`version` and every finding as
@@ -44,6 +48,10 @@ class ValidateIn(BaseModel):
     dsl_type: Literal["yaml", "json"] = "yaml"
 
 
+class DryRunIn(ValidateIn):
+    workspace_root: str = Field(default="", max_length=1024)
+
+
 def _error_out(stage: str, message: str, line: int, column: int) -> dict:
     """One finding with the frozen shape; positions are always >= 1.
 
@@ -61,6 +69,23 @@ def _error_out(stage: str, message: str, line: int, column: int) -> dict:
 
 def _response(body: dict, *, valid: bool) -> JSONResponse:
     return JSONResponse(status_code=status.HTTP_200_OK if valid else 422, content=body)
+
+
+@router.post("/dry-run")
+def dry_run_workflow(
+    body: DryRunIn,
+    user: CurrentUser = Depends(require_permission(Permission.RUN_READ)),
+) -> JSONResponse:
+    """Validate and gate a workflow without running it (item [79])."""
+    from safety.dryrun import dry_run
+
+    report = dry_run(
+        body.dsl,
+        dsl_type=body.dsl_type,
+        role=user.role.value,
+        workspace_root=body.workspace_root,
+    )
+    return _response(report.as_dict(), valid=report.valid)
 
 
 @router.post("/validate")
