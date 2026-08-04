@@ -15,9 +15,22 @@ Legend: `WIP` = in progress, `OK` = all items done **and** gate passed.
 | 5 | Audit, metrics and replay | **OK** | append-only hash chain with canonical payloads; `GET /executions/{id}/audit` (paginated), `/timeline`, `/audit/verify` (first broken seq on tamper or deletion) and `/metrics/executions` (success/latency/p95/retries/approval time); real bus runs and approval decisions write their own chain keyed by execution id; replay re-executes the pinned version row (tampered pin refused) under a new correlation id and reports normalized per-node match/missing/unexpected; core coverage `src/engine|safety|storage|bus` = 85.3%; full suite + ruff + mypy green |
 | 6 | Offline planner and optional LLM adapter | **OK** | frozen intents/slots + versioned `intents-v1` dataset (99 utterances); deterministic normalize→rules→slots pipeline measured at held-out accuracy 1.000, macro-F1 1.000, slot accuracy 1.000, 0.020 ms avg latency, 0.111 fallback rate (docs/PLANNER_EVAL.md); every plan goes through the shared loader/validator/policy (`compile_plan`, `policy_verdicts`); optional typed LLM adapter with timeout/retry/provider fallback and secret-free metadata; W1 acceptance test plans it, runs it over the bus and replays it |
 | 7 | Memory, consent and reputation | **OK** | 122 Phase 7 tests (unit + integration + acceptance): consent grant/revoke gates every write (409 without it), plans are PII-scrubbed before persistence and never store the raw value, deterministic hashing embeddings rank with a stable tie-break, filters drop quarantined/high-risk/incompatible-OS items *before* scoring, reputation follows the 0.7/0.3 formula, and QUARANTINED→SANDBOX→PUBLIC is the only promotion path; `POST /memory/items/{id}/episodes` is the only way out of quarantine; erasure removes item + events but keeps consent history; `GET /memory/metrics` reports reuse hits and the planner calls they avoided (raw queries are hashed, never stored); gate acceptance test proves a proven safe plan is reused while a failed plan returns to quarantine and a PII plan is reused scrubbed; migrations 006–007 apply once via the checksum runner; full suite (811 tests, 651 subtests) + ruff + mypy green |
-| 8 | Sandbox and client experience | TODO | — |
+| 8 | Sandbox and client experience | **OK** | frozen `sandbox-v1` contract (relative-only paths, bounded timeout/output/seed budget, fixed result keys); two isolation layers exercised — `bwrap` namespaces on this host, audit hook as the tested fallback — and every escape vector (`../`, absolute path, symlink, delete outside, `/etc/passwd` read, `subprocess`, socket) denied with the outside tree byte-identical afterwards; wall-clock/memory/file-size limits kill the hog cases and `command` is refused without OS isolation; manifests validate before registration, unknown/duplicate/mis-declared plugins never run, and an escaping `custom` node becomes `step.failed` through the bus worker; four Tkinter screens (workflow, runs, approvals, audit) drive `GET /executions`, `GET /approvals`, decisions under `approval:decide` (409 on terminal), timeline and audit/verify, proven by a live-uvicorn walkthrough; `POST /workflows/dry-run` is inert (`persisted=False`, `dispatched=False`) and blocks an untrusted `rm -rf ../outside` plan; `POST /policy/explain` adds role-aware headline/why/next-step; 121 Phase 8 tests, full suite 933 passed + 2 skipped, ruff/format/mypy green |
 | 9 | Security, usability and deployment hardening | TODO | — |
 | 10 | Final SE package and defense rehearsal | TODO | — |
+
+## Phase 8 item log (closed 2026-10-18)
+
+| # | Item | Status | Commit |
+|---|---|---|---|
+| 73 | Define sandbox request/response contract | OK | `b347832` feat(sandbox): frozen contract and enforced isolation limits |
+| 74 | Enforce timeout, no network, restricted filesystem and resource limits | OK | `b347832` feat(sandbox): frozen contract and enforced isolation limits |
+| 75 | Add plugin manifest validation | OK | `64a1b03` feat(sandbox): validate plugin manifests and run custom nodes sandboxed |
+| 76 | Run custom nodes sandbox-first | OK | `64a1b03` feat(sandbox): validate plugin manifests and run custom nodes sandboxed |
+| 77 | Add Tkinter screens for workflow, run, approval and audit views | OK | `bdf9b55` feat(client): workbench screens for workflow, runs, approvals and audit |
+| 78 | Add human-readable policy explanations | OK | `861a980` feat(safety): readable policy explanations and a safe dry-run |
+| 79 | Add a safe dry-run mode | OK | `861a980` feat(safety): readable policy explanations and a safe dry-run |
+| 80 | Add sandbox contract and UI walkthrough tests | OK | `b6217e1` test(client): walk the workbench screens against a live API |
 
 ## Phase 7 item log (closed 2026-10-17)
 
