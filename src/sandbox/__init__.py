@@ -1,4 +1,4 @@
-"""Phase 8: sandbox contract, enforcement and the plugin manifest (FR-17).
+"""Phase 8: sandbox contract, enforcement and the plugin manifest (proposal §10.8).
 
 `contract` freezes what a sandbox request and result look like, `runner`
 executes one request with namespace + audit-hook isolation, and `manifest`

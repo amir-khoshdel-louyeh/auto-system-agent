@@ -1,4 +1,4 @@
-"""Phase 8 item [75]: plugin manifest validation (FR-17).
+"""Phase 8 item [75]: plugin manifest validation (proposal §10.8).
 
 A plugin is registered by declaration, not by trust: the manifest names the
 entrypoint, the typed inputs/outputs it exchanges and the capabilities it

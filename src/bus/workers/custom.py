@@ -1,4 +1,4 @@
-"""Phase 8 item [76]: the `custom` worker runs plugins sandbox-first (FR-17).
+"""Phase 8 item [76]: the `custom` worker runs plugins sandbox-first (proposal §10.8).
 
 A `custom` node names a registered plugin (`func`) and its inputs; the worker
 checks the declaration, runs the plugin in the sandbox — never in the worker
