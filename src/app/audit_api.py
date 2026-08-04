@@ -19,7 +19,7 @@ from storage.run_metrics import summarize
 
 from .approvals import ApprovalService
 from .deps import CurrentUser, require_permission
-from .models import ExecutionStore
+from .models import ExecutionStore, WorkflowStore
 from .roles import Permission
 from .settings import Settings, get_settings
 
@@ -33,6 +33,18 @@ def _audit_store(settings: Settings) -> AuditStore:
     return AuditStore(init_db(settings.sqlite_path))
 
 
+def _workflow_names(settings: Settings, workflow_ids: list[str]) -> dict[str, str]:
+    """Human labels for the run screens: ``workflow_id -> name``."""
+    from .db import init_db
+
+    store = WorkflowStore(init_db(settings.sqlite_path))
+    names: dict[str, str] = {}
+    for workflow_id in dict.fromkeys(workflow_ids):
+        found = store.get_workflow(workflow_id)
+        names[workflow_id] = str(found["name"]) if found else ""
+    return names
+
+
 @router.get("")
 def list_executions(
     limit: int = Query(50, ge=1, le=500),
@@ -43,12 +55,14 @@ def list_executions(
     from .db import init_db
 
     rows = ExecutionStore(init_db(settings.sqlite_path)).list_executions(limit=limit)
+    names = _workflow_names(settings, [str(row["workflow_id"]) for row in rows])
     return {
         "total": len(rows),
         "executions": [
             {
                 "id": row["id"],
                 "workflow_id": row["workflow_id"],
+                "workflow_name": names.get(str(row["workflow_id"]), ""),
                 "version": row["version"],
                 "status": row["status"],
                 "triggered_by": row["triggered_by"],
@@ -124,9 +138,11 @@ def execution_timeline(
         }
         for step in execution["steps"]
     ]
+    names = _workflow_names(settings, [str(execution["workflow_id"])])
     return {
         "execution_id": execution_id,
         "workflow_id": execution["workflow_id"],
+        "workflow_name": names.get(str(execution["workflow_id"]), ""),
         "version": execution["version"],
         "status": execution["status"],
         "triggered_by": execution["triggered_by"],

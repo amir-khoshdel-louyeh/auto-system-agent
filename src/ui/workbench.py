@@ -25,6 +25,11 @@ APPROVE = "APPROVED"
 REJECT = "REJECTED"
 
 
+def _workflow_label(report: dict[str, Any]) -> str:
+    """The name the API resolved, or the id when it could not."""
+    return str(report.get("workflow_name") or report.get("workflow_id") or "")
+
+
 class WorkbenchApi(Protocol):
     """The slice of the client the screens depend on."""
 
@@ -107,8 +112,8 @@ class WorkbenchView:
         self.status = f"{len(rows)} run(s)"
         return [
             f"{row.get('started_at', '')}  {row.get('status', ''):<9}  "
-            f"v{row.get('version', 0)}  {str(row.get('id', ''))[:8]}  "
-            f"{row.get('triggered_by', '')}"
+            f"v{row.get('version', 0)}  {_workflow_label(row)}  "
+            f"{str(row.get('id', ''))[:8]}  {row.get('triggered_by', '')}"
             for row in rows
         ]
 
@@ -116,7 +121,7 @@ class WorkbenchView:
         """Step transitions for one run."""
         report = self.client.timeline(execution_id)
         lines = [
-            f"{report.get('status', '')} {report.get('workflow_id', '')} "
+            f"{report.get('status', '')} {_workflow_label(report)} "
             f"v{report.get('version', 0)} — {report.get('started_at', '')}"
         ]
         for step in report.get("steps", []):
