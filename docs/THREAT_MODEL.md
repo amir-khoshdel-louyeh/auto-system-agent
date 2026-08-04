@@ -101,7 +101,7 @@ flowchart LR
 | **R**epudiation | Event processed but not recorded | Persist-before-ack plus audit sink on the execution chain | `tests/unit/test_bus_persist.py`, `tests/integration/test_audit_run_path.py` |
 | **I**nformation disclosure | Raw stdout/secrets persisted in events | Workers store bounded summaries (2 000 chars), never raw payloads or secrets | `src/app/models.py::record_step`, `tests/unit/test_bus_workers.py` |
 | **D**enial of service | Poison message loops forever | Bounded retries with exponential backoff, then dead-letter stream | `src/bus/consumer.py`, `tests/unit/test_bus_retry.py` |
-| **D**enial of service | Unauthenticated Redis on a public port | `compose.yml` publishes Redis for local development only; production guidance is to keep it on the internal network (`docs/SECURITY_REPORT.md` §Residual) | residual |
+| **D**enial of service | Unauthenticated Redis on a public port | `compose.yml` publishes Redis for local development only; `compose.prod.yml` requires `REDIS_PASSWORD`, enables `--requirepass` and publishes nothing but the API on loopback | `compose.prod.yml`, `tests/integration/test_production_config.py` |
 | **E**levation of privilege | A forged event grants a node permissions it should not have | Workers re-apply policy per node and never trust a producer-supplied verdict; unknown event types are dropped | `src/bus/workers/dispatcher.py`, `tests/unit/test_bus_events.py` |
 
 ### 3.4 Boundary B4 — API to sandbox
@@ -152,7 +152,7 @@ flowchart LR
 | Risk | Why it remains | Compensating control | Owner action |
 |---|---|---|---|
 | Plain HTTP in compose | local demo only | documented, TLS expected at the edge | terminate TLS before any shared deployment |
-| Redis without auth | single-host demo | bind to the compose network, no public port in production overlay | enable `requirepass` and a private network |
+| Redis without auth | the *development* stack keeps it open for a one-command demo | `compose.prod.yml` requires a password and publishes no broker port | use `compose.prod.yml` for anything shared |
 | In-process rate limiting | one API process | per-process buckets; a proxy limit is the multi-replica answer | add edge rate limiting when scaling out |
 | Sandbox depends on `bwrap` for `command` nodes | kernel/user-namespace availability | plugin path still guarded by the audit hook; `command` refused without namespaces | keep plugin nodes for untrusted work |
 | SQLite single-writer | MVP scope | WAL-free short transactions, low concurrency | migrate to PostgreSQL before horizontal scale |

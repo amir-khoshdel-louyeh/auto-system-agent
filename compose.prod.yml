@@ -1,0 +1,93 @@
+# Phase 9 item [83]: production deployment — no development default secrets.
+#
+# `compose.yml` is the developer stack: it works from a clone because every
+# value has a dev default. This file is the production answer to the same
+# topology and is deliberately *not* an overlay: it never inherits a dev
+# default, and every credential must be supplied or compose refuses to start
+# (`${VAR:?message}` fails fast at parse time instead of shipping
+# `insecure-secret-key-change-this` to a real deployment).
+#
+# Usage:
+#   export SECRET_KEY=$(python -c "import secrets; print(secrets.token_urlsafe(48))")
+#   export APP_ADMIN_PASSWORD=... POSTGRES_PASSWORD=... REDIS_PASSWORD=...
+#   docker compose -f compose.prod.yml up -d --build
+#
+# TLS terminates in front of the API: the published port is bound to the
+# loopback interface, and the database and broker are not published at all.
+name: auto-system-agent-prod
+
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set for production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for production}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set for production}
+    # No `ports:` — the database is only reachable on the internal network.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    # Authentication is required in production (threat model §5).
+    command:
+      [
+        "redis-server",
+        "--requirepass",
+        "${REDIS_PASSWORD:?REDIS_PASSWORD must be set for production}",
+        "--appendonly",
+        "yes",
+      ]
+    # No `ports:` — the broker is only reachable on the internal network.
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set for production}
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      ENVIRONMENT: production
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set for production}
+      APP_ADMIN_USER: ${APP_ADMIN_USER:?APP_ADMIN_USER must be set for production}
+      APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:?APP_ADMIN_PASSWORD must be set for production}
+      POSTGRES_SERVER: db
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER must be set for production}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set for production}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB must be set for production}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set for production}@redis:6379/0
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-1200}
+      LOGIN_RATE_LIMIT_PER_MINUTE: ${LOGIN_RATE_LIMIT_PER_MINUTE:-10}
+      TOKEN_TTL_MINUTES: ${TOKEN_TTL_MINUTES:-60}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  redisdata:
