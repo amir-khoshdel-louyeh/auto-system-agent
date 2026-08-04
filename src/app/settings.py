@@ -58,6 +58,10 @@ class Settings:
     redis_url: str = "redis://localhost:6379/0"
     token_ttl_minutes: int = 60
     sqlite_path: str = "data/app.db"  # auth/user database (items [11]-[15])
+    # Phase 9 item [84]: ingress guards (see app.limits).
+    max_request_bytes: int = 1_048_576
+    rate_limit_per_minute: int = 1200
+    login_rate_limit_per_minute: int = 10
 
     def __post_init__(self) -> None:
         self.validate()
@@ -87,6 +91,12 @@ class Settings:
             raise SettingsError(f"REDIS_URL must be a redis scheme, got {self.redis_url!r}")
         if not self.sqlite_path.strip():
             raise SettingsError("SQLITE_PATH must not be empty")
+        if self.max_request_bytes < 1024:
+            raise SettingsError("MAX_REQUEST_BYTES must be >= 1024")
+        if self.rate_limit_per_minute < 1:
+            raise SettingsError("RATE_LIMIT_PER_MINUTE must be >= 1")
+        if self.login_rate_limit_per_minute < 1:
+            raise SettingsError("LOGIN_RATE_LIMIT_PER_MINUTE must be >= 1")
         try:
             parse_role(self.admin_role)
         except ValueError as exc:
@@ -131,4 +141,7 @@ def get_settings() -> Settings:
         token_ttl_minutes=_get_int("TOKEN_TTL_MINUTES", 60),
         admin_role=_get("APP_ADMIN_ROLE", "OWNER"),
         sqlite_path=_get("SQLITE_PATH", "data/app.db"),
+        max_request_bytes=_get_int("MAX_REQUEST_BYTES", 1_048_576),
+        rate_limit_per_minute=_get_int("RATE_LIMIT_PER_MINUTE", 1200),
+        login_rate_limit_per_minute=_get_int("LOGIN_RATE_LIMIT_PER_MINUTE", 10),
     )

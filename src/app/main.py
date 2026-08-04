@@ -14,6 +14,7 @@ from .approvals_api import router as approvals_router
 from .audit_api import metrics_router
 from .audit_api import router as audit_router
 from .auth import router as auth_router
+from .limits import RequestLimits
 from .memory_api import router as memory_router
 from .policy_api import router as policy_router
 from .settings import Settings, get_settings
@@ -29,6 +30,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     # Route dependencies (e.g. login) must see the same Settings object
     # the factory was built with, not a fresh env read.
     application.dependency_overrides[get_settings] = lambda: settings
+
+    # Phase 9 item [84]: body cap + per-client rate limits before any route.
+    application.add_middleware(RequestLimits, settings=settings)
 
     @application.get("/health", tags=["System"])
     def health_check() -> dict[str, str]:
