@@ -33,6 +33,34 @@ def _audit_store(settings: Settings) -> AuditStore:
     return AuditStore(init_db(settings.sqlite_path))
 
 
+@router.get("")
+def list_executions(
+    limit: int = Query(50, ge=1, le=500),
+    settings: Settings = Depends(get_settings),
+    _: CurrentUser = Depends(require_permission(Permission.RUN_READ)),
+) -> dict:
+    """Newest executions first — the run list the client shows (item [77])."""
+    from .db import init_db
+
+    rows = ExecutionStore(init_db(settings.sqlite_path)).list_executions(limit=limit)
+    return {
+        "total": len(rows),
+        "executions": [
+            {
+                "id": row["id"],
+                "workflow_id": row["workflow_id"],
+                "version": row["version"],
+                "status": row["status"],
+                "triggered_by": row["triggered_by"],
+                "started_at": row["started_at"],
+                "finished_at": row["finished_at"],
+                "error": row["error"],
+            }
+            for row in rows
+        ],
+    }
+
+
 @router.get("/{execution_id}/audit")
 def query_audit(
     execution_id: str,
