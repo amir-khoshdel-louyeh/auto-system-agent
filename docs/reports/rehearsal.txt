@@ -1,0 +1,97 @@
+rehearsal 2026-10-18T14:13:08+02:00
+host: Linux 7.2.9-201.fc44.x86_64 x86_64 | python Python 3.14.8 | workspace /tmp/asa-rehearsal-x1uH8f
+commit: 630ce61
+
+=== W1 scaffold (mkdir + venv + README, traversal denied)
+..                                                                       [100%]
+--- W1 scaffold (mkdir + venv + README, traversal denied): PASS
+
+=== W2 install fallback (manager matrix + selector rewrite)
+..                                                                [100%]
+--- W2 install fallback (manager matrix + selector rewrite): PASS
+
+=== W3 log batch (500 logs, zip, checksum, no freeze)
+.                                                                        [100%]
+--- W3 log batch (500 logs, zip, checksum, no freeze): PASS
+
+=== W1 through the planner, validator, bus and replay
+....                                                                     [100%]
+--- W1 through the planner, validator, bus and replay: PASS
+
+=== Replay from the pinned version (match vs original)
+....                                                                     [100%]
+--- Replay from the pinned version (match vs original): PASS
+
+=== Memory reuse gate (safe plan reused, failed plan quarantined)
+....                                                                     [100%]
+--- Memory reuse gate (safe plan reused, failed plan quarantined): PASS
+
+=== Sandbox gate (untrusted code cannot leave its workspace)
+...............                                                          [100%]
+--- Sandbox gate (untrusted code cannot leave its workspace): PASS
+
+=== Client walkthrough against a live API (four screens)
+...............                                                          [100%]
+=============================== warnings summary ===============================
+tests/acceptance/test_workbench_walkthrough.py::LoginTests::test_anonymous_client_is_refused
+  /home/amir/.local/lib/python3.14/site-packages/websockets/legacy/__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions
+    warnings.warn(  # deprecated in 14.0 - 2024-11-09
+
+tests/acceptance/test_workbench_walkthrough.py::LoginTests::test_anonymous_client_is_refused
+  /usr/lib/python3.14/site-packages/uvicorn/protocols/websockets/websockets_impl.py:17: DeprecationWarning: websockets.server.WebSocketServerProtocol is deprecated
+    from websockets.server import WebSocketServerProtocol
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+--- Client walkthrough against a live API (four screens): PASS
+
+=== Approvals + RBAC + audit endpoints
+.........................                                                [100%]
+--- Approvals + RBAC + audit endpoints: PASS
+
+=== Migrations, backup/restore and the upgrade path
+........................                                                 [100%]
+--- Migrations, backup/restore and the upgrade path: PASS
+
+=== Security guards (limits, redaction, secret scan, threat model)
+.........................................................                                                                    [100%]
+--- Security guards (limits, redaction, secret scan, threat model): PASS
+
+=== Client entry point loads without a display
+--- Client entry point loads without a display: PASS
+
+=== Live API + worker smoke (login, reads, shell + sandbox workers)
+benchmark 2026-10-18T14:13:20+0200
+  python 3.14.8 on x86_64 (24 cpus, bwrap=True)
+
+API (milliseconds, lower is better):
+  endpoint        count  p50     p95     p99     max     mean    req/s
+  health             20    1.37    2.68    2.78    2.78    1.53  1225.5
+  executions         20    3.54    5.94    7.57    7.57    4.04   477.6
+  audit_page         20     3.0   20.07    20.2    20.2    4.83   406.9
+
+  worst p95 = 20.07 ms vs target 300.0 ms -> PASS
+
+Workers:
+  shell worker      10 events in 0.0s = 74196.1 events/s
+  sandbox worker    3 runs in 0.122s = 24.58 runs/s (40.7 ms/run, isolation=bwrap)
+--- Live API + worker smoke (login, reads, shell + sandbox workers): PASS
+
+summary
+-------
+step                                                       result
+W1 scaffold (mkdir + venv + README, traversal denied)      PASS
+W2 install fallback (manager matrix + selector rewrite)    PASS
+W3 log batch (500 logs, zip, checksum, no freeze)          PASS
+W1 through the planner, validator, bus and replay          PASS
+Replay from the pinned version (match vs original)         PASS
+Memory reuse gate (safe plan reused, failed plan quarantined) PASS
+Sandbox gate (untrusted code cannot leave its workspace)   PASS
+Client walkthrough against a live API (four screens)       PASS
+Approvals + RBAC + audit endpoints                         PASS
+Migrations, backup/restore and the upgrade path            PASS
+Security guards (limits, redaction, secret scan, threat model) PASS
+Client entry point loads without a display                 PASS
+Live API + worker smoke (login, reads, shell + sandbox workers) PASS
+
+0 step(s) failed
+rehearsal workspace: /tmp/asa-rehearsal-x1uH8f (removed by the trap)
