@@ -82,8 +82,8 @@ bash scripts/export_reports.sh              # 12 steps, 0 failed (docs/reports/e
 ```
 
 Resulting artefacts: global coverage **80.75%** (gate `fail_under = 78`), core
-gate `src/engine|safety|storage|bus` **86.12%**, worst API p95 **36.44 ms** vs
-the 300 ms NFR, Bandit **0** at medium+, `pip-audit` clean on three requirement
+gate `src/engine|safety|storage|bus` **86.12%**, worst API p95 **33.9–36.4 ms**
+across the runs vs the 300 ms NFR, Bandit **0** at medium+, `pip-audit` clean on three requirement
 sets, secret scan clean (278 files, 9 rules), traceability `--check` clean,
 rehearsal **12/12 PASS**. The two tests added during the session (bandit log-line
 filtering and the threshold field) are why the count moved from 1053 to 1055.

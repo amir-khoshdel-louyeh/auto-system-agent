@@ -50,7 +50,7 @@ without its evidence.
 
 | NFR | Target | Verification | State |
 |---|---|---|---|
-| Performance | API p95 < 300 ms | `scripts/benchmark.py`: worst p95 **33.92 ms** in the Phase 9 run (item [86], `docs/PERF_REPORT.md`) and **36.44 ms** in the release-candidate re-run (item [93], `docs/reports/perf.txt`) over 300 requests/endpoint with 200 seeded runs; sandboxed run 38–39 ms; both far below the 300 ms target | **OK (measured, twice)** |
+| Performance | API p95 < 300 ms | `scripts/benchmark.py`: worst p95 **33.9–36.4 ms** across the recorded runs — `docs/PERF_REPORT.md` (item [86]) and the release-candidate re-runs in `docs/reports/perf.txt` (item [93]) — over 300 requests/endpoint with 200 seeded runs; sandboxed run 38–40 ms; every run far below the 300 ms target | **OK (measured, twice)** |
 | Reliability | at-least-once + idempotent workers, no duplicate side effect | duplicate-delivery test (item 45) | OK (`tests/integration/test_bus_integration.py`, `tests/unit/test_bus_idempotency.py`) |
 | Maintainability | type hints, focused modules | `mypy src`, `ruff check .` in CI (items 6, 7) | OK |
 | Testability | ≥80% on planner/validator/policy/scheduler/audit | coverage floor in `pyproject.toml`; strict core gate command documented there | core gate `src/engine|safety|storage|bus` = **86.1%** (≥80) measured 2026-10-18; global **80.75%** with `fail_under = 78` (ratchet raised in item 86); planner quality floors asserted in `tests/unit/test_planner_eval.py` |

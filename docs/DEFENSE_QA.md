@@ -235,12 +235,12 @@ onwards.
 
 ## 17. "What did you measure, and where is the bottleneck?"
 
-**Answer.** Measured, not asserted: worst API p95 **36.44 ms** against a 300 ms
-NFR (300 requests per endpoint, seeded with 200 runs), sandbox run **39.1 ms**
-(`isolation=bwrap`, 25.6 runs/s), shell worker tens of thousands of events/s
-(the 200-event figure is timer-quantised — see `docs/PERF_REPORT.md` §5). The
-bottleneck is not the API: it is the sandbox (a fresh interpreter per run) and
-the SQLite single writer.
+**Answer.** Measured, not asserted: worst API p95 **33.9–36.4 ms** across the
+recorded runs (300 requests per endpoint, seeded with 200 runs), sandbox run
+**≈39 ms** (`isolation=bwrap`, ~25 runs/s), shell worker tens of thousands of
+events/s (the 200-event figure is timer-quantised — see `docs/PERF_REPORT.md`
+§5). The bottleneck is not the API: it is the sandbox (a fresh interpreter per
+run) and the SQLite single writer.
 
 **Evidence.** `scripts/benchmark.py`, `docs/reports/perf.txt`,
 `docs/PERF_REPORT.md`.

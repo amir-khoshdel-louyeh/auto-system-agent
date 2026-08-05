@@ -92,14 +92,18 @@ release-candidate export re-ran the same command and produced
 | `GET /executions/{id}/audit` | 19.61 ms | **29.76 ms** | 55.37 ms | 379 |
 
 Worst p95 = **36.44 ms** vs the 300 ms target → PASS. Sandbox worker:
-25.6 runs/s (39.1 ms/run, `isolation=bwrap`).
+25.6 runs/s (39.1 ms/run, `isolation=bwrap`). `docs/reports/perf.txt` is the
+artefact the release notes cite, and it is re-written by every export, so the
+release notes quote the range rather than one run.
 
 Two honest notes about variance, because a defence should expect the question:
 
-- **p95 moves by a few milliseconds between runs** (33.92 → 36.44 ms on the
-  same machine) — both are ~8× under the NFR, and the conclusion does not
-  depend on which run is quoted.
+- **p95 moves by a few milliseconds between runs**: 33.92 → 35.72 → 36.44 →
+  34.50 ms on the same machine, all ~8× under the NFR. The conclusion does not
+  depend on which run is quoted — but a single number read out loud should be
+  presented as "about 34–36 ms", not as a constant.
 - **The shell-worker figure is timer-quantised**, not a throughput trend: 200
   events complete in 0.002–0.004 s, so the reported rate swings between ~50 k
   and ~130 k events/s. Quote it as "tens of thousands of events per second",
   never as a benchmark of the worker's real capacity (it is record-only).
+- Sandbox cost is stable at **38–40 ms/run** across runs.

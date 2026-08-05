@@ -30,4 +30,4 @@ tests/integration/test_memory_api.py::MemoryApiTests::test_unknown_risk_is_rejec
     result = context.run(func, *args)
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-1055 passed, 2 skipped, 4 warnings, 767 subtests passed in 17.49s
+1055 passed, 2 skipped, 4 warnings, 767 subtests passed in 17.21s

@@ -45,8 +45,8 @@ transcript is `docs/reports/export.txt` (12 steps, 0 failed).
 | Test suite | **1055 passed, 2 skipped**, 767 subtests | `docs/reports/pytest.txt` | `python -m pytest tests` |
 | Coverage (global) | **80.75%** (floor 78 in `pyproject.toml`) | `docs/reports/coverage.txt` | `python -m pytest tests --cov=src` |
 | Coverage (core gate) | **86.12%** on `src/engine\|safety\|storage\|bus` (≥80) | `docs/reports/coverage-core.txt` | core-gate command in `pyproject.toml` |
-| API latency | worst p95 **36.44 ms** vs the 300 ms NFR (health 6.27, executions 36.44, audit page 29.76) | `docs/reports/perf.txt` | `python scripts/benchmark.py` |
-| Worker throughput | sandbox **39.1 ms/run** (`isolation=bwrap`, 25.6 runs/s); shell worker ≈50,000 events/s in this run (0.004 s for 200 events, so the figure is timer-quantised — across runs it lands between ~0.002 s and ~0.004 s) | `docs/reports/perf.txt` | same |
+| API latency | worst p95 **33.9–36.4 ms across the recorded runs** (current artefact 34.5 ms) vs the 300 ms NFR; `/executions` is the worst endpoint, `GET /health` the cheapest | `docs/reports/perf.txt` | `python scripts/benchmark.py` |
+| Worker throughput | sandbox **≈39 ms/run** (`isolation=bwrap`, 25.3–26.3 runs/s); shell worker tens of thousands of events/s (200 events complete in 0.002–0.004 s, so the figure is timer-quantised, not a capacity number) | `docs/reports/perf.txt` | same |
 | Static analysis | **0** findings at `-ll -ii` (medium severity + medium confidence), threshold recorded in the artefact | `docs/reports/bandit-summary.json` | `bandit -r src -ll -ii` |
 | Dependencies | no known vulnerabilities on all three requirement sets | `docs/reports/pip-audit.txt` | `pip-audit -r requirements*.txt` |
 | Secrets | clean (278 files, 9 rules) | `docs/reports/secret-scan.txt` | `python scripts/secret_scan.py` |

@@ -120,9 +120,10 @@ cat docs/reports/export.txt      # one PASS/FAIL line per gate, 12 rows
 ```
 
 Read the numbers, not the adjectives: **global coverage 80.75%**, **core gate
-(`src/engine|safety|storage|bus`) 86.12%**, **worst API p95 36.44 ms vs the
-300 ms NFR**, Bandit 0 at medium+, `pip-audit` clean, secret scan clean,
-1055 passed + 2 skipped. Then the honest one:
+(`src/engine|safety|storage|bus`) 86.12%**, **worst API p95 34–36 ms vs the
+300 ms NFR** (it moves a millisecond or two between runs; the transcript in
+`docs/reports/perf.txt` is the authority), Bandit 0 at medium+, `pip-audit`
+clean, secret scan clean, 1055 passed + 2 skipped. Then the honest one:
 
 ```bash
 sed -n '/## 4. Testing gaps/,/^## 5/p' docs/LIMITATIONS.md

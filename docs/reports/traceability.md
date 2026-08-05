@@ -1,7 +1,7 @@
 # Requirements-to-test traceability (generated)
 
 **Item:** Phase 10 — [91] Complete requirements-to-test traceability  
-**Generated:** 2026-10-18T12:13:08+00:00 by `scripts/traceability_report.py`  
+**Generated:** 2026-10-18T12:17:44+00:00 by `scripts/traceability_report.py`  
 **Scope:** 25 requirements, 47 test files, 619 collected tests
 
 Regenerate with `python scripts/traceability_report.py`; validate without writing with `--check`. A hand-edited copy of this file is a claim, not evidence — the script asserts every module and test file exists and collects at least one test.
