@@ -20,7 +20,7 @@ Frozen result shape::
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Literal
+from typing import Any, Literal  # noqa: F401 - Literal documents the kind field
 
 CONTRACT_VERSION = "sandbox-v1"
 
@@ -153,8 +153,12 @@ class SandboxResult:
     files: tuple[FileChange, ...] = ()
     denied: tuple[str, ...] = ()
     violations: tuple[str, ...] = ()
-    #: Which layer enforced the run: ``bwrap`` (OS namespaces) or ``audit``
-    #: (in-Python audit hook only).
+    #: Which layer enforced the run:
+    #: - ``bwrap`` — OS namespaces, with a private ``/proc``;
+    #: - ``bwrap-no-proc`` — OS namespaces on a host that refuses the fresh
+    #:   ``/proc`` mount (confinement is the same, tools reading ``/proc``
+    #:   fail);
+    #: - ``audit`` — in-Python audit hook only (plugins; no command execution).
     isolation: str = "audit"
     contract_version: str = CONTRACT_VERSION
 
@@ -207,6 +211,16 @@ class SandboxResult:
             isolation=str(data.get("isolation", "audit")),
             contract_version=str(data.get("contract_version", CONTRACT_VERSION)),
         )
+
+
+def is_safe_relative(path: str) -> bool:
+    """True for a non-empty relative path that cannot climb out of the root.
+
+    Public because callers outside the contract (a node's ``workdir``, a
+    plugin's helper files) must apply the same rule instead of re-inventing
+    it — a second, laxer copy is how traversal gets in.
+    """
+    return _safe_relative(path)
 
 
 def _safe_relative(path: str) -> bool:

@@ -28,6 +28,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
@@ -75,6 +76,37 @@ def bwrap_available() -> bool:
     except (OSError, subprocess.SubprocessError):
         return False
     return probe.returncode == 0
+
+
+@lru_cache(maxsize=1)
+def bwrap_supports_proc() -> bool:
+    """True when bwrap may mount a *private* ``/proc`` for the sandbox.
+
+    Some hosts allow unprivileged namespaces but forbid mounting a fresh
+    procfs (containers with a restrictive mount setup are the common case).
+    The run then proceeds **without** ``/proc`` and says so in
+    ``result.isolation``: confinement is unchanged (a process cannot see other
+    processes either way) but tools that read ``/proc`` fail, which the
+    operator should know rather than discover.
+
+    The probe runs the *real* argv with a throwaway layout, so it cannot
+    disagree with what a run will actually do (an earlier hand-written probe
+    did: it failed on this host while real runs succeeded).
+    """
+    if not bwrap_available():
+        return False
+    probe_dir = Path(tempfile.mkdtemp(prefix="sandbox-proc-probe-"))
+    try:
+        layout = _layout(probe_dir, None)
+        request = SandboxRequest(kind="command", command=("/bin/true",))
+        argv = _bwrap_argv(request, layout, "/out/result.json", private_proc=True)
+        try:
+            probe = subprocess.run(argv, capture_output=True, timeout=15)  # noqa: S603
+        except (OSError, subprocess.SubprocessError):
+            return False
+        return probe.returncode == 0
+    finally:
+        shutil.rmtree(probe_dir, ignore_errors=True)
 
 
 def _limits() -> None:  # pragma: no cover - runs in the forked child
@@ -148,10 +180,71 @@ def _inner_command(request: SandboxRequest, result_path: str) -> list[str]:
     return list(request.command)
 
 
+@dataclass(frozen=True)
+class _Layout:
+    """Where the sandbox's mounts come from and where they land (item [99]).
+
+    A sandbox-owned workspace keeps its scratch space inside itself
+    (``/work/home``, ``/work/tmp``), exactly as before. A *caller-owned*
+    workspace (a real per-run workspace) must not be polluted with our
+    scratch directories, so they live in the sandbox's own tree instead and
+    are mounted at ``/sbox/home`` and ``/sbox/tmp``.
+    """
+
+    workspace: Path
+    outside: Path
+    out_dir: Path
+    home: Path
+    tmp: Path
+    home_mount: str
+    tmp_mount: str
+
+    @property
+    def scratch_inside_workspace(self) -> bool:
+        return self.home_mount.startswith("/work/")
+
+
+def _layout(base: Path, workspace_dir: Path | None) -> _Layout:
+    """Build the mount layout for one run (and create its directories)."""
+    if workspace_dir is None:
+        workspace = base / "workspace"
+        outside = base / "outside"
+        out_dir = base / ".out"
+        home = workspace / "home"
+        tmp = workspace / "tmp"
+        for directory in (workspace, outside, out_dir, home, tmp):
+            directory.mkdir(parents=True, exist_ok=True)
+        return _Layout(workspace, outside, out_dir, home, tmp, "/work/home", "/work/tmp")
+    workspace = workspace_dir
+    workspace.mkdir(parents=True, exist_ok=True)
+    if not workspace.is_dir():
+        raise SandboxError(f"workspace_dir {str(workspace)!r} is not a directory")
+    # The sentinel and the scratch dirs live outside the caller's tree: a
+    # caller-owned workspace has no parent we may write a tripwire into.
+    outside = Path(tempfile.mkdtemp(prefix="sandbox-outside-"))
+    out_dir = base / ".out"
+    home = base / "home"
+    tmp = base / "tmp"
+    for directory in (outside, out_dir, home, tmp):
+        directory.mkdir(parents=True, exist_ok=True)
+    return _Layout(workspace, outside, out_dir, home, tmp, "/sbox/home", "/sbox/tmp")
+
+
 def _bwrap_argv(
-    request: SandboxRequest, workspace: Path, out_dir: Path, result_path: str
+    request: SandboxRequest,
+    layout: _Layout,
+    result_path: str,
+    *,
+    private_proc: bool = True,
 ) -> list[str]:
-    """bwrap argv: only the workspace and the result dir are writable."""
+    """bwrap argv: only the workspace, the scratch dirs and /out are writable.
+
+    ``private_proc=False`` drops the fresh ``/proc`` mount for hosts that
+    refuse it (see :func:`bwrap_supports_proc`); the run is then labelled
+    ``bwrap-no-proc`` instead of ``bwrap``.
+    """
+    workspace = layout.workspace
+    out_dir = layout.out_dir
     executable = shutil.which("bwrap") or "bwrap"
     argv = [executable, "--unshare-all", "--die-with-parent", "--new-session", "--clearenv"]
     # Only the runtime needs to be visible: a plugin cannot read host secrets
@@ -173,11 +266,19 @@ def _bwrap_argv(
         "--bind",
         str(out_dir),
         "/out",
+        "--bind",
+        str(layout.home),
+        layout.home_mount,
+        "--bind",
+        str(layout.tmp),
+        layout.tmp_mount,
         "--ro-bind",
         str(HARNESS.parent),
         "/harness",
-        "--proc",
-        "/proc",
+    ]
+    if private_proc:
+        argv += ["--proc", "/proc"]
+    argv += [
         "--dev",
         "/dev",
         "--chdir",
@@ -187,10 +288,10 @@ def _bwrap_argv(
         "/usr/local/bin:/usr/bin:/bin",
         "--setenv",
         "HOME",
-        "/work/home",
+        layout.home_mount,
         "--setenv",
         "TMPDIR",
-        "/work/tmp",
+        layout.tmp_mount,
         "--",
     ]
     if request.kind == "plugin":
@@ -215,21 +316,35 @@ def run(
     *,
     root: str | Path | None = None,
     keep_root: bool = False,
+    workspace_dir: str | Path | None = None,
 ) -> SandboxResult:
     """Execute one request and return the normalized result (item [73]).
 
     ``root`` lets a caller own the disposable tree (tests); it must exist and
     is populated with ``workspace/`` and ``outside/``. By default a temporary
     directory is used and removed afterwards.
+
+    ``workspace_dir`` (item [99]) makes the run act on a directory the caller
+    already owns — the per-run workspace of a real workflow — instead of a
+    fresh empty one: it is created when missing, bind-mounted as ``/work``
+    (the only writable part of the caller's tree), snapshotted before and after
+    for the file diff, and never removed by this function. The ``outside/``
+    sentinel and the scratch dirs then live in the sandbox's own tree, because
+    a caller-owned workspace has no parent we may write a tripwire into and
+    must not be polluted with our own files.
     """
     request.require_valid()
-    isolation = "bwrap" if bwrap_available() else "audit"
+    if bwrap_available():
+        private_proc = bwrap_supports_proc()
+        isolation = "bwrap" if private_proc else "bwrap-no-proc"
+    else:
+        private_proc, isolation = False, "audit"
     base = Path(root) if root is not None else Path(tempfile.mkdtemp(prefix="sandbox-"))
-    workspace = base / "workspace"
-    outside = base / "outside"
-    out_dir = base / ".out"
-    for directory in (workspace, outside, out_dir, workspace / "home", workspace / "tmp"):
-        directory.mkdir(parents=True, exist_ok=True)
+    owned = Path(workspace_dir) if workspace_dir is not None else None
+    layout = _layout(base, owned)
+    workspace = layout.workspace
+    outside = layout.outside
+    out_dir = layout.out_dir
     result_path_host = out_dir / "result.json"
     _seed(workspace, request.files)
 
@@ -239,13 +354,15 @@ def run(
 
     try:
         argv = (
-            _bwrap_argv(request, workspace, out_dir, "/out/result.json")
-            if isolation == "bwrap"
+            _bwrap_argv(request, layout, "/out/result.json", private_proc=private_proc)
+            if isolation.startswith("bwrap")
             else _plain_argv(request, str(result_path_host))
         )
     except SandboxError as exc:
         if not keep_root:
             shutil.rmtree(base, ignore_errors=True)
+            if owned is not None:
+                shutil.rmtree(outside, ignore_errors=True)
         return SandboxResult(
             ok=False,
             exit_code=126,
@@ -325,6 +442,9 @@ def run(
     )
     if not keep_root:
         shutil.rmtree(base, ignore_errors=True)
+        if owned is not None:
+            # The sentinel tree belongs to this function, not to the caller.
+            shutil.rmtree(outside, ignore_errors=True)
     return result
 
 
@@ -380,5 +500,6 @@ __all__ = [
     "MAX_FILE_BYTES",
     "MAX_OUTPUT_BYTES",
     "bwrap_available",
+    "bwrap_supports_proc",
     "run",
 ]

@@ -5,6 +5,7 @@ executes one request with namespace + audit-hook isolation, and `manifest`
 validates the plugin declaration before anything is registered.
 """
 
+from .commands import command_request, isolation_available, run_command
 from .contract import (
     CONTRACT_VERSION,
     FILE_ACTIONS,
@@ -25,5 +26,8 @@ __all__ = [
     "SandboxRequest",
     "SandboxResult",
     "bwrap_available",
+    "command_request",
+    "isolation_available",
     "run",
+    "run_command",
 ]

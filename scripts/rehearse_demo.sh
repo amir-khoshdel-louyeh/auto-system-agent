@@ -64,6 +64,8 @@ pytest_step() { python -m pytest "$@" -q; }
     pytest_step tests/acceptance/test_replay.py
   step "Memory reuse gate (safe plan reused, failed plan quarantined)" \
     pytest_step tests/acceptance/test_memory_reuse_gate.py
+  step "Shell nodes execute for real (sandboxed, workspace-bounded)" \
+    pytest_step tests/integration/test_shell_execution.py tests/unit/test_sandbox_commands.py
   step "Sandbox gate (untrusted code cannot leave its workspace)" \
     pytest_step tests/acceptance/test_sandbox_isolation.py
   step "Client walkthrough against a live API (four screens)" \
@@ -80,7 +82,7 @@ pytest_step() { python -m pytest "$@" -q; }
   if [[ "$QUICK" -eq 0 ]]; then
     step "Live API + worker smoke (login, reads, shell + sandbox workers)" \
       python scripts/benchmark.py --requests 20 --threads 2 --seed-executions 25 \
-        --audit-events 10 --worker-events 10 --sandbox-runs 3
+        --audit-events 10 --worker-events 10 --shell-runs 3 --sandbox-runs 3
   else
     echo; echo "=== live API + worker smoke: SKIPPED (--quick)"
     NAMES+=("Live API + worker smoke"); STATUS+=("SKIP"); DETAILS+=("--quick")

@@ -142,18 +142,28 @@ FUNCTIONAL: tuple[Requirement, ...] = (
     Requirement(
         "FR-10",
         "DAG scheduling with concurrency, propagation, timeout, retry, compensation",
-        ("src/engine/executor/scheduler.py", "src/engine/executor/compensate.py"),
+        (
+            "src/engine/executor/scheduler.py",
+            "src/engine/executor/compensate.py",
+            "src/bus/workers/dispatcher.py",
+        ),
         (
             "tests/unit/test_engine_phase2.py",
             "tests/unit/test_engine_concurrency.py",
             "tests/unit/test_engine_retry.py",
+            # Item [99]: shell nodes execute for real, in the run's workspace.
+            "tests/integration/test_shell_execution.py",
         ),
     ),
     Requirement(
         "FR-11",
         "Typed worker results; no raw secrets or unbounded output persisted",
-        ("src/bus/workers/core.py", "src/app/models.py"),
-        ("tests/unit/test_bus_workers.py", "tests/unit/test_bus_persist.py"),
+        ("src/bus/workers/core.py", "src/bus/workers/shell.py", "src/app/models.py"),
+        (
+            "tests/unit/test_bus_workers.py",
+            "tests/unit/test_bus_persist.py",
+            "tests/unit/test_sandbox_commands.py",
+        ),
     ),
     Requirement(
         "FR-12",
@@ -239,6 +249,8 @@ NON_FUNCTIONAL: tuple[Requirement, ...] = (
             "tests/unit/test_command_guard.py",
             "tests/unit/test_secret_scan.py",
             "tests/acceptance/test_sandbox_isolation.py",
+            # Item [99]: a shell command is refused when it cannot be isolated.
+            "tests/unit/test_sandbox_commands.py",
         ),
     ),
     Requirement(

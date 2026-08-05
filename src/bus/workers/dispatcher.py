@@ -17,6 +17,9 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
+import shutil
+import tempfile
 import uuid
 from pathlib import Path
 from typing import Any
@@ -27,7 +30,7 @@ from engine.executor.gate import flatten_node
 from engine.executor.result import RunResult
 from engine.executor.scheduler import run_dag
 from engine.validator.validator import validate
-from safety.policy_service import PolicyService
+from safety.policy_service import PolicyContext, PolicyService
 from storage.audit import AuditStore, AuditTrail
 
 from ..backend import Backend
@@ -39,6 +42,31 @@ TRIGGERS_STREAM = "triggers"
 PLANS_STREAM = "plans"
 
 TRIGGER_TYPES = ("file.arrived", "schedule.tick")
+
+#: Environment knob for the directory that may hold per-run workspaces.
+WORKSPACE_ROOT_ENV = "ASA_WORKSPACE_ROOT"
+
+
+def resolve_run_workspace(
+    run_id: str, workspace_root: str | Path | None = None
+) -> tuple[Path, bool]:
+    """Return ``(workspace, temporary)`` for one run (item [99]).
+
+    A configured root (argument first, then ``ASA_WORKSPACE_ROOT``) gives the
+    run a durable directory, so shell commands leave their evidence where an
+    operator can look at it. With no root configured the run gets a throwaway
+    directory under the system temp, which the caller removes — a library run
+    must never litter the repository.
+    """
+    root = Path(workspace_root) if workspace_root is not None else None
+    if root is None:
+        configured = os.environ.get(WORKSPACE_ROOT_ENV, "").strip()
+        root = Path(configured) if configured else None
+    if root is None:
+        return Path(tempfile.mkdtemp(prefix=f"run-{run_id[:12]}-")), True
+    workspace = root / run_id
+    workspace.mkdir(parents=True, exist_ok=True)
+    return workspace, False
 
 
 async def wait_verdict(
@@ -86,12 +114,20 @@ async def run_workflow(
     recorder=None,
     dsl_text: str | None = None,
     audit_store: AuditStore | None = None,
+    workspace_root: str | Path | None = None,
+    role: str = "OPERATOR",
 ) -> RunResult:
     """Load, validate and execute one workflow over the bus; returns the run.
 
     ``dsl_text`` executes a *pinned* document (replay, item [52]) instead of
     reading ``<workflow_name>.yaml`` from disk, so a replay never picks up a
     newer mutable file.
+
+    ``workspace_root`` (item [99]) decides where the run's workspace lives;
+    it is created here, handed to the workers with every node, and used as the
+    policy gate's path boundary, so a command that reaches outside it is
+    denied *before* it is dispatched. ``role`` is the effective caller role
+    the gate authorizes.
 
     With an ``audit_store`` the run writes its own hash-chain records
     (run, policy, dispatch, retry, result) keyed by the execution id, so
@@ -153,10 +189,12 @@ async def run_workflow(
             trail.record(name, payload)
 
     policy = PolicyService()
+    workspace, throwaway_workspace = resolve_run_workspace(run_id, workspace_root)
+    context = PolicyContext(role=role, workspace_root=str(workspace))
 
     async def audited_gate(node_id: str, node: dict[str, Any]) -> str:
         """Policy gate that also lands the decision on the audit chain."""
-        decision = policy.decide(node_id, flatten_node(node))
+        decision = policy.decide(node_id, flatten_node(node), context=context)
         if trail is not None:
             trail.policy(node_id, decision)
         return decision.verdict
@@ -166,20 +204,29 @@ async def run_workflow(
             steps_stream(node.get("type", "")),
             new_event(
                 "step.dispatched",
-                {"node_id": node_id, "node": node, "execution_id": execution_id},
+                {
+                    "node_id": node_id,
+                    "node": node,
+                    "execution_id": execution_id,
+                    "workspace": str(workspace),
+                },
                 correlation_id=run_id,
                 idempotency_key=f"{run_id}:{node_id}",
             ),
         )
         return await wait_verdict(backend, run_id, node_id, timeout_s=step_timeout_s)
 
-    run = await run_dag(
-        dag,
-        bus_handler,
-        gate=audited_gate,
-        on_event=audit_event if trail is not None else None,
-        run_id=run_id,
-    )
+    try:
+        run = await run_dag(
+            dag,
+            bus_handler,
+            gate=audited_gate,
+            on_event=audit_event if trail is not None else None,
+            run_id=run_id,
+        )
+    finally:
+        if throwaway_workspace:
+            shutil.rmtree(workspace, ignore_errors=True)
     for nid, node in run.nodes.items():
         if node.status == "FAILED":
             await backend.publish(
@@ -207,6 +254,8 @@ async def dispatch_trigger(
     step_timeout_s: float = 30.0,
     recorder=None,
     audit_store: AuditStore | None = None,
+    workspace_root: str | Path | None = None,
+    role: str = "OPERATOR",
 ) -> RunResult:
     """Run one trigger event end-to-end; returns the scheduler RunResult."""
     if event.type not in TRIGGER_TYPES:
@@ -220,4 +269,6 @@ async def dispatch_trigger(
         step_timeout_s=step_timeout_s,
         recorder=recorder,
         audit_store=audit_store,
+        workspace_root=workspace_root,
+        role=role,
     )

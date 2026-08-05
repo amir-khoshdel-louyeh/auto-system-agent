@@ -47,10 +47,21 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
       DATABASE_URL: ${DATABASE_URL:-}
       REDIS_URL: redis://redis:6379/0
+      # Item [99]: real `shell` execution writes here (inside the same volume
+      # as SQLite, so a container rebuild keeps the run workspaces).
+      ASA_WORKSPACE_ROOT: /code/data/workspaces
     # The SQLite state (users, runs, approvals, audit chain) lives here; a
     # container rebuild must not lose it (Phase 9 item [88]).
     volumes:
       - apidata:/code/data
+    # Real `shell` execution (item [99]) needs unprivileged user namespaces,
+    # which Docker's default seccomp profile blocks: with the setting below the
+    # container refuses them and a `shell` step fails closed with "needs OS
+    # isolation" (measured — docs/DEPLOYMENT.md §5). Uncomment to opt in on a
+    # host whose kernel allows it; the sandbox then reports `bwrap-no-proc`
+    # because a fresh /proc mount is not permitted inside a container.
+    # security_opt:
+    #   - seccomp=unconfined
     ports:
       - "8000:8000"
     depends_on:

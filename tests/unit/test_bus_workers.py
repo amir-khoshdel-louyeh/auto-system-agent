@@ -7,25 +7,28 @@ while parking anything higher for the human quorum.
 """
 
 import asyncio
+import tempfile
 import unittest
+from pathlib import Path
 
 from bus.backend import MemoryBackend
 from bus.events import new_event
 from bus.workers.approval import make_approval_worker
 from bus.workers.core import RESULTS_STREAM, steps_stream
 from bus.workers.shell import make_shell_worker
+from sandbox.commands import isolation_available
 
 
 def _run(coro):
     return asyncio.run(coro)
 
 
-async def _dispatch(backend, node_type, node_id, node, run_id="run-1"):
+async def _dispatch(backend, node_type, node_id, node, run_id="run-1", workspace=""):
     await backend.publish(
         steps_stream(node_type),
         new_event(
             "step.dispatched",
-            {"node_id": node_id, "node": node},
+            {"node_id": node_id, "node": node, "workspace": workspace},
             correlation_id=run_id,
             idempotency_key=f"{run_id}:{node_id}",
         ),
@@ -37,18 +40,31 @@ async def _results(backend):
 
 
 class ShellWorkerTests(unittest.TestCase):
+    @unittest.skipUnless(isolation_available(), "bwrap with user namespaces is unavailable")
     def test_safe_node_finishes(self):
-        async def scenario():
-            backend = MemoryBackend()
-            worker = make_shell_worker(backend, "g")
-            await _dispatch(backend, "shell", "a", {"type": "shell", "params": {"run": "echo hi"}})
-            stats = await worker.drain_once()
-            self.assertEqual(stats.processed, 1)
-            results = await _results(backend)
-            self.assertEqual(results[-1][1].type, "step.finished")
-            self.assertEqual(results[-1][1].data["node_id"], "a")
+        """A safe node really runs (item [99]) in the workspace it is handed."""
+        with tempfile.TemporaryDirectory() as tmp:
+            workspace = Path(tmp) / "run"
 
-        _run(scenario())
+            async def scenario():
+                backend = MemoryBackend()
+                worker = make_shell_worker(backend, "g")
+                await _dispatch(
+                    backend,
+                    "shell",
+                    "a",
+                    {"type": "shell", "params": {"run": "echo hi > hello.txt"}},
+                    workspace=str(workspace),
+                )
+                stats = await worker.drain_once()
+                self.assertEqual(stats.processed, 1)
+                results = await _results(backend)
+                self.assertEqual(results[-1][1].type, "step.finished")
+                self.assertEqual(results[-1][1].data["node_id"], "a")
+                self.assertEqual(results[-1][1].data["output"]["mode"], "sandboxed (bwrap)")
+
+            _run(scenario())
+            self.assertEqual((workspace / "hello.txt").read_text().strip(), "hi")
 
     def test_dangerous_node_fails_closed_without_running(self):
         async def scenario():

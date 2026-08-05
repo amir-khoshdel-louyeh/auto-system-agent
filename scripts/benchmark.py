@@ -30,6 +30,7 @@ import asyncio
 import json
 import os
 import platform
+import shutil
 import statistics
 import sys
 import tempfile
@@ -194,16 +195,26 @@ def measure_endpoint(url: str, token: str, *, requests: int, threads: int) -> di
 
 # -- worker measurement ----------------------------------------------------
 def measure_shell_worker(events: int) -> dict[str, float]:
-    """Events/second through the real shell worker (gate + persist + verdict)."""
+    """Events/second through the shell worker's **gate** path (item [99]).
+
+    Since `shell` nodes execute for real in the sandbox, executing them here
+    would measure the sandbox (see :func:`measure_shell_command`) rather than
+    the bus. This measurement therefore injects a no-op execution function: it
+    is the cost of gate → dispatch → durable verdict, with no process spawn,
+    and the report says so.
+    """
     from bus.backend import MemoryBackend
     from bus.events import new_event
     from bus.workers.core import RESULTS_STREAM, steps_stream
     from bus.workers.shell import make_shell_worker
     from engine.executor.gate import flatten_node
 
+    async def no_exec(node_id: str, node: dict, ctx: dict) -> dict:
+        return {"ok": node_id}
+
     async def scenario() -> float:
         backend = MemoryBackend()
-        worker = make_shell_worker(backend, "bench-shell")
+        worker = make_shell_worker(backend, "bench-shell", exec_fn=no_exec)
         node = flatten_node({"type": "shell", "params": {"run": "ls -la"}})
         for index in range(events):
             await backend.publish(
@@ -229,6 +240,52 @@ def measure_shell_worker(events: int) -> dict[str, float]:
         "count": events,
         "seconds": round(elapsed, 3),
         "events_per_second": round(events / elapsed, 1) if elapsed else 0.0,
+        "measures": "gate + dispatch + verdict (no execution)",
+    }
+
+
+def measure_shell_command(runs: int) -> dict[str, Any]:
+    """Real sandboxed `shell` runs/second through the shell worker (item [99])."""
+    from bus.backend import MemoryBackend
+    from bus.events import new_event
+    from bus.workers.core import RESULTS_STREAM, steps_stream
+    from bus.workers.shell import make_shell_worker
+
+    workspace = Path(tempfile.mkdtemp(prefix="bench-shell-ws-"))
+
+    async def scenario() -> tuple[float, str]:
+        backend = MemoryBackend()
+        worker = make_shell_worker(backend, "bench-shell-cmd")
+        node = {"type": "shell", "params": {"run": "mkdir -p demo && printf ok > demo/f.txt"}}
+        for index in range(runs):
+            await backend.publish(
+                steps_stream("shell"),
+                new_event(
+                    "step.dispatched",
+                    {"node_id": f"s{index}", "node": node, "workspace": str(workspace)},
+                    correlation_id=f"run-{index}",
+                    idempotency_key=f"run-{index}:s{index}",
+                ),
+            )
+        started = time.perf_counter()
+        await worker.drain_once()
+        elapsed = time.perf_counter() - started
+        results = await backend.read_range(RESULTS_STREAM)
+        finished = [event for _, event in results if event.type == "step.finished"]
+        if len(finished) != runs:
+            raise RuntimeError(f"expected {runs} shell verdicts, saw {len(finished)}")
+        return elapsed, str(finished[0].data["output"].get("mode", "unknown"))
+
+    try:
+        elapsed, mode = asyncio.run(scenario())
+    finally:
+        shutil.rmtree(workspace, ignore_errors=True)
+    return {
+        "count": runs,
+        "seconds": round(elapsed, 3),
+        "runs_per_second": round(runs / elapsed, 2) if elapsed else 0.0,
+        "mean_ms_per_run": round(elapsed / runs * 1000, 1) if runs else 0.0,
+        "mode": mode,
     }
 
 
@@ -324,6 +381,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
 
     workers = {
         "shell_steps": measure_shell_worker(args.worker_events),
+        "shell_commands": measure_shell_command(args.shell_runs),
         "sandbox_runs": measure_sandbox_worker(args.sandbox_runs),
     }
     worst_p95 = max(report["p95_ms"] for report in api.values())
@@ -336,6 +394,7 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
             "seeded_executions": args.seed_executions,
             "audit_events": args.audit_events,
             "worker_events": args.worker_events,
+            "shell_runs": args.shell_runs,
             "sandbox_runs": args.sandbox_runs,
         },
         "api": api,
@@ -372,10 +431,16 @@ def render(report: dict[str, Any]) -> str:
         "Workers:",
     ]
     shell = report["workers"]["shell_steps"]
+    commands = report["workers"]["shell_commands"]
     sandbox = report["workers"]["sandbox_runs"]
     lines.append(
-        f"  shell worker      {shell['count']} events in {shell['seconds']}s"
-        f" = {shell['events_per_second']} events/s"
+        f"  shell gate path   {shell['count']} events in {shell['seconds']}s"
+        f" = {shell['events_per_second']} events/s ({shell['measures']})"
+    )
+    lines.append(
+        f"  shell command     {commands['count']} runs in {commands['seconds']}s"
+        f" = {commands['runs_per_second']} runs/s ({commands['mean_ms_per_run']} ms/run,"
+        f" mode={commands['mode']})"
     )
     lines.append(
         f"  sandbox worker    {sandbox['count']} runs in {sandbox['seconds']}s"
@@ -392,6 +457,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--seed-executions", type=int, default=200, help="rows in the run list")
     parser.add_argument("--audit-events", type=int, default=50, help="events on the audited run")
     parser.add_argument("--worker-events", type=int, default=200, help="shell step events")
+    parser.add_argument("--shell-runs", type=int, default=10, help="real sandboxed shell runs")
     parser.add_argument("--sandbox-runs", type=int, default=20, help="sandboxed plugin runs")
     parser.add_argument("--json", default="", help="also write the raw result here")
     args = parser.parse_args(argv)
