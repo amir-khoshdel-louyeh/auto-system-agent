@@ -108,4 +108,7 @@ exclude_lines = [
 # up each phase; the strict core gate is
 #   coverage report --include="src/engine/*,src/safety/*,src/storage/*,src/bus/*" --fail-under=80
 # which activates once the Phase 6 planner rework lands (BACKLOG items 63, 91).
-fail_under = 63
+# Phase 9 [86]/NFR Testability: measured coverage is core 86.1% and global
+# 80.75%; the ratchet is set with headroom so an unrelated change cannot
+# quietly give the gain back.
+fail_under = 78

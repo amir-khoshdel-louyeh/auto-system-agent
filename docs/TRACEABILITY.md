@@ -44,15 +44,15 @@ without its evidence.
 
 | NFR | Target | Verification | State |
 |---|---|---|---|
-| Performance | API p95 < 300 ms | repeatable HTTP benchmark (item 86) | planned(86) |
+| Performance | API p95 < 300 ms | `scripts/benchmark.py` (item 86): worst p95 **33.92 ms** over 300 requests/endpoint with 200 seeded runs; shell worker ~129k events/s, sandboxed run 38.1 ms (`docs/PERF_REPORT.md`) | **OK (measured)** |
 | Reliability | at-least-once + idempotent workers, no duplicate side effect | duplicate-delivery test (item 45) | OK (`tests/integration/test_bus_integration.py`, `tests/unit/test_bus_idempotency.py`) |
 | Maintainability | type hints, focused modules | `mypy src`, `ruff check .` in CI (items 6, 7) | OK |
-| Testability | ≥80% on planner/validator/policy/scheduler/audit | coverage floor in `pyproject.toml`; strict core gate command documented there | core gate `src/engine|safety|storage|bus` = 85.3% (≥80) as of item 54; planner quality floors asserted in `tests/unit/test_planner_eval.py`; global ratchet 63% → raise at item 91 |
+| Testability | ≥80% on planner/validator/policy/scheduler/audit | coverage floor in `pyproject.toml`; strict core gate command documented there | core gate `src/engine|safety|storage|bus` = **86.1%** (≥80) measured 2026-10-18; global **80.75%** with `fail_under = 78` (ratchet raised in item 86); planner quality floors asserted in `tests/unit/test_planner_eval.py` |
 | Security | no arbitrary unapproved command; Bandit + pip-audit pass | `tests/unit/test_execution_safety.py` adversarial cases; `tests/acceptance/test_sandbox_isolation.py` (plugin cannot write/read/spawn/connect outside its workspace under `bwrap` or the audit hook) and `tests/unit/test_sandbox_contract.py`; CI `bandit -ll`, `pip-audit` | OK (medium+ = 0 findings) |
 | Privacy | PII scrub, consent/erasure tests | `tests/unit/test_memory_scrub.py`, `tests/integration/test_memory_api.py::test_erasure_removes_the_item_and_keeps_consent_history`, `tests/acceptance/test_memory_reuse_gate.py::test_poisoned_plan_is_scrubbed_before_it_can_be_reused` (items 65, 71) | OK |
-| Usability | README demo < 10 min | README quickstart rehearsal (Phase 9 item 87/88); `tests/acceptance/test_workbench_walkthrough.py` drives the four client screens against a live API | baseline OK, study → 87 |
-| Deployability | one compose file | `docker compose up --build` (verified image build in item 7) | partial → 88 |
-| Recovery | worker crash/retry/DLQ observable | chaos tests (items 45, 88) | partial (kill-mid-run test OK) |
+| Usability | README demo < 10 min | README quickstart rehearsal (Phase 9 item 88, verified in `docs/DEPLOYMENT.md`); `tests/acceptance/test_workbench_walkthrough.py` drives the four client screens against a live API; SUS protocol + tested scorer in `docs/USABILITY_STUDY.md` / `scripts/sus_score.py` | **study pending** — the five sessions (item 87) are the only NFR without measured evidence |
+| Deployability | one compose file | `docker compose up --build` verified end to end in item 88 (3 services healthy, 7 migrations applied, login/RBAC/throttle working, state survives `--force-recreate`); `compose.prod.yml` refuses to start without secrets and publishes only the API on loopback | **OK (measured)** |
+| Recovery | worker crash/retry/DLQ observable | chaos-style kill-mid-run test (item 45/88), retry + DLQ tests, and item 89: migration upgrade of a 4-migration database keeps rows and audit chains while `scripts/backup.py` snapshots/verifies/restores it | **OK** (no full chaos suite; see `docs/LIMITATIONS.md`) |
 
 ## 4. How to keep this matrix honest
 
