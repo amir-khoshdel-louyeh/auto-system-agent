@@ -47,6 +47,10 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-postgres}
       DATABASE_URL: ${DATABASE_URL:-}
       REDIS_URL: redis://redis:6379/0
+    # The SQLite state (users, runs, approvals, audit chain) lives here; a
+    # container rebuild must not lose it (Phase 9 item [88]).
+    volumes:
+      - apidata:/code/data
     ports:
       - "8000:8000"
     depends_on:
@@ -61,5 +65,6 @@ services:
       retries: 5
 
 volumes:
+  apidata:
   pgdata:
   redisdata:

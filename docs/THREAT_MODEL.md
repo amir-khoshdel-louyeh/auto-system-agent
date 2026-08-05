@@ -132,8 +132,8 @@ flowchart LR
 |---|---|---|---|
 | **S**poofing | Deployment ships with `SECRET_KEY=insecure-…` | Production settings refuse the dev secret, short keys and default passwords at startup | `src/app/settings.py::validate`, `tests/unit/test_app_settings.py` |
 | **I**nformation disclosure | Secrets committed to the repository | Regex secret scan runs in CI and in the test suite | `scripts/secret_scan.py`, `tests/unit/test_secret_scan.py` |
-| **T**ampering | Supply-chain package swap | Pinned ranges, `pip-audit` on every CI run, dependency list reviewed in `docs/THIRD_PARTY_NOTICES.md` | `.github/workflows/ci.yml`, `docs/SECURITY_REPORT.md` |
-| **D**enial of service | Host compromise via container escape | Non-root image, no host mounts beyond the code, sandbox is the only place untrusted code runs | `Dockerfile.api`, `compose.yml` |
+| **T**ampering | Supply-chain package swap | Exact pins, `pip-audit` on every CI run, dependency list reviewed in `docs/THIRD_PARTY_NOTICES.md` | `.github/workflows/ci.yml`, `docs/SECURITY_REPORT.md` |
+| **D**enial of service | Host compromise via container escape | The image runs as uid 10001 with only the named data volume writable, and the sandbox is the only place untrusted code runs | `Dockerfile.api`, `compose.yml`, `docs/DEPLOYMENT.md` §2.2 |
 
 ## 4. Assumptions
 
@@ -155,7 +155,7 @@ flowchart LR
 | Redis without auth | the *development* stack keeps it open for a one-command demo | `compose.prod.yml` requires a password and publishes no broker port | use `compose.prod.yml` for anything shared |
 | In-process rate limiting | one API process | per-process buckets; a proxy limit is the multi-replica answer | add edge rate limiting when scaling out |
 | Sandbox depends on `bwrap` for `command` nodes | kernel/user-namespace availability | plugin path still guarded by the audit hook; `command` refused without namespaces | keep plugin nodes for untrusted work |
-| SQLite single-writer | MVP scope | WAL-free short transactions, low concurrency | migrate to PostgreSQL before horizontal scale |
+| SQLite single-writer | MVP scope; the API state is one file on a named volume (durable across rebuilds, verified in `docs/DEPLOYMENT.md` §2.2) | short transactions, low write concurrency, `scripts/backup.py` snapshots | migrate to PostgreSQL before horizontal scale |
 
 ## 6. How this model stays honest
 

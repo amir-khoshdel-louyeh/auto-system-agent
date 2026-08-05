@@ -74,6 +74,10 @@ services:
       RATE_LIMIT_PER_MINUTE: ${RATE_LIMIT_PER_MINUTE:-1200}
       LOGIN_RATE_LIMIT_PER_MINUTE: ${LOGIN_RATE_LIMIT_PER_MINUTE:-10}
       TOKEN_TTL_MINUTES: ${TOKEN_TTL_MINUTES:-60}
+    # The SQLite state (users, runs, approvals, audit chain) is durable; a
+    # rebuild or redeploy must not lose it (item [89] backs this volume up).
+    volumes:
+      - apidata:/code/data
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -89,5 +93,6 @@ services:
     restart: unless-stopped
 
 volumes:
+  apidata:
   pgdata:
   redisdata:

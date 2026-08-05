@@ -1,4 +1,7 @@
 # Phase 0 API image: stdlib + FastAPI only (see requirements-api.txt).
+# Phase 9 items [83]/[88]: runs as an unprivileged user, and /code/data is the
+# only writable path (a named volume in compose) so the SQLite state survives
+# a container rebuild instead of living in the image layer.
 FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -8,7 +11,14 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /code
 COPY requirements-api.txt ./
 RUN pip install --no-cache-dir -r requirements-api.txt
-COPY src/ ./src/
+
+RUN useradd --create-home --uid 10001 app \
+    && mkdir -p /code/data \
+    && chown -R app:app /code
+
+COPY --chown=app:app src/ ./src/
+
+USER app
 
 EXPOSE 8000
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
