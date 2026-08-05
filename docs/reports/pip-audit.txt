@@ -1,0 +1,7 @@
+pip-audit pip-audit 2.10.1
+--- requirements.txt
+No known vulnerabilities found
+--- requirements-api.txt
+No known vulnerabilities found
+--- requirements-dev.txt
+No known vulnerabilities found

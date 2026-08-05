@@ -78,3 +78,28 @@ Exit status is 0 when the p95 target is met and 1 otherwise, so the command
 can be wired into a regression gate. `docs/reports/perf.json` holds the raw
 sample (parameters, environment, percentiles, worker rates) for the SE
 package (item [93]).
+
+## 5. Re-measurement at the release candidate (Phase 10, [93])
+
+The Phase 9 numbers above are the run this report was written from. The
+release-candidate export re-ran the same command and produced
+`docs/reports/perf.txt` (the artefact the release notes cite):
+
+| Endpoint | p50 | **p95** | p99 | req/s |
+|---|---:|---:|---:|---:|
+| `GET /health` | 4.08 ms | **6.27 ms** | 6.95 ms | 1 878 |
+| `GET /executions` | 22.36 ms | **36.44 ms** | 42.35 ms | 334 |
+| `GET /executions/{id}/audit` | 19.61 ms | **29.76 ms** | 55.37 ms | 379 |
+
+Worst p95 = **36.44 ms** vs the 300 ms target → PASS. Sandbox worker:
+25.6 runs/s (39.1 ms/run, `isolation=bwrap`).
+
+Two honest notes about variance, because a defence should expect the question:
+
+- **p95 moves by a few milliseconds between runs** (33.92 → 36.44 ms on the
+  same machine) — both are ~8× under the NFR, and the conclusion does not
+  depend on which run is quoted.
+- **The shell-worker figure is timer-quantised**, not a throughput trend: 200
+  events complete in 0.002–0.004 s, so the reported rate swings between ~50 k
+  and ~130 k events/s. Quote it as "tens of thousands of events per second",
+  never as a benchmark of the worker's real capacity (it is record-only).

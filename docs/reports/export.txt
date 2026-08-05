@@ -1,0 +1,54 @@
+report export 2026-10-18T14:11:34+02:00
+commit: 630ce61
+python: Python 3.14.8
+
+=== tests -> docs/reports/pytest.txt
+--- tests: PASS (docs/reports/pytest.txt)
+
+=== coverage (global) -> docs/reports/coverage.txt
+--- coverage (global): PASS (docs/reports/coverage.txt)
+
+=== coverage (core gate) -> docs/reports/coverage-core.txt
+--- coverage (core gate): PASS (docs/reports/coverage-core.txt)
+
+=== bandit (text) -> docs/reports/bandit.txt
+--- bandit (text): PASS (docs/reports/bandit.txt)
+
+=== bandit (csv) -> docs/reports/bandit.csv
+--- bandit (csv): PASS (docs/reports/bandit.csv)
+
+=== bandit (summary) -> docs/reports/bandit-summary.json
+--- bandit (summary): PASS (docs/reports/bandit-summary.json)
+--- pip-audit: PASS
+
+=== secret scan -> docs/reports/secret-scan.txt
+--- secret scan: PASS (docs/reports/secret-scan.txt)
+
+=== diagram validation -> docs/reports/diagrams.txt
+--- diagram validation: PASS (docs/reports/diagrams.txt)
+
+=== performance benchmark -> docs/reports/perf.txt
+--- performance benchmark: PASS (docs/reports/perf.txt)
+
+=== traceability report -> docs/reports/traceability-run.txt
+--- traceability report: PASS (docs/reports/traceability-run.txt)
+
+=== rehearsal -> docs/reports/rehearsal-run.txt
+--- rehearsal: PASS (docs/reports/rehearsal-run.txt)
+
+summary
+-------
+tests                    PASS
+coverage (global)        PASS
+coverage (core gate)     PASS
+bandit (text)            PASS
+bandit (csv)             PASS
+bandit (summary)         PASS
+pip-audit                PASS
+secret scan              PASS
+diagram validation       PASS
+performance benchmark    PASS
+traceability report      PASS
+rehearsal                PASS
+
+0 step(s) failed; artefacts in docs/reports/

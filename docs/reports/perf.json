@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-18T13:19:25+0200",
+  "timestamp": "2026-10-18T14:13:08+0200",
   "environment": {
     "python": "3.14.8",
     "platform": "Linux-7.2.9-201.fc44.x86_64-x86_64-with-glibc2.43",
@@ -18,49 +18,49 @@
   "api": {
     "health": {
       "count": 300,
-      "p50_ms": 4.2,
-      "p95_ms": 5.92,
-      "p99_ms": 7.13,
-      "max_ms": 7.88,
-      "mean_ms": 4.19,
-      "requests_per_second": 1862.1
+      "p50_ms": 4.08,
+      "p95_ms": 6.27,
+      "p99_ms": 6.95,
+      "max_ms": 7.41,
+      "mean_ms": 4.16,
+      "requests_per_second": 1878.2
     },
     "executions": {
       "count": 300,
       "p50_ms": 22.36,
-      "p95_ms": 33.92,
-      "p99_ms": 44.0,
-      "max_ms": 60.32,
-      "mean_ms": 23.3,
-      "requests_per_second": 335.8
+      "p95_ms": 36.44,
+      "p99_ms": 42.35,
+      "max_ms": 67.13,
+      "mean_ms": 23.35,
+      "requests_per_second": 334.2
     },
     "audit_page": {
       "count": 300,
-      "p50_ms": 18.15,
-      "p95_ms": 29.46,
-      "p99_ms": 58.35,
-      "max_ms": 81.21,
-      "mean_ms": 19.82,
-      "requests_per_second": 395.4
+      "p50_ms": 19.61,
+      "p95_ms": 29.76,
+      "p99_ms": 55.37,
+      "max_ms": 69.14,
+      "mean_ms": 20.58,
+      "requests_per_second": 379.2
     }
   },
   "workers": {
     "shell_steps": {
       "count": 200,
-      "seconds": 0.002,
-      "events_per_second": 128883.1
+      "seconds": 0.004,
+      "events_per_second": 49651.9
     },
     "sandbox_runs": {
       "count": 20,
-      "seconds": 0.761,
-      "runs_per_second": 26.27,
-      "mean_ms_per_run": 38.1,
+      "seconds": 0.782,
+      "runs_per_second": 25.57,
+      "mean_ms_per_run": 39.1,
       "isolation": "bwrap"
     }
   },
   "nfr": {
     "p95_target_ms": 300.0,
-    "worst_p95_ms": 33.92,
+    "worst_p95_ms": 36.44,
     "meets_target": true
   }
 }

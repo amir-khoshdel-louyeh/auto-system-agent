@@ -38,6 +38,20 @@ The remaining 124 low findings are the usual informational set (`assert`
 usage in tests-adjacent code, `try/except/pass` in teardown paths) and are
 below the configured gate; they are listed by `bandit -r src -l` if needed.
 
+### 1.2 The exported artefact (Phase 10, [93])
+
+Bandit 1.9.4's `-f json` output is not reliably parseable (a finding's `code`
+field can carry raw control characters), so the export step runs `-f csv`,
+keeps the report stream free of Bandit's log lines, and derives
+`docs/reports/bandit-summary.json` with `scripts/bandit_summary.py`. That
+summary records the **threshold** it counted (`-ll -ii`), so the release claim
+is "0 findings at medium severity + medium confidence" — not "Bandit found
+nothing at any level" (it reports 124 low-severity informational findings at
+`-l`). The reader that builds it is covered by
+`tests/unit/test_bandit_summary.py`, including the case that once bit us:
+log lines such as `[tester] WARNING nosec encountered (B108) …` and the
+progress bar are *not* findings.
+
 ## 2. Dependency audit — pip-audit
 
 ```bash
@@ -58,7 +72,8 @@ Gate: no known vulnerable dependency in any of the three sets — **pass**.
 
 ```bash
 python scripts/secret_scan.py
-# secret scan: clean (255 files, 9 rules)
+# secret scan: clean (255 files, 9 rules) at Phase 9
+# secret scan: clean (278 files, 9 rules) at the release candidate — the tree grew
 ```
 
 Rules: private-key blocks, AWS access keys, GitHub tokens, Slack tokens,
@@ -93,7 +108,12 @@ bandit -r src -ll -ii
 pip-audit -r requirements-api.txt
 python scripts/secret_scan.py
 python -m pytest tests/unit/test_secret_scan.py -q
+
+# the exported artefacts, exactly as the release notes cite them
+bash scripts/export_reports.sh      # 12 steps; writes docs/reports/*
+python scripts/bandit_summary.py docs/reports/bandit.csv docs/reports/bandit-summary.json
 ```
 
-The exported machine-readable copies live in `docs/reports/` (Phase 10
-item [93]).
+The machine-readable copies live in `docs/reports/` (Phase 10 item [93]):
+`bandit.txt` (human log, including the `nosec` audit trail),
+`bandit.csv` (report only) and `bandit-summary.json` (counts + threshold).

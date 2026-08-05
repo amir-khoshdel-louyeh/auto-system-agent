@@ -1,0 +1,33 @@
+................................................................. [  6%]
+...................................... [  9%]
+............................................................................................................................. [ 21%]
+............................................................. [ 27%]
+................................................................. [ 33%]
+....................ss........................................ [ 39%]
+................................................... [ 44%]
+.............................................................. [ 50%]
+.......................................................................... [ 57%]
+........................................................ [ 62%]
+.................................................... [ 67%]
+...................................................................... [ 73%]
+...................................................................... [ 80%]
+.................... [ 82%]
+....................................................................................................... [ 92%]
+............................................... [ 96%]
+....................................                                                 [100%]
+=============================== warnings summary ===============================
+tests/acceptance/test_workbench_walkthrough.py::LoginTests::test_anonymous_client_is_refused
+  /home/amir/.local/lib/python3.14/site-packages/websockets/legacy/__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions
+    warnings.warn(  # deprecated in 14.0 - 2024-11-09
+
+tests/acceptance/test_workbench_walkthrough.py::LoginTests::test_anonymous_client_is_refused
+  /usr/lib/python3.14/site-packages/uvicorn/protocols/websockets/websockets_impl.py:17: DeprecationWarning: websockets.server.WebSocketServerProtocol is deprecated
+    from websockets.server import WebSocketServerProtocol
+
+tests/integration/test_memory_api.py::MemoryApiTests::test_list_filters_by_state_and_rejects_unknown_states
+tests/integration/test_memory_api.py::MemoryApiTests::test_unknown_risk_is_rejected
+  /usr/lib/python3.14/site-packages/anyio/_backends/_asyncio.py:1002: DeprecationWarning: 'HTTP_422_UNPROCESSABLE_ENTITY' is deprecated. Use 'HTTP_422_UNPROCESSABLE_CONTENT' instead.
+    result = context.run(func, *args)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1055 passed, 2 skipped, 4 warnings, 767 subtests passed in 17.49s

@@ -1,0 +1,5 @@
+bandit summary written to docs/reports/bandit-summary.json: 0 finding(s), 0 medium or higher (bandit -r src -ll -ii (severity >= MEDIUM, confidence >= MEDIUM))
+: {},
+  "medium_or_higher": 0,
+  "results": []
+}
