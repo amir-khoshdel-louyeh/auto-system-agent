@@ -238,6 +238,8 @@ erDiagram
 
 1. `docs/ARCHITECTURE.md` (this file) — the shape.
 2. `docs/TRACEABILITY.md` — which requirement is proven where.
-3. `docs/SECURITY_REPORT.md` + `docs/THREAT_MODEL.md` — the risk story.
-4. `docs/DEPLOYMENT.md` + `docs/PERF_REPORT.md` — how it runs and how fast.
-5. `docs/LIMITATIONS.md` — what it deliberately does not do.
+3. `docs/ADR.md` + `docs/RISK_REGISTER.md` — why it is shaped this way, and
+   what is still exposed.
+4. `docs/SECURITY_REPORT.md` + `docs/THREAT_MODEL.md` — the risk story.
+5. `docs/DEPLOYMENT.md` + `docs/PERF_REPORT.md` — how it runs and how fast.
+6. `docs/LIMITATIONS.md` — what it deliberately does not do.
