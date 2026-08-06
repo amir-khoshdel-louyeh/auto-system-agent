@@ -478,12 +478,21 @@ class ExecutionStore:
             triggered_by=triggered_by,
             run_id=str(getattr(run, "run_id", "") or ""),
         )
+        return self.record_result(str(execution["id"]), run)
+
+    def record_result(self, execution_id: str, run) -> dict:
+        """Persist a completed run into an execution row the caller started.
+
+        Split out of :meth:`record_run` for the API (item [104]), which must
+        insert the RUNNING row *before* it answers so the client can poll it,
+        then record the node results when the background run finishes.
+        """
         order = list(getattr(run, "order", []) or [])
         nodes = getattr(run, "nodes", {}) or {}
         for node_id in [*order, *[nid for nid in nodes if nid not in order]]:
             node = nodes[node_id]
             self.record_step(
-                execution["id"],
+                execution_id,
                 node_id,
                 state_for(str(getattr(node, "status", ""))),
                 attempt=max(1, int(getattr(node, "attempts", 1) or 1)),
@@ -491,8 +500,8 @@ class ExecutionStore:
                 output_summary=summarize_output(getattr(node, "output", {}) or {}),
             )
         self.finish(
-            execution["id"],
+            execution_id,
             str(getattr(run, "status", "FAILED")),
             str(getattr(run, "error", "") or ""),
         )
-        return self.get(execution["id"])
+        return self.get(execution_id)

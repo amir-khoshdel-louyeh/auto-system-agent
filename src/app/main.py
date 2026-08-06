@@ -18,6 +18,7 @@ from .limits import RequestLimits
 from .logging import AccessLogMiddleware, configure_logging
 from .memory_api import router as memory_router
 from .policy_api import router as policy_router
+from .run_service import RunService
 from .settings import Settings, get_settings
 from .workflows_api import router as workflows_router
 from .workspaces import teams_router, workspaces_router
@@ -28,6 +29,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     application = FastAPI(title=settings.app_name, version=settings.app_version)
     application.state.settings = settings
+    # Item [104]: one run service per app. Tests may replace it with one that
+    # pins a deterministic shell runner; production keeps the real sandbox.
+    application.state.run_service = RunService(settings.sqlite_path)
     # Route dependencies (e.g. login) must see the same Settings object
     # the factory was built with, not a fresh env read.
     application.dependency_overrides[get_settings] = lambda: settings

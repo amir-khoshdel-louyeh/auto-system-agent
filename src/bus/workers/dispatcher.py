@@ -116,6 +116,7 @@ async def run_workflow(
     audit_store: AuditStore | None = None,
     workspace_root: str | Path | None = None,
     role: str = "OPERATOR",
+    execution_id: str = "",
 ) -> RunResult:
     """Load, validate and execute one workflow over the bus; returns the run.
 
@@ -132,6 +133,11 @@ async def run_workflow(
     With an ``audit_store`` the run writes its own hash-chain records
     (run, policy, dispatch, retry, result) keyed by the execution id, so
     every execution has an auditable trail (item [48], FR-12).
+
+    ``execution_id`` pins the id the audit chain and step events use. An API
+    caller (item [104]) persists the RUNNING execution row before starting
+    the run, so it passes the id here with ``recorder=None`` and records the
+    node results itself; without it the behaviour is unchanged.
     """
     if dsl_text is None:
         path = Path(workflows_dir) / f"{workflow_name}.yaml"
@@ -158,8 +164,8 @@ async def run_workflow(
         ),
     )
 
-    execution_id = ""
-    if recorder is not None:
+    execution_id = str(execution_id or "")
+    if recorder is not None and not execution_id:
         wid = recorder.ensure_workflow(workflow.name)
         dsl_hash = hashlib.sha256(workflow.raw_text.encode("utf-8")).hexdigest()
         recorder.add_version(wid, workflow.version, workflow.raw_text, dsl_hash)

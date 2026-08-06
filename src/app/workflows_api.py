@@ -1,8 +1,10 @@
-"""Phase 2 item [25] / Phase 8 item [79]: workflow validation and dry run.
+"""Phase 2 item [25] / Phase 8 items [79], [104]: workflow authoring API.
 
 `POST /workflows/validate` is the Phase 2 contract; `POST /workflows/dry-run`
 adds the Phase 8 safe preview (same validation, plus every node's policy
-verdict and explanation) without persisting or dispatching anything.
+verdict and explanation) without persisting or dispatching anything;
+`POST /workflows` (item [104]) publishes the validated document as one
+immutable `(workflow_id, version)` the run API can start.
 
 Validates a DSL document without touching persistence: the report carries
 `valid`, the parsed `name`/`version` and every finding as
@@ -27,6 +29,7 @@ from engine.validator.validator import validate
 
 from .deps import CurrentUser, require_permission
 from .roles import Permission
+from .settings import Settings, get_settings
 
 router = APIRouter(prefix="/workflows", tags=["Workflows"])
 
@@ -69,6 +72,54 @@ def _error_out(stage: str, message: str, line: int, column: int) -> dict:
 
 def _response(body: dict, *, valid: bool) -> JSONResponse:
     return JSONResponse(status_code=status.HTTP_200_OK if valid else 422, content=body)
+
+
+@router.post("")
+def create_workflow(
+    body: ValidateIn,
+    user: CurrentUser = Depends(require_permission(Permission.WORKFLOW_EDIT)),
+    settings: Settings = Depends(get_settings),
+) -> JSONResponse:
+    """Validate and publish one immutable workflow version (item [104]).
+
+    Same validation and the same frozen finding shape as `/validate`; an
+    invalid document is a 422 and nothing is persisted, so a failed publish
+    can never leave a partially-registered workflow behind.
+    """
+    from .db import init_db
+    from .models import WorkflowStore
+
+    try:
+        workflow = load_text(body.dsl, body.dsl_type)
+    except DSLParseError as exc:
+        stage = "yaml" if body.dsl_type == "yaml" else "json"
+        return _response(
+            {
+                "valid": False,
+                "name": "",
+                "version": 0,
+                "errors": [_error_out(stage, str(exc), exc.line, exc.col)],
+            },
+            valid=False,
+        )
+    errors = [_error_out(err.code, err.message, err.line, err.col) for err in validate(workflow)]
+    if errors:
+        return _response(
+            {"valid": False, "name": workflow.name, "version": workflow.version, "errors": errors},
+            valid=False,
+        )
+    row = WorkflowStore(init_db(settings.sqlite_path)).publish(
+        workflow, body.dsl, created_by=user.username
+    )
+    return _response(
+        {
+            "valid": True,
+            "workflow_id": row["workflow_id"],
+            "name": workflow.name,
+            "version": int(row["version"]),
+        },
+        valid=True,
+    )
 
 
 @router.post("/dry-run")

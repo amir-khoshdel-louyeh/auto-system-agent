@@ -1,19 +1,26 @@
-"""Phase 5 items [49],[50]: audit query and execution timeline endpoints.
+"""Phase 5 items [49],[50] and Phase 11 item [104]: execution endpoints.
 
+- `POST /executions` — start a persisted workflow version as a background
+  run and answer immediately with the RUNNING execution id.
+- `GET /executions` — newest runs first (the workbench Runs tab).
+- `GET /executions/{id}` — the durable execution plus its steps.
+- `POST /executions/{id}/replay` — re-run the pinned version (FR-13).
 - `GET /executions/{id}/audit`  — one page of the append-only audit chain
   (with the total, so clients can paginate) for an execution.
 - `GET /executions/{id}/timeline` — the durable execution and its ordered
   step transitions, the run timeline the UI/auditor reads.
 
-Both are read-only and require `audit:read`; an unknown execution is a 404.
+Reads require `run:read` (audit reads `audit:read`), starting and replaying
+require `workflow:run`, and an unknown execution is a 404.
 """
 
 from __future__ import annotations
 
 from dataclasses import asdict
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel, Field
 
 from storage.audit import AuditStore
 from storage.run_metrics import summarize
@@ -23,7 +30,9 @@ from .deps import CurrentUser, require_permission
 from .metrics_export import CONTENT_TYPE
 from .metrics_export import render as render_prometheus
 from .models import ExecutionStore, WorkflowStore
+from .replay import ReplayError, ReplayService
 from .roles import Permission
+from .run_service import RunService
 from .settings import Settings, get_settings
 
 router = APIRouter(prefix="/executions", tags=["Audit"])
@@ -34,6 +43,77 @@ def _audit_store(settings: Settings) -> AuditStore:
     from .db import init_db
 
     return AuditStore(init_db(settings.sqlite_path))
+
+
+def _run_service(request: Request, settings: Settings) -> RunService:
+    """The app's run service (tests may replace it to pin a shell runner)."""
+    service = getattr(request.app.state, "run_service", None)
+    return service if isinstance(service, RunService) else RunService(settings.sqlite_path)
+
+
+class StartRunIn(BaseModel):
+    """One run request: an already-published version plus an optional trigger."""
+
+    workflow_id: str = Field(min_length=1, max_length=64)
+    version: int = Field(ge=1)
+    trigger: str = Field(default="manual", min_length=1, max_length=64)
+
+
+@router.post("", status_code=status.HTTP_202_ACCEPTED)
+def start_execution(
+    body: StartRunIn,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    user: CurrentUser = Depends(require_permission(Permission.WORKFLOW_RUN)),
+) -> dict:
+    """Persist a RUNNING execution and start its DAG on a background thread."""
+    try:
+        execution = _run_service(request, settings).start(
+            body.workflow_id,
+            body.version,
+            triggered_by=body.trigger,
+            role=user.role.value,
+        )
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"unknown workflow version {body.workflow_id}/{body.version}",
+        ) from exc
+    return {
+        "execution_id": execution["id"],
+        "status": execution["status"],
+        "workflow_id": execution["workflow_id"],
+        "version": execution["version"],
+    }
+
+
+@router.post("/{execution_id}/replay")
+async def replay_execution(
+    execution_id: str,
+    request: Request,
+    settings: Settings = Depends(get_settings),
+    user: CurrentUser = Depends(require_permission(Permission.WORKFLOW_RUN)),
+) -> dict:
+    """Re-run the pinned version and report whether the outputs match (FR-13)."""
+    from .db import init_db
+
+    db = init_db(settings.sqlite_path)
+    service = ReplayService(WorkflowStore(db), ExecutionStore(db), AuditStore(db))
+    runner = _run_service(request, settings)
+
+    async def run(dsl_text: str, replay_id: str):
+        return await runner.execute(dsl_text, replay_id, trigger="replay", role=user.role.value)
+
+    try:
+        result = await service.replay(execution_id, run, role=user.role.value)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"unknown execution '{execution_id}'",
+        ) from exc
+    except ReplayError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    return result.as_dict()
 
 
 def _workflow_names(settings: Settings, workflow_ids: list[str]) -> dict[str, str]:
@@ -76,6 +156,23 @@ def list_executions(
             for row in rows
         ],
     }
+
+
+@router.get("/{execution_id}")
+def read_execution(
+    execution_id: str,
+    settings: Settings = Depends(get_settings),
+    _: CurrentUser = Depends(require_permission(Permission.RUN_READ)),
+) -> dict:
+    """One execution with its ordered steps and their output summaries."""
+    from .db import init_db
+
+    try:
+        return ExecutionStore(init_db(settings.sqlite_path)).get(execution_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"unknown execution '{execution_id}'"
+        ) from exc
 
 
 @router.get("/{execution_id}/audit")
