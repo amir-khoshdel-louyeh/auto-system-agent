@@ -212,6 +212,19 @@ class MainEntrypointTests(LauncherBase):
         self.assertTrue(run.call_args.args[1])
         self.assertTrue(check_health(api.base_url), "the reused API must stay up")
 
+    def test_an_unusable_display_reports_instead_of_raising(self):
+        import tkinter as tk
+
+        port = free_port()
+        with (
+            mock.patch("app.settings.get_settings", return_value=self.settings_for("broken.db")),
+            mock.patch.object(launcher, "has_display", return_value=True),
+            mock.patch.object(launcher, "_prompt_login", return_value=""),
+            mock.patch("ui.workbench.run_workbench", side_effect=tk.TclError("no display name")),
+        ):
+            code = launcher.main(["--no-server", "--port", str(port)])
+        self.assertEqual(code, 1)
+
     def test_login_failure_still_opens_the_workbench_with_an_empty_token(self):
         port = free_port()
         with (

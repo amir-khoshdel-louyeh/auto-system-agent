@@ -273,7 +273,19 @@ def main(argv: list[str] | None = None) -> int:
         token = login(client)
         if not token:
             token = _prompt_login(client)
-        run_workbench(url, token)
+        try:
+            run_workbench(url, token)
+        except Exception as exc:  # noqa: BLE001 - a GUI can fail without a window system
+            import tkinter as tk
+
+            if not isinstance(exc, tk.TclError):
+                raise
+            # DISPLAY was set but unusable: the API stays useful, so keep it
+            # up (and say so) instead of dying with a Tk traceback.
+            print(f"could not open the workbench: {exc}", file=sys.stderr)
+            if server is not None and server.thread is not None:
+                return _serve_forever(server)
+            return 1
         return 0
     finally:
         if started and server is not None:
