@@ -1,0 +1,40 @@
+# Post-RC item [101]: nightly operations job (backup, prune, retention, anchor).
+#
+# Install:
+#   sudo cp deploy/systemd/asa-ops.service deploy/systemd/asa-ops.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now asa-ops.timer
+#
+# Adjust WorkingDirectory / Environment= to the checkout and the operator's
+# paths. The job is idempotent: running it twice only writes another snapshot.
+
+[Unit]
+Description=Auto System Agent nightly operations (backup, retention, audit anchor)
+Documentation=file:///srv/auto-system-agent/docs/DEPLOYMENT.md
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=asa
+Group=asa
+WorkingDirectory=/srv/auto-system-agent
+Environment=ASA_DB=/srv/auto-system-agent/data/app.db
+Environment=ASA_BACKUP_DIR=/srv/auto-system-agent/backups
+Environment=ASA_BACKUP_KEEP=14
+Environment=ASA_RETENTION_DAYS=365
+Environment=ASA_ANCHOR_DIR=/srv/auto-system-agent/data/anchors
+# Set this to a mounted off-host target; the job refuses to continue if the
+# copy does not match the manifest hash.
+# Environment=ASA_OFFSITE_DIR=/mnt/offsite/asa
+ExecStart=/srv/auto-system-agent/scripts/ops_job.sh
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+
+# Contain the damage of a bug in the job: it may only write where an operator
+# expects it to (database, backups, anchors, workspaces).
+ReadWritePaths=/srv/auto-system-agent/data /srv/auto-system-agent/backups
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true

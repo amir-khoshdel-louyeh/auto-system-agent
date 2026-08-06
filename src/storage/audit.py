@@ -115,6 +115,14 @@ class AuditStore:
                 row = conn.execute("SELECT COUNT(*) AS n FROM audit_events").fetchone()
         return int(row["n"])
 
+    def execution_ids(self) -> list[str]:
+        """Every execution id with at least one chained event (sorted, item [103])."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT DISTINCT execution_id FROM audit_events ORDER BY execution_id"
+            ).fetchall()
+        return [str(row["execution_id"]) for row in rows]
+
     def list_page(
         self,
         *,
@@ -172,6 +180,7 @@ NODE_DISPATCHED = "node.dispatched"
 NODE_RETRY = "node.retry"
 NODE_RESULT = "node.result"
 RUN_REPLAY = "run.replay"
+MEMORY_RETENTION = "memory.retention"
 
 
 def _decision_payload(decision: Any) -> dict[str, Any]:

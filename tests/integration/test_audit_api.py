@@ -99,6 +99,28 @@ class AuditApiTests(unittest.TestCase):
         self.assertEqual(body["checked"], 5)
         self.assertIsNone(body["first_broken_seq"])
 
+    def test_prometheus_endpoint_exposes_the_scrape_format(self):
+        resp = self.client.get("/metrics/prometheus", headers=self.headers)
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.headers["content-type"].startswith("text/plain"))
+        body = resp.text
+        self.assertIn("asa_runs_total 1", body)
+        self.assertIn("asa_runs_succeeded_total 0", body)
+        self.assertIn("asa_runs_failed_total 1", body)
+        self.assertIn("asa_step_retries_total 1", body)
+        self.assertIn('asa_memory_items{state="QUARANTINED"} 0', body)
+        self.assertIn('asa_build_info{environment="development",version="0.1.0"} 1', body)
+        self.assertTrue(body.endswith("\n"))
+
+    def test_prometheus_endpoint_requires_audit_read(self):
+        self.assertEqual(self.client.get("/metrics/prometheus").status_code, 401)
+        # VIEWER is granted audit:read (the matrix in app/roles.py), so a
+        # scrape is a read like any other; only an anonymous caller is denied.
+        viewer = create_token("viewer", SECRET, 10, role="VIEWER")
+        resp = self.client.get("/metrics/prometheus", headers={"Authorization": f"Bearer {viewer}"})
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("asa_runs_total 1", resp.text)
+
     def test_verify_names_the_first_tampered_record(self):
         with sqlite3.connect(self.settings.sqlite_path) as conn:
             conn.execute(

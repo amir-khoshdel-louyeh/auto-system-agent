@@ -13,12 +13,15 @@ from __future__ import annotations
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi.responses import PlainTextResponse
 
 from storage.audit import AuditStore
 from storage.run_metrics import summarize
 
 from .approvals import ApprovalService
 from .deps import CurrentUser, require_permission
+from .metrics_export import CONTENT_TYPE
+from .metrics_export import render as render_prometheus
 from .models import ExecutionStore, WorkflowStore
 from .roles import Permission
 from .settings import Settings, get_settings
@@ -170,3 +173,53 @@ def execution_metrics(
         requests=[asdict(req) for req in approvals.list_requests()],
         decisions=approvals.all_decisions(),
     ).as_dict()
+
+
+def _memory_summary(path: str) -> dict:
+    """Memory item counts by state plus the reuse metrics (item [100])."""
+    from memory.states import ALL_STATES
+    from memory.store import MemoryStore
+    from memory.usage import list_retrievals
+    from memory.usage import summarize as summarize_reuse
+
+    store = MemoryStore(path)
+    by_state = {
+        state: sum(1 for item in store.list_items(state=state, limit=10_000))
+        for state in ALL_STATES
+    }
+    reuse = summarize_reuse(list_retrievals(path)).as_dict()
+    return {
+        "items_by_state": by_state,
+        "reuse_hits": reuse.get("reuse_hits", 0),
+        "hit_rate": reuse.get("hit_rate", 0.0),
+    }
+
+
+@metrics_router.get("/prometheus", response_class=PlainTextResponse)
+def prometheus_metrics(
+    settings: Settings = Depends(get_settings),
+    _: CurrentUser = Depends(require_permission(Permission.AUDIT_READ)),
+) -> PlainTextResponse:
+    """Prometheus text exposition of run, memory and build metrics (item [100]).
+
+    Same permission as the JSON aggregates (`audit:read`): a scrape endpoint
+    that leaks run counts to anonymous callers would be a new exposure, and a
+    scraper can authenticate like any other client.
+    """
+    from .db import init_db
+
+    path = init_db(settings.sqlite_path)
+    stores = ExecutionStore(path)
+    approvals = ApprovalService(path)
+    summary = summarize(
+        stores.list_executions(),
+        steps=stores.list_all_steps(),
+        requests=[asdict(req) for req in approvals.list_requests()],
+        decisions=approvals.all_decisions(),
+    ).as_dict()
+    body = render_prometheus(
+        summary,
+        memory=_memory_summary(str(path)),
+        build={"version": settings.app_version, "environment": settings.environment},
+    )
+    return PlainTextResponse(body, media_type=CONTENT_TYPE)

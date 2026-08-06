@@ -210,13 +210,69 @@ Evidence.**
   `tests/unit/test_sandbox_commands.py`, `tests/unit/test_engine_gate.py`
   (nested-parameter defence in depth).
 
+## ADR-012 — Anchor the audit chain heads, not a blockchain
+**Post-RC hardening, item [103], 2026-10-18.**
+
+- **Context.** `verify_chain` detects an edited row, a deleted row and a relink,
+  because the next row's `prev_hash` no longer matches. An attacker who rewrites
+  **every** row of a chain, recomputing all hashes, produces a chain that still
+  verifies — the head hash simply changed. `docs/LIMITATIONS.md` §2 recorded
+  that residual risk and left it open.
+- **Decision.** A nightly job writes an anchor document containing one
+  `(execution_id, events, head_hash)` row per chain, one SHA-256 over all of
+  them, and an HMAC-SHA256 over the document when `ASA_ANCHOR_KEY` is set. The
+  operator copies `data/anchors/` off the host. `scripts/anchor_audit.py verify`
+  recomputes the digest and names added, missing and rewritten chains.
+- **Alternatives rejected.** (a) A blockchain or external timestamping service
+  — a dependency and an operational story for a demonstrator; (b) a single
+  global chain — merges concurrency, so one stuck writer stalls every run;
+  (c) doing nothing because "the DB file is on a trusted host" — that is the
+  assumption the anchor exists to test.
+- **Consequences.** + A full-chain rewrite is detectable **if** the anchor copy
+  is somewhere the attacker does not control; + no payloads or paths leave the
+  host, only hashes. − The evidence is only as good as the off-host copy, and
+  the job does not publish the digest anywhere on its own.
+- **Evidence.** `src/storage/anchor.py`, `scripts/anchor_audit.py`,
+  `tests/unit/test_audit_anchor.py` (a consistently rewritten chain passes
+  `verify_chain` and fails the anchor), `tests/integration/test_ops_scripts.py`,
+  `deploy/systemd/asa-ops.*`.
+
+## ADR-013 — Retention and scheduled operations as scripts, not in-app timers
+**Post-RC hardening, items [100]-[102], 2026-10-18.**
+
+- **Context.** Memory items lived forever, backups were a command an operator
+  had to remember, a broker outage could kill `serve()`, and the p95 NFR was
+  measured but not enforced. Each of those is operational, not request-path.
+- **Decision.** Keep the request path free of timers: `scripts/retention.py`
+  applies `storage.retention.RetentionPolicy` (quarantined evidence and
+  unreadable timestamps are never purged, the purge is audited on the chain),
+  `scripts/ops_job.sh` chains backup → verify → prune → retention → anchor and
+  stops at the first failure, systemd units schedule it, and CI runs the same
+  benchmark with `--api-only` as a p95 gate. `Runner.serve()` treats an
+  unreachable broker as a counted condition with backoff instead of a crash;
+  `redrive_dlq` finishes parked work after recovery without erasing the parked
+  record.
+- **Alternatives rejected.** (a) In-process `asyncio` timers in the API — N
+  replicas would run N purges and N backups; (b) deleting from the DLQ after a
+  redrive — erases the evidence of the outage; (c) a relative throughput gate
+  in CI — machine-dependent numbers make a flaky build, so the absolute NFR
+  budget is gated and throughput stays a measured report.
+- **Consequences.** + One operator command and one unit file cover the nightly
+  job; failures are loud and ordered. − Scheduling is only as reliable as the
+  host's systemd, and a failed timer is visible in journald but not alerted
+  (`docs/LIMITATIONS.md` §3).
+- **Evidence.** `src/storage/retention.py`, `src/bus/consumer.py`,
+  `scripts/{retention,ops_job.sh,backup,benchmark}.py`,
+  `tests/{unit/test_retention.py,integration/test_chaos_recovery.py,integration/test_ops_scripts.py}`,
+  `.github/workflows/ci.yml`.
+
 ---
 
 ## Decisions we deliberately did **not** take (and why)
 
 | Proposal | Why not | Where the cost is recorded |
 |---|---|---|
-| Global audit anchor / blockchain | no external dependency in the MVP; the residual risk is stated instead | `docs/LIMITATIONS.md` §2 |
+| Blockchain / third-party timestamping | a local signed anchor covers the rewrite case without a dependency; publishing the digest externally remains the operator's step (ADR-012) | `docs/LIMITATIONS.md` §2 |
 | Kubernetes / autoscaling | one-host deployment is what is actually verified | §2, §7 of the same file |
 | OAuth/SSO | local users + short-lived JWT cover the RBAC demonstration | §1 |
 | Per-node dynamic plugin loading | manifests validate before registration; a marketplace is out of scope | §1 |

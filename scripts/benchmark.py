@@ -379,12 +379,17 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
     finally:
         server.stop()
 
-    workers = {
-        "shell_steps": measure_shell_worker(args.worker_events),
-        "shell_commands": measure_shell_command(args.shell_runs),
-        "sandbox_runs": measure_sandbox_worker(args.sandbox_runs),
-    }
+    workers = (
+        {}
+        if getattr(args, "api_only", False)
+        else {
+            "shell_steps": measure_shell_worker(args.worker_events),
+            "shell_commands": measure_shell_command(args.shell_runs),
+            "sandbox_runs": measure_sandbox_worker(args.sandbox_runs),
+        }
+    )
     worst_p95 = max(report["p95_ms"] for report in api.values())
+    budget_ms = float(getattr(args, "max_p95", P95_TARGET_MS))
     return {
         "timestamp": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "environment": {**environment(), "bwrap": bwrap_available()},
@@ -400,9 +405,9 @@ def run_benchmark(args: argparse.Namespace) -> dict[str, Any]:
         "api": api,
         "workers": workers,
         "nfr": {
-            "p95_target_ms": P95_TARGET_MS,
+            "p95_target_ms": budget_ms,
             "worst_p95_ms": worst_p95,
-            "meets_target": worst_p95 < P95_TARGET_MS,
+            "meets_target": worst_p95 < budget_ms,
         },
     }
 
@@ -430,6 +435,9 @@ def render(report: dict[str, Any]) -> str:
         "",
         "Workers:",
     ]
+    if not report["workers"]:
+        lines.append("  (skipped: --api-only; the CI regression gate measures HTTP latency only)")
+        return "\n".join(lines)
     shell = report["workers"]["shell_steps"]
     commands = report["workers"]["shell_commands"]
     sandbox = report["workers"]["sandbox_runs"]
@@ -460,6 +468,17 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--shell-runs", type=int, default=10, help="real sandboxed shell runs")
     parser.add_argument("--sandbox-runs", type=int, default=20, help="sandboxed plugin runs")
     parser.add_argument("--json", default="", help="also write the raw result here")
+    parser.add_argument(
+        "--api-only",
+        action="store_true",
+        help="skip worker measurements (the CI regression gate: HTTP latency only)",
+    )
+    parser.add_argument(
+        "--max-p95",
+        type=float,
+        default=P95_TARGET_MS,
+        help=f"p95 budget in milliseconds (default {P95_TARGET_MS:g}, proposal NFR)",
+    )
     args = parser.parse_args(argv)
 
     report = run_benchmark(args)

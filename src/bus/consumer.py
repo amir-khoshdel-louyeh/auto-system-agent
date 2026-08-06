@@ -30,6 +30,7 @@ class RunStats:
     errors: int = 0
     dlq: int = 0
     duplicates: int = 0
+    backend_errors: int = 0
 
 
 class Runner:
@@ -90,34 +91,57 @@ class Runner:
             return
         attempt = 0
         last_error = ""
+        handled = False
         while attempt <= self.max_retries:
             attempt += 1
             try:
                 await handler(event)
-                self._seen.add(event.idempotency_key)
-                stats.processed += 1
-                await self.backend.acknowledge(stream, self.group, message_id)
-                return
+                handled = True
+                break
             except Exception as exc:  # noqa: BLE001 - handler failure is data
                 last_error = str(exc)[:2000]
                 stats.errors += 1
                 if attempt <= self.max_retries:
                     await asyncio.sleep(self._backoff_s(attempt))
-        await self.backend.to_dlq(stream, event, f"{last_error} (after {attempt} attempts)")
-        stats.dlq += 1
+        if not handled:
+            await self.backend.to_dlq(stream, event, f"{last_error} (after {attempt} attempts)")
+            stats.dlq += 1
+            await self.backend.acknowledge(stream, self.group, message_id)
+            return
+        # The side effect happened. A failed acknowledgement must not run the
+        # handler again in this pass: the delivery stays pending and a broker
+        # redelivery (or a replay) resolves it, which is what the idempotency
+        # key exists for. `drain_once` counts the failure as a backend error.
+        self._seen.add(event.idempotency_key)
+        stats.processed += 1
         await self.backend.acknowledge(stream, self.group, message_id)
 
     async def drain_once(self, *, count: int = 10) -> RunStats:
-        """Process everything currently available, then return (tests + jobs)."""
+        """Process everything currently available, then return (tests + jobs).
+
+        A broker that cannot be reached is a counted condition, not a crash:
+        the pass reports ``backend_errors``, the worker keeps whatever was
+        processed, and `serve()` backs off before the next pass. This is what
+        makes a broker restart a recoverable event instead of a lost worker
+        (post-RC item [102], chaos suite).
+        """
         stats = RunStats()
         for stream in self.streams:
-            await self.backend.ensure_group(stream, self.group)
-            while True:
-                batch = await self.backend.read_group(stream, self.group, self.consumer_id, count)
-                if not batch:
-                    break
-                for message_id, event in batch:
-                    await self._process(stream, message_id, event, stats)
+            try:
+                await self.backend.ensure_group(stream, self.group)
+                while True:
+                    batch = await self.backend.read_group(
+                        stream, self.group, self.consumer_id, count
+                    )
+                    if not batch:
+                        break
+                    for message_id, event in batch:
+                        try:
+                            await self._process(stream, message_id, event, stats)
+                        except Exception:  # noqa: BLE001 - a dead ack is data too
+                            stats.backend_errors += 1
+            except Exception:  # noqa: BLE001 - broker unavailable this pass
+                stats.backend_errors += 1
         return stats
 
     async def replay(self, stream: str) -> RunStats:
@@ -134,6 +158,26 @@ class Runner:
                 stats.errors += 1
         return stats
 
+    async def redrive_dlq(self, stream: str) -> RunStats:
+        """Re-handle the parked events of one stream (post-RC item [102]).
+
+        A DLQ entry is kept as evidence, not consumed: redriving runs the
+        handler again and republishes idempotent verdicts, so a recovered
+        dependency can finish work that was parked during an outage without
+        erasing the record of the outage itself.
+        """
+        stats = RunStats()
+        for _message_id, event, _reason in await self.backend.dlq_list(stream):
+            handler = self._handlers.get(event.type) or self._default
+            if handler is None:
+                continue
+            try:
+                await handler(event)
+                stats.processed += 1
+            except Exception:  # noqa: BLE001 - still broken: stays parked
+                stats.errors += 1
+        return stats
+
     async def serve(self, *, poll_s: float = 0.2, count: int = 10) -> RunStats:
         """Consume until `stop()`; returns totals (long-running workers)."""
         self._running = True
@@ -145,8 +189,9 @@ class Runner:
                 totals.errors += batch_stats.errors
                 totals.dlq += batch_stats.dlq
                 totals.duplicates += batch_stats.duplicates
+                totals.backend_errors += batch_stats.backend_errors
                 if batch_stats.processed == 0:
-                    await asyncio.sleep(poll_s)
+                    await asyncio.sleep(poll_s * min(8, 1 + batch_stats.backend_errors))
         except asyncio.CancelledError:
             self._running = False
             raise

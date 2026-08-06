@@ -121,7 +121,11 @@ pip-audit -r requirements-api.txt       # dependency audit
 ```
 
 CI (`.github/workflows/ci.yml`) runs exactly this chain plus the Docker
-image build. Conventions: [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) ·
+image build and an API p95 gate (`scripts/benchmark.py --api-only`, fails at
+the 300 ms NFR budget). Scheduled operations are one script,
+`scripts/ops_job.sh` (backup → verify → prune → retention → audit anchor),
+with systemd units in `deploy/systemd/` — see
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) §3. Conventions: [`docs/CONVENTIONS.md`](docs/CONVENTIONS.md) ·
 Traceability: [`docs/TRACEABILITY.md`](docs/TRACEABILITY.md) ·
 Architecture diagrams: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) ·
 Decisions and rejected alternatives: [`docs/ADR.md`](docs/ADR.md) ·

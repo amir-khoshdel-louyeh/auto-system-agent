@@ -81,10 +81,22 @@ python scripts/benchmark.py                     # defaults: 300 requests / endpo
 python scripts/benchmark.py --requests 500 --threads 16 --sandbox-runs 50
 ```
 
-Exit status is 0 when the p95 target is met and 1 otherwise, so the command
-can be wired into a regression gate. `docs/reports/perf.json` holds the raw
-sample (parameters, environment, percentiles, worker rates) for the SE
-package (item [93]).
+Exit status is 0 when the p95 target is met and 1 otherwise. Since item [100]
+that exit status **is** a CI gate: the `performance` job in
+`.github/workflows/ci.yml` runs
+
+```bash
+python scripts/benchmark.py --api-only --requests 40 --threads 4 \
+    --seed-executions 50 --audit-events 20 --json docs/reports/perf-ci.json
+```
+
+on every push, with the raw sample uploaded as the `perf-ci` artifact. It
+fails the build when worst p95 reaches the 300 ms budget (`--max-p95` changes
+the budget for a stricter environment). Worker throughput is deliberately not
+gated: it is machine-dependent, and a percentage threshold would make CI
+flaky rather than meaningful. `docs/reports/perf.json` holds the raw sample
+(parameters, environment, percentiles, worker rates) for the SE package
+(item [93]).
 
 ## 5. Re-measurement at the release candidate (Phase 10, [93])
 

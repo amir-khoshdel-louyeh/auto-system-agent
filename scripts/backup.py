@@ -22,6 +22,14 @@ Usage::
     python scripts/backup.py backup  --db data/app.db --out backups/
     python scripts/backup.py verify  backups/app-20261018T131900Z.db
     python scripts/backup.py restore backups/app-20261018T131900Z.db --db restored.db
+    python scripts/backup.py prune   --out backups/ --keep 14 --dry-run
+
+Post-RC item [101]: `prune` is the retention half of backup. It keeps the
+newest ``--keep`` snapshots and removes older ``.db`` **together with** their
+manifest, so the directory can never end up with a manifest that outlives its
+snapshot. Selection is `storage.retention.plan_backup_prune` (sorted names, so
+it is deterministic and testable); the newest snapshot is never removed even
+when ``--keep 0`` is mistyped, because the caller sees the plan first.
 """
 
 from __future__ import annotations
@@ -153,7 +161,36 @@ def build_manifest(source: Path) -> dict[str, Any]:
     }
 
 
-def create_backup(db: str | Path, out_dir: str | Path, *, name: str = "") -> tuple[Path, Path]:
+def offsite_copy(backup: str | Path, destination: str | Path) -> Path:
+    """Copy a snapshot and its manifest off the host and verify the copy.
+
+    ``destination`` may be a mounted network filesystem; for a remote host,
+    mount it or use ``rsync`` on the backup directory (the runbook shows the
+    command). The copy is re-hashed here, so a truncated transfer is an error
+    at backup time instead of a surprise at restore time.
+    """
+    source = Path(backup)
+    manifest = Path(f"{source}{MANIFEST_SUFFIX}")
+    if not source.is_file() or not manifest.is_file():
+        raise BackupError(f"no snapshot and manifest at {source}")
+    out = Path(destination)
+    out.mkdir(parents=True, exist_ok=True)
+    copied = out / source.name
+    shutil.copy2(source, copied)
+    shutil.copy2(manifest, out / manifest.name)
+    recorded = json.loads(manifest.read_text(encoding="utf-8"))["database"]["sha256"]
+    if sha256_file(copied) != recorded:
+        raise BackupError(f"off-site copy {copied} does not match the manifest hash")
+    return copied
+
+
+def create_backup(
+    db: str | Path,
+    out_dir: str | Path,
+    *,
+    name: str = "",
+    copy_to: str | Path | None = None,
+) -> tuple[Path, Path]:
     """Snapshot ``db`` into ``out_dir`` and write its manifest."""
     source = Path(db)
     if not source.is_file():
@@ -165,6 +202,8 @@ def create_backup(db: str | Path, out_dir: str | Path, *, name: str = "") -> tup
     manifest = build_manifest(target)
     manifest_path = target.with_name(target.name + MANIFEST_SUFFIX)
     manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    if copy_to:
+        offsite_copy(target, copy_to)
     return target, manifest_path
 
 
@@ -200,6 +239,45 @@ def verify_backup(backup: str | Path) -> dict[str, Any]:
     return {"manifest": manifest, "tables": counts, "audit": audit}
 
 
+def backup_names(out_dir: str | Path) -> list[str]:
+    """Snapshot file names in a directory (``*.db``, sorted)."""
+    directory = Path(out_dir)
+    if not directory.is_dir():
+        return []
+    return sorted(path.name for path in directory.glob("*.db") if path.is_file())
+
+
+def prune_backups(out_dir: str | Path, keep: int, *, dry_run: bool = False) -> dict[str, Any]:
+    """Remove all but the newest ``keep`` snapshots (and their manifests).
+
+    A dry run reports the same decision without deleting anything, so an
+    operator can check the plan before a timer applies it.
+    """
+    from storage.retention import plan_backup_prune
+
+    if keep < 1:
+        raise BackupError("keep must be at least 1: none of the backups may be the last copy")
+    directory = Path(out_dir)
+    names = backup_names(directory)
+    doomed = plan_backup_prune(names, keep)
+    removed: list[str] = []
+    if not dry_run:
+        for name in doomed:
+            target = directory / name
+            target.unlink(missing_ok=True)
+            target.with_name(target.name + MANIFEST_SUFFIX).unlink(missing_ok=True)
+            removed.append(name)
+    return {
+        "directory": str(directory),
+        "keep": keep,
+        "dry_run": dry_run,
+        "total": len(names),
+        "kept": len(names) - len(doomed),
+        "remove": list(doomed),
+        "removed": removed,
+    }
+
+
 def restore_backup(backup: str | Path, db: str | Path, *, force: bool = False) -> Path:
     """Copy a verified backup into ``db`` (refuses to clobber unless forced)."""
     verification = verify_backup(backup)
@@ -221,6 +299,11 @@ def main(argv: list[str] | None = None) -> int:
     backup_cmd.add_argument("--db", required=True)
     backup_cmd.add_argument("--out", required=True, help="output directory")
     backup_cmd.add_argument("--name", default="", help="file stem for the snapshot")
+    backup_cmd.add_argument(
+        "--copy-to",
+        default="",
+        help="directory to copy the snapshot + manifest to (mounted off-host target)",
+    )
 
     verify_cmd = sub.add_parser("verify", help="check a backup against its manifest")
     verify_cmd.add_argument("backup")
@@ -230,12 +313,21 @@ def main(argv: list[str] | None = None) -> int:
     restore_cmd.add_argument("--db", required=True)
     restore_cmd.add_argument("--force", action="store_true", help="overwrite an existing database")
 
+    prune_cmd = sub.add_parser("prune", help="delete all but the newest N snapshots")
+    prune_cmd.add_argument("--out", required=True, help="directory holding the snapshots")
+    prune_cmd.add_argument("--keep", type=int, default=14, help="snapshots to keep (default 14)")
+    prune_cmd.add_argument("--dry-run", action="store_true", help="report without deleting")
+
     args = parser.parse_args(argv)
     try:
         if args.command == "backup":
-            target, manifest = create_backup(args.db, args.out, name=args.name)
+            target, manifest = create_backup(
+                args.db, args.out, name=args.name, copy_to=args.copy_to or None
+            )
             print(f"backup written: {target}")
             print(f"manifest:       {manifest}")
+            if args.copy_to:
+                print(f"off-site copy:  {Path(args.copy_to) / target.name}")
             return 0
         if args.command == "verify":
             result = verify_backup(args.backup)
@@ -245,6 +337,16 @@ def main(argv: list[str] | None = None) -> int:
                 f"{len(result['tables'])} tables, "
                 f"{audit['events_verified']} audit events in {audit['executions']} chains"
             )
+            return 0
+        if args.command == "prune":
+            result = prune_backups(args.out, args.keep, dry_run=args.dry_run)
+            mode = "DRY RUN — nothing deleted" if result["dry_run"] else "applied"
+            print(f"backup prune {mode}")
+            print(f"  directory : {result['directory']}")
+            print(f"  snapshots : {result['total']} (keep {result['keep']})")
+            print(f"  remove    : {result['remove'] or 'nothing'}")
+            if not result["dry_run"]:
+                print(f"  removed   : {len(result['removed'])}")
             return 0
         target = restore_backup(args.backup, args.db, force=args.force)
         print(f"restored to: {target}")

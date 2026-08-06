@@ -1,0 +1,17 @@
+# Post-RC item [101]: run scripts/ops_job.sh daily at 02:30 UTC.
+#
+# `Persistent=true` means a host that was off at 02:30 runs the job at the next
+# boot instead of silently skipping a day — the property a cron line lacks.
+
+[Unit]
+Description=Daily Auto System Agent operations job (02:30 UTC)
+Documentation=file:///srv/auto-system-agent/docs/DEPLOYMENT.md
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+Unit=asa-ops.service
+
+[Install]
+WantedBy=timers.target

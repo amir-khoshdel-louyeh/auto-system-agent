@@ -77,17 +77,104 @@ HEAD:compose.yml` contains no volume for `/code/data` (only `pgdata` and
 
 ## 3. Operating it
 
-### Backup (Phase 9 item [89])
+### Backup, off-site copy and retention (Phase 9 item [89], post-RC [101]-[103])
 
 ```bash
-python scripts/backup.py backup --db data/app.db --out backups/ --name nightly
+python scripts/backup.py backup --db data/app.db --out backups/ --name nightly \
+    --copy-to /mnt/offsite/asa
 python scripts/backup.py verify backups/nightly.db
+python scripts/backup.py prune --out backups/ --keep 14 --dry-run
+python scripts/retention.py --db data/app.db --days 365 --dry-run
 ```
 
 The snapshot is taken with SQLite's online-backup API (consistent while the
 API is writing) and accompanied by `nightly.db.manifest.json`: SHA-256, size,
 every applied migration with its checksum, table row counts, and the result
 of verifying **every** audit chain in the copy. `verify` re-checks all of it.
+`--copy-to` writes the snapshot **and** its manifest to a second directory
+(a network mount or an SSHFS path) and re-hashes the copy, so a truncated
+transfer fails at backup time rather than at restore time. For a remote host,
+mount it, or push the directory afterwards:
+
+```bash
+rsync -a --delete backups/ backup-host:/srv/asa-backups/
+```
+
+`prune` keeps the newest `--keep` snapshots and removes older ones together
+with their manifests; it refuses `--keep 0`, because the newest snapshot is
+the last copy. `retention.py` is the separate data-lifecycle job for shared
+memory: it purges **SANDBOX/PUBLIC** items untouched for `--days`, never a
+quarantined item (that row is the evidence a failed plan cannot be reused),
+keeps the consent history, and appends one `memory.retention` record to the
+audit chain so a deletion is provably intentional. Both commands support
+`--dry-run`; run them that way first.
+
+### Scheduled operations job (post-RC [101])
+
+`scripts/ops_job.sh` runs the five steps in order and stops at the first
+failure, so a broken backup is never pruned and a failed purge is never
+hidden by an anchor:
+
+```
+backup → verify → prune → retention → anchor
+```
+
+```bash
+sudo cp deploy/systemd/asa-ops.service deploy/systemd/asa-ops.timer /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now asa-ops.timer     # daily 02:30 UTC, Persistent=true
+```
+
+Adjust `WorkingDirectory`, `User` and the `Environment=` lines in the unit
+to the checkout (the shipped values assume `/srv/auto-system-agent`). Set
+`ASA_OFFSITE_DIR` to the mounted off-host target. The equivalent cron line:
+
+```cron
+30 2 * * *  cd /srv/auto-system-agent && ASA_OFFSITE_DIR=/mnt/offsite/asa scripts/ops_job.sh
+```
+
+### Audit anchoring (post-RC [103])
+
+`verify_chain` catches an edited row, a deletion and a relink. It cannot catch
+an attacker who rewrites **every** row consistently; the chain still verifies,
+only its head changed. The job therefore writes an anchor document daily:
+
+```bash
+python scripts/anchor_audit.py anchor --db data/app.db --out data/anchors \
+    --key "$ASA_ANCHOR_KEY"
+python scripts/anchor_audit.py verify --db data/app.db \
+    --anchor data/anchors/audit-anchor-2026-10-18T023000Z.json \
+    --key "$ASA_ANCHOR_KEY"
+```
+
+The document holds one `(execution_id, events, head_hash)` row per chain, one
+SHA-256 over all of them, and an HMAC-SHA256 signature when `ASA_ANCHOR_KEY`
+is set. It contains no payloads and no paths. **Copy `data/anchors/` off the
+host**: an anchor stored beside the database protects nothing. `verify` exits
+1 and names the changed chains when a head no longer matches.
+
+### Metrics scraping (post-RC [100])
+
+`GET /metrics/prometheus` returns Prometheus text exposition v0.0.4 with the
+same aggregates as `GET /metrics/executions`, plus memory item counts and a
+build-info sample. It requires `audit:read` (a valid JWT), like the other
+read endpoints:
+
+```bash
+TOKEN=$(curl -s -X POST localhost:8000/auth/login \
+    -H 'content-type: application/json' \
+    -d '{"username":"admin","password":"..."}' | python -c 'import json,sys;print(json.load(sys.stdin)["access_token"])')
+curl -s -H "Authorization: Bearer $TOKEN" localhost:8000/metrics/prometheus
+```
+
+Families: `asa_runs_total`, `asa_runs_succeeded_total`, `asa_runs_failed_total`,
+`asa_run_success_rate`, `asa_run_latency_average_milliseconds`,
+`asa_run_latency_p95_milliseconds`, `asa_step_retries_total`,
+`asa_approval_requests_total`, `asa_approval_average_seconds`,
+`asa_memory_items{state=...}`, `asa_memory_reuse_hits_total`,
+`asa_memory_reuse_hit_rate`, `asa_build_info`. A CI job runs the same
+benchmark with `--api-only` on every push and fails when worst p95 reaches
+the 300 ms NFR budget (`scripts/benchmark.py --max-p95`).
 
 ### Restore
 
@@ -125,8 +212,11 @@ docker compose exec api python -m app.db --db data/app.db --status
       published port is loopback-only for exactly this reason).
 - [ ] Keep `compose.prod.yml` for anything shared: it is the only file that
       refuses dev defaults and closes the broker.
-- [ ] Run `python scripts/backup.py backup` on a schedule and copy the
-      snapshots off the host; a volume snapshot alone is not a backup.
+- [ ] Install the scheduled job (`deploy/systemd/asa-ops.{service,timer}`) and
+      set `ASA_OFFSITE_DIR`; a volume snapshot alone is not a backup, and the
+      off-site copy is what makes the nightly anchor meaningful.
+- [ ] Scrape `GET /metrics/prometheus` with a token that has `audit:read`, and
+      alert at least on `asa_runs_failed_total` and the p95 NFR (300 ms).
 - [ ] Watch the JSON logs (`level=WARNING`+) and the `429` rate — the
       in-process limiter is per replica, so add an edge limit when scaling out.
 - [ ] Real `shell` execution (item [99]) needs unprivileged user namespaces in
