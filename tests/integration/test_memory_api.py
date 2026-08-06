@@ -51,6 +51,7 @@ class MemoryApiTests(unittest.TestCase):
     def test_endpoints_require_authentication(self):
         for method, url in (
             ("get", "/memory/items"),
+            ("get", "/memory/items/abc"),
             ("get", "/memory/search?q=workspace"),
             ("get", "/memory/metrics"),
             ("get", "/memory/consent"),
@@ -145,6 +146,29 @@ class MemoryApiTests(unittest.TestCase):
             ).status_code,
             422,
         )
+
+    def test_read_one_item_returns_the_plan_and_its_history(self):
+        self.client.post("/memory/consent", json={"granted": True}, headers=self.headers)
+        item_id = self._store_plan().json()["id"]
+
+        response = self.client.get(f"/memory/items/{item_id}", headers=self.headers)
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["id"], item_id)
+        self.assertEqual(body["plan"]["intent"], "create_workspace")
+        self.assertEqual(len(body["plan"]["steps"]), 1)
+        self.assertEqual([event["event"] for event in body["events"]], ["created"])
+
+        viewer = create_token("viewer", SECRET, 10, role="VIEWER")
+        readable = self.client.get(
+            f"/memory/items/{item_id}", headers={"Authorization": f"Bearer {viewer}"}
+        )
+        self.assertEqual(readable.status_code, 200)
+
+    def test_reading_an_unknown_item_is_404(self):
+        response = self.client.get("/memory/items/missing", headers=self.headers)
+        self.assertEqual(response.status_code, 404)
+        self.assertIn("unknown memory item", response.json()["detail"])
 
     # -- metrics ---------------------------------------------------------
     def test_search_records_reuse_hit_and_no_generation_metrics(self):

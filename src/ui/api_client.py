@@ -163,6 +163,37 @@ class WorkbenchClient:
     def verify(self, execution_id: str) -> dict[str, Any]:
         return self._request("GET", f"/executions/{parse.quote(execution_id)}/audit/verify")
 
+    # -- memory -----------------------------------------------------------
+    def memory_consent(self) -> dict[str, Any]:
+        """The caller's own `memory:store` consent state."""
+        return self._request("GET", "/memory/consent")
+
+    def set_memory_consent(self, granted: bool) -> dict[str, Any]:
+        """Grant or revoke the caller's own consent (item [64])."""
+        return self._request("POST", "/memory/consent", body={"granted": granted})
+
+    def memory_items(self, state: str = "") -> dict[str, Any]:
+        """Stored plans, optionally filtered by lifecycle state."""
+        return self._request("GET", "/memory/items", params={"state": state})
+
+    def memory_item(self, item_id: str) -> dict[str, Any]:
+        """One stored plan with its canonical body and event history."""
+        return self._request("GET", f"/memory/items/{parse.quote(item_id)}")
+
+    def memory_search(self, query: str, *, top_k: int = 5, risk: str = "MEDIUM") -> dict:
+        """Similarity search over reusable plans (quarantine excluded)."""
+        return self._request(
+            "GET", "/memory/search", params={"q": query, "top_k": top_k, "risk": risk}
+        )
+
+    def memory_metrics(self) -> dict[str, Any]:
+        """Reuse hits and the planner calls they avoided (item [72])."""
+        return self._request("GET", "/memory/metrics")
+
+    def erase_memory_item(self, item_id: str) -> dict[str, Any]:
+        """Erase one stored plan (item [71])."""
+        return self._request("DELETE", f"/memory/items/{parse.quote(item_id)}")
+
     # -- approvals --------------------------------------------------------
     def approvals(self, execution_id: str = "") -> dict[str, Any]:
         return self._request("GET", "/approvals", params={"execution_id": execution_id})

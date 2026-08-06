@@ -33,6 +33,11 @@ COLORS: dict[str, str] = {
     "accent": "#2563eb",
     "accent_hover": "#1d4ed8",
     "accent_pale": "#dbeafe",
+    "accent_soft": "#eff6ff",
+    "row_alt": "#f8fafc",
+    "toast": "#0f172a",
+    "toast_text": "#f8fafc",
+    "header_border": "#1e293b",
     "success": "#15803d",
     "success_bg": "#dcfce7",
     "warning": "#b45309",
@@ -78,6 +83,9 @@ STATE_COLORS: dict[str, str] = {
     "NEED_APPROVAL": COLORS["warning"],
     "ALLOW": COLORS["success"],
     "EXPIRED": COLORS["muted"],
+    "QUARANTINED": COLORS["warning"],
+    "SANDBOX": COLORS["info"],
+    "PUBLIC": COLORS["success"],
 }
 
 
@@ -182,7 +190,29 @@ def apply_theme(root: Any) -> tuple[str, str]:
         "Badge.TLabel",
         background=COLORS["surface"],
         foreground=COLORS["muted"],
-        font=(family, 10, "bold"),
+        font=(family, 9, "bold"),
+        padding=(8, 3),
+    )
+    for name, background, foreground in (
+        ("PillOk", COLORS["success_bg"], COLORS["success"]),
+        ("PillWarn", COLORS["warning_bg"], COLORS["warning"]),
+        ("PillBad", COLORS["danger_bg"], COLORS["danger"]),
+        ("PillInfo", COLORS["info_bg"], COLORS["info"]),
+        ("PillMuted", COLORS["surface_alt"], COLORS["muted"]),
+    ):
+        style.configure(
+            f"{name}.TLabel",
+            background=background,
+            foreground=foreground,
+            font=(family, 9, "bold"),
+            padding=(8, 3),
+        )
+    style.configure(
+        "Step.TLabel",
+        background=COLORS["accent"],
+        foreground="#ffffff",
+        font=(family, 9, "bold"),
+        padding=(7, 2),
     )
 
     style.configure(
@@ -204,7 +234,7 @@ def apply_theme(root: Any) -> tuple[str, str]:
         "Accent.TButton",
         padding=(14, 6),
         background=COLORS["accent"],
-        foreground=COLORS["accent_pale"],
+        foreground="#ffffff",
         bordercolor=COLORS["accent"],
         lightcolor=COLORS["accent"],
         darkcolor=COLORS["accent"],
@@ -212,13 +242,13 @@ def apply_theme(root: Any) -> tuple[str, str]:
     style.map(
         "Accent.TButton",
         background=[("active", COLORS["accent_hover"]), ("disabled", "#93c5fd")],
-        foreground=[("disabled", COLORS["surface"])],
+        foreground=[("disabled", "#f8fafc")],
     )
     style.configure(
         "Danger.TButton",
         padding=(14, 6),
         background=COLORS["danger"],
-        foreground=COLORS["danger_bg"],
+        foreground="#ffffff",
         bordercolor=COLORS["danger"],
         lightcolor=COLORS["danger"],
         darkcolor=COLORS["danger"],
@@ -236,6 +266,11 @@ def apply_theme(root: Any) -> tuple[str, str]:
         lightcolor=COLORS["surface"],
         darkcolor=COLORS["surface"],
     )
+    style.map(
+        "Ghost.TButton",
+        background=[("active", COLORS["surface_alt"]), ("disabled", COLORS["surface"])],
+        foreground=[("disabled", COLORS["faint"])],
+    )
     style.configure(
         "HeaderAction.TButton",
         padding=(12, 6),
@@ -248,6 +283,7 @@ def apply_theme(root: Any) -> tuple[str, str]:
     style.map(
         "HeaderAction.TButton",
         background=[("active", "#1e293b")],
+        foreground=[("disabled", COLORS["header_muted"])],
     )
 
     style.configure(
@@ -255,7 +291,7 @@ def apply_theme(root: Any) -> tuple[str, str]:
         background=COLORS["surface"],
         fieldbackground=COLORS["surface"],
         foreground=COLORS["text"],
-        rowheight=26,
+        rowheight=28,
         borderwidth=0,
         font=(family, 10),
     )
@@ -285,16 +321,21 @@ def apply_theme(root: Any) -> tuple[str, str]:
     )
     style.configure(
         "TNotebook.Tab",
-        padding=(16, 8),
+        padding=(16, 9),
         background=COLORS["bg"],
         foreground=COLORS["muted"],
         font=(family, 10),
         borderwidth=0,
+        focuscolor=COLORS["bg"],
     )
     style.map(
         "TNotebook.Tab",
-        background=[("selected", COLORS["surface"])],
-        foreground=[("selected", COLORS["accent"])],
+        background=[
+            ("selected", COLORS["surface"]),
+            ("active", COLORS["surface_alt"]),
+        ],
+        foreground=[("selected", COLORS["accent"]), ("active", COLORS["text"])],
+        font=[("selected", (family, 10, "bold"))],
         expand=[("selected", (0, 0, 0, 1))],
     )
 
@@ -348,6 +389,21 @@ def apply_theme(root: Any) -> tuple[str, str]:
         troughcolor=COLORS["bg"],
         bordercolor=COLORS["bg"],
         arrowcolor=COLORS["muted"],
+        arrowsize=12,
+        width=12,
+    )
+    style.map(
+        "TScrollbar",
+        background=[("active", COLORS["border"])],
+    )
+    style.configure(
+        "TProgressbar",
+        background=COLORS["accent"],
+        troughcolor=COLORS["surface_alt"],
+        bordercolor=COLORS["surface_alt"],
+        lightcolor=COLORS["accent"],
+        darkcolor=COLORS["accent"],
+        thickness=4,
     )
     return family, mono
 

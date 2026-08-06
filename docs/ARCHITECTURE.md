@@ -50,7 +50,8 @@ flowchart LR
 flowchart TB
   L["Launcher (python main.py)<br/>src/launcher.py"]
   subgraph client["Client (src/ui)"]
-    WB["WorkbenchView + Tkinter tree<br/>workbench.py"]
+    WB["WorkbenchView + five-screen Tk shell<br/>workbench.py"]
+    TH["Palette, fonts, ttk styles<br/>theme.py"]
     HC["WorkbenchClient (urllib)<br/>api_client.py"]
   end
   subgraph app["API process (src/app)"]
@@ -81,6 +82,7 @@ flowchart TB
   L -->|"health probe, then open"| WB
   L -->|"auto-login"| HC
   L -.->|"starts uvicorn only when /health is silent"| MW
+  WB --> TH
   WB --> HC --> MW --> AUTH --> ROUTES --> STORES --> durable
   ROUTES --> PLAN
   ROUTES --> REPLAY
@@ -189,6 +191,23 @@ sequenceDiagram
 On a headless host (no `DISPLAY`) the launcher stops after the API is
 healthy and prints its URL; `--server-only`, `--no-server`, `--port N` and
 `--chat` cover the other entry modes.
+
+### 4.2 Workbench screens (item [110])
+
+| Screen | Reads | Writes |
+|---|---|---|
+| Overview | `GET /metrics/executions`, `/executions`, `/approvals`, `/auth/me` | — |
+| Workflow | `GET /workflows`, `/workflows/{id}/versions/{v}`, `POST /workflows/validate`, `/workflows/dry-run` | `POST /workflows` |
+| Runs | `GET /executions`, `/executions/{id}/timeline` | `POST /executions`, `/executions/{id}/replay` |
+| Approvals | `GET /approvals` | `POST /approvals/{run}/{node}/decisions` |
+| Audit | `GET /executions/{id}/audit`, `/audit/verify` | — |
+
+The Tk layer holds no rules: it renders the view model's dict rows and calls
+one endpoint per action through `WorkbenchClient`. A single error boundary
+turns `ApiError` into a status line and dialog, the header distinguishes an
+unreachable API from a refused request, and the Runs screen polls every 2.5 s
+while any execution is still `RUNNING`. `src/ui/theme.py` owns the palette,
+font stack and ttk styles; the screen classes only name styles.
 
 ## 5. State machines
 

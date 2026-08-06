@@ -1,10 +1,10 @@
 """Phase 8 item [77]/[80]: the workbench walkthrough, without a display.
 
-The view is the whole behavior of the four screens: it calls one endpoint per
-action and formats the report into the lines a listbox shows. Driving it with
+The view is the whole behavior of the six screens: it calls one endpoint per
+action and formats the report into the lines a table shows. Driving it with
 a scripted fake client proves the walkthrough — validate, dry run, open a
-run, decide an approval, inspect and verify the audit chain — in CI where no
-X server exists.
+run, decide an approval, inspect and verify the audit chain, browse memory —
+in CI where no X server exists.
 """
 
 import unittest
@@ -228,6 +228,90 @@ class FakeApi:
                 "unexpected": [],
             },
         }
+
+    def memory_consent(self):
+        self.calls.append(("memory_consent",))
+        return {"subject": "admin", "scope": "memory:store", "active": True}
+
+    def set_memory_consent(self, granted):
+        self.calls.append(("set_memory_consent", granted))
+        return {"subject": "admin", "scope": "memory:store", "active": granted}
+
+    def memory_items(self, state=""):
+        self.calls.append(("memory_items", state))
+        return {
+            "total": 1,
+            "items": [
+                {
+                    "id": "mem-0123456789",
+                    "intent": "create_workspace",
+                    "summary": "create demo-app workspace",
+                    "risk": "LOW",
+                    "state": "QUARANTINED",
+                    "reputation": 20.0,
+                    "reuse_count": 0,
+                    "reusable": False,
+                    "created_by": "admin",
+                    "created_at": "2026-10-17T10:00:00+00:00",
+                }
+            ],
+        }
+
+    def memory_item(self, item_id):
+        self.calls.append(("memory_item", item_id))
+        return {
+            "id": item_id,
+            "intent": "create_workspace",
+            "summary": "create demo-app workspace",
+            "risk": "LOW",
+            "state": "QUARANTINED",
+            "reputation": 20.0,
+            "reuse_count": 0,
+            "pii_findings": 1,
+            "created_by": "admin",
+            "created_at": "2026-10-17T10:00:00+00:00",
+            "plan": {"intent": "create_workspace", "steps": [{"run": "mkdir demo"}]},
+            "events": [
+                {
+                    "event": "created",
+                    "detail": "hashing findings=1",
+                    "created_at": "2026-10-17T10:00:00+00:00",
+                }
+            ],
+        }
+
+    def memory_search(self, query, *, top_k=5, risk="MEDIUM"):
+        self.calls.append(("memory_search", query, top_k, risk))
+        return {
+            "query": query,
+            "considered": 1,
+            "filtered": 0,
+            "rejections": {},
+            "hits": [
+                {
+                    "id": "mem-0123456789",
+                    "score": 0.82,
+                    "rank": 1,
+                    "reputation": 20.0,
+                    "state": "PUBLIC",
+                    "intent": "create_workspace",
+                }
+            ],
+        }
+
+    def memory_metrics(self):
+        self.calls.append(("memory_metrics",))
+        return {
+            "requests": 4,
+            "reuse_hits": 3,
+            "memory_misses": 1,
+            "hit_rate": 0.75,
+            "planner_calls_avoided": 3,
+        }
+
+    def erase_memory_item(self, item_id):
+        self.calls.append(("erase_memory_item", item_id))
+        return {"erased": True, "item_id": item_id}
 
 
 class WorkflowScreenTests(unittest.TestCase):
@@ -476,6 +560,67 @@ class AuditScreenTests(unittest.TestCase):
         )
 
 
+class MemoryScreenTests(unittest.TestCase):
+    """Item [111]: consent, stored plans, similarity search and erasure."""
+
+    def setUp(self):
+        self.api = FakeApi()
+        self.view = WorkbenchView(self.api)
+
+    def test_memory_loads_consent_items_and_reuse_metrics(self):
+        lines = self.view.memory()
+        self.assertIn("QUARANTINED create_workspace", lines[0])
+        self.assertTrue(self.view.memory_consent_data["active"])
+        self.assertEqual(self.view.memory_metrics_data["reuse_hits"], 3)
+        self.assertEqual(self.view.reusable_memory(), 0)
+        self.assertEqual(self.view.status, "1 memory item(s)")
+
+    def test_consent_can_be_granted_and_revoked(self):
+        self.assertIn("granted", self.view.set_memory_consent(True))
+        self.assertTrue(self.view.memory_consent_data["active"])
+        self.view.memory_consent_data = {"active": True}
+        self.assertIn("revoked", self.view.set_memory_consent(False))
+        self.assertEqual(
+            self.api.calls,
+            [("set_memory_consent", True), ("set_memory_consent", False)],
+        )
+
+    def test_filter_memory_by_state_and_text(self):
+        self.view.memory()
+        self.assertEqual(len(self.view.filter_memory(state="QUARANTINED")), 1)
+        self.assertEqual(self.view.filter_memory(state="PUBLIC"), [])
+        self.assertEqual(len(self.view.filter_memory(needle="demo-app")), 1)
+        self.assertEqual(self.view.filter_memory(needle="nope"), [])
+
+    def test_load_memory_item_pretty_prints_the_plan(self):
+        text = self.view.load_memory_item("mem-0123456789")
+        self.assertIn('"steps"', text)
+        self.assertEqual(self.view.memory_detail["events"][0]["event"], "created")
+        self.assertIn(("memory_item", "mem-0123456789"), self.api.calls)
+
+    def test_search_reports_ranked_hits(self):
+        lines = self.view.search_memory("create a workspace")
+        self.assertEqual(self.view.memory_hits[0]["score"], 0.82)
+        self.assertIn("#1 mem-0123 score=0.820", lines[0])
+
+    def test_search_requires_a_query(self):
+        with self.assertRaises(ValueError):
+            self.view.search_memory("   ")
+        self.assertEqual(self.api.calls, [])
+
+    def test_erase_removes_the_item_and_reports_it(self):
+        self.view.memory()
+        message = self.view.erase_memory("mem-0123456789")
+        self.assertIn("Erased memory item", message)
+        self.assertEqual(self.view.memory_items, [])
+        self.assertEqual(self.api.calls[-1], ("erase_memory_item", "mem-0123456789"))
+
+    def test_erase_without_a_selection_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.view.erase_memory("")
+        self.assertEqual(self.api.calls, [])
+
+
 class WalkthroughTests(unittest.TestCase):
     def test_full_walkthrough_touches_every_screen(self):
         api = FakeApi()
@@ -488,6 +633,8 @@ class WalkthroughTests(unittest.TestCase):
         view.decide(*view.approval_ids[0], APPROVE)
         view.audit(view.run_ids[0])
         self.assertIn("chain OK", view.verify(view.run_ids[0]))
+        view.memory()
+        view.load_memory_item("mem-0123456789")
         self.assertEqual(
             [call[0] for call in api.calls],
             [
@@ -499,6 +646,10 @@ class WalkthroughTests(unittest.TestCase):
                 "decide",
                 "audit",
                 "verify",
+                "memory_consent",
+                "memory_items",
+                "memory_metrics",
+                "memory_item",
             ],
         )
 

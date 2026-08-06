@@ -1,8 +1,8 @@
 # Requirements-to-test traceability (generated)
 
 **Item:** Phase 10 — [91] Complete requirements-to-test traceability  
-**Generated:** 2026-10-18T14:12:44+00:00 by `scripts/traceability_report.py`  
-**Scope:** 25 requirements, 51 test files, 734 collected tests
+**Generated:** 2026-10-18T14:25:55+00:00 by `scripts/traceability_report.py`  
+**Scope:** 25 requirements, 52 test files, 751 collected tests
 
 Regenerate with `python scripts/traceability_report.py`; validate without writing with `--check`. A hand-edited copy of this file is a claim, not evidence — the script asserts every module and test file exists and collects at least one test.
 
@@ -13,8 +13,8 @@ Regenerate with `python scripts/traceability_report.py`; validate without writin
 | FR-01 | Password hashing and short-lived JWT, no plaintext secrets | `src/app/auth.py`, `src/app/security.py`, `src/app/db.py` | `tests/integration/test_app_auth.py`, `tests/unit/test_app_security.py` | 18 |
 | FR-02 | RBAC enforced at the API layer and in the services | `src/app/deps.py`, `src/app/roles.py`, `src/safety/policy_service.py` | `tests/integration/test_app_rbac.py`, `tests/unit/test_policy_context.py` | 22 |
 | FR-03 | Typed YAML DSL with name, version, triggers, nodes, edges, policy | `src/engine/dsl/loader.py`, `src/engine/dsl/compiler.py` | `tests/unit/test_engine_phase1.py`, `tests/integration/test_workflow_store.py` | 49 |
-| FR-04 | Full validation with precise line/column findings | `src/engine/validator/validator.py`, `src/app/workflows_api.py` | `tests/integration/test_workflows_validate.py`, `tests/unit/test_engine_phase1.py`, `tests/integration/test_execution_api.py` | 67 |
-| FR-05 | Immutable versions; a run pins (workflow_id, version) | `src/app/models.py`, `src/app/run_service.py` | `tests/integration/test_workflow_store.py`, `tests/integration/test_execution_store.py`, `tests/integration/test_execution_api.py`, `tests/acceptance/test_workbench_walkthrough.py` | 45 |
+| FR-04 | Full validation with precise line/column findings | `src/engine/validator/validator.py`, `src/app/workflows_api.py` | `tests/integration/test_workflows_validate.py`, `tests/unit/test_engine_phase1.py`, `tests/integration/test_execution_api.py` | 72 |
+| FR-05 | Immutable versions; a run pins (workflow_id, version) | `src/app/models.py`, `src/app/run_service.py` | `tests/integration/test_workflow_store.py`, `tests/integration/test_execution_store.py`, `tests/integration/test_execution_api.py`, `tests/acceptance/test_workbench_walkthrough.py` | 50 |
 | FR-06 | Offline planner into a typed plan through the shared validator/policy | `src/orchestration/offline_planner.py`, `src/orchestration/plan_compiler.py` | `tests/unit/test_planner_rules.py`, `tests/unit/test_plan_compiler.py`, `tests/acceptance/test_planned_workspace.py` | 38 |
 | FR-07 | Policy returns exactly ALLOW / NEED_APPROVAL / DENY with score and reasons | `src/safety/policy_service.py`, `src/safety/explanations.py`, `src/safety/dryrun.py`, `src/app/policy_api.py` | `tests/unit/test_policy_service.py`, `tests/unit/test_policy_adversarial.py`, `tests/unit/test_policy_explanations.py`, `tests/integration/test_dryrun_api.py` | 45 |
 | FR-08 | Approval request, quorum, expiry, final decision | `src/app/approvals.py`, `src/app/approvals_api.py` | `tests/integration/test_approvals.py`, `tests/integration/test_approvals_api.py` | 27 |
@@ -22,7 +22,7 @@ Regenerate with `python scripts/traceability_report.py`; validate without writin
 | FR-10 | DAG scheduling with concurrency, propagation, timeout, retry, compensation | `src/engine/executor/scheduler.py`, `src/engine/executor/compensate.py`, `src/bus/workers/dispatcher.py` | `tests/unit/test_engine_phase2.py`, `tests/unit/test_engine_concurrency.py`, `tests/unit/test_engine_retry.py`, `tests/integration/test_shell_execution.py` | 31 |
 | FR-11 | Typed worker results; no raw secrets or unbounded output persisted | `src/bus/workers/core.py`, `src/bus/workers/shell.py`, `src/app/models.py` | `tests/unit/test_bus_workers.py`, `tests/unit/test_bus_persist.py`, `tests/unit/test_sandbox_commands.py` | 25 |
 | FR-12 | Append-only hash-chain audit with tamper detection | `src/storage/audit.py`, `src/app/audit_api.py` | `tests/unit/test_audit_chain.py`, `tests/unit/test_audit_trail.py`, `tests/integration/test_audit_api.py`, `tests/integration/test_audit_run_path.py` | 34 |
-| FR-13 | Replay from the pinned version with normalized output comparison | `src/app/replay.py`, `src/app/audit_api.py` | `tests/integration/test_replay.py`, `tests/acceptance/test_replay.py`, `tests/integration/test_execution_api.py` | 27 |
+| FR-13 | Replay from the pinned version with normalized output comparison | `src/app/replay.py`, `src/app/audit_api.py` | `tests/integration/test_replay.py`, `tests/acceptance/test_replay.py`, `tests/integration/test_execution_api.py` | 32 |
 | FR-14 | Consent-gated, PII-scrubbed shared memory with filtered retrieval | `src/memory/store.py`, `src/memory/retrieval.py`, `src/app/memory_api.py` | `tests/unit/test_memory_scrub.py`, `tests/unit/test_memory_retrieval.py`, `tests/integration/test_memory_api.py` | 38 |
 | FR-15 | Reputation and quarantine gate reuse | `src/memory/reputation.py`, `src/memory/states.py` | `tests/unit/test_memory_reputation.py`, `tests/acceptance/test_memory_reuse_gate.py` | 20 |
 | FR-16 | Structured logs and metrics for runs, retries, approvals, replay, memory | `src/storage/metrics.py`, `src/storage/run_metrics.py`, `src/app/logging.py` | `tests/unit/test_run_metrics.py`, `tests/unit/test_log_redaction.py`, `tests/integration/test_audit_api.py` | 42 |
@@ -37,7 +37,7 @@ Regenerate with `python scripts/traceability_report.py`; validate without writin
 | Testability | Coverage floor on the critical packages | `pyproject.toml` — core `engine|safety|storage|bus` 86.1%, global 80.75%, floor 78% | 0 | proven |
 | Security | No unapproved command; static analysis and dependency audit clean | `docs/SECURITY_REPORT.md`, `docs/THREAT_MODEL.md`, `scripts/secret_scan.py` | 67 | proven |
 | Privacy | Consent, PII scrubbing and erasure | `src/memory/scrub.py`, `src/memory/consent.py` | 26 | proven |
-| Usability | A first-time user completes the five client tasks; SUS recorded | `docs/USABILITY_STUDY.md`, `scripts/sus_score.py`, `src/launcher.py` — protocol and scorer ready — five sessions not yet run | 45 | PENDING |
+| Usability | A first-time user completes the five client tasks; SUS recorded | `docs/USABILITY_STUDY.md`, `scripts/sus_score.py`, `src/launcher.py`, `src/ui/workbench.py`, `src/ui/theme.py` — protocol and scorer ready — five sessions not yet run | 47 | PENDING |
 | Deployability | One compose file that works from a clone; production refuses dev secrets | `compose.yml`, `compose.prod.yml`, `docs/DEPLOYMENT.md` | 13 | proven |
 | Recovery | Crash/retry/DLQ observable; backup/restore and upgrade proven | `scripts/backup.py`, `src/engine/executor/states.py` — no full chaos suite (see `docs/LIMITATIONS.md`) | 26 | proven |
 

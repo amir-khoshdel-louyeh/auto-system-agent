@@ -149,6 +149,31 @@ def list_items(
     return {"total": len(items), "items": [item.as_dict() for item in items]}
 
 
+@router.get("/items/{item_id}")
+def read_item(
+    item_id: str,
+    settings: Settings = Depends(get_settings),
+    _: CurrentUser = Depends(require_permission(Permission.AUDIT_READ)),
+) -> dict:
+    """One stored plan with its canonical body and event history (item [111]).
+
+    The workbench detail pane needs the plan itself, which the list endpoint
+    deliberately omits: fetching one item is an explicit read of scrubbed
+    memory, not something a table render does for every row.
+    """
+    store, _consents = _stores(settings)
+    try:
+        item = store.get(item_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail=f"unknown memory item {item_id!r}"
+        ) from exc
+    payload = item.as_dict()
+    payload["plan"] = item.plan()
+    payload["events"] = store.events(item_id)
+    return payload
+
+
 @router.get("/search")
 def search_items(
     q: str = Query(min_length=1, max_length=2000),

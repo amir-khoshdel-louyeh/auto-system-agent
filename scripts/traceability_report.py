@@ -281,12 +281,21 @@ NON_FUNCTIONAL: tuple[Requirement, ...] = (
     Requirement(
         "Usability",
         "A first-time user completes the five client tasks; SUS recorded",
-        ("docs/USABILITY_STUDY.md", "scripts/sus_score.py", "src/launcher.py"),
+        (
+            "docs/USABILITY_STUDY.md",
+            "scripts/sus_score.py",
+            "src/launcher.py",
+            # Item [110]: the five-screen shell and its visual language.
+            "src/ui/workbench.py",
+            "src/ui/theme.py",
+        ),
         (
             "tests/acceptance/test_workbench_walkthrough.py",
             "tests/unit/test_sus_score.py",
             # Item [105]: one command starts the API and the workbench.
             "tests/integration/test_launcher.py",
+            # Item [110]: the real window, where a display exists.
+            "tests/acceptance/test_workbench_window.py",
         ),
         note="protocol and scorer ready — five sessions not yet run",
         pending=True,
