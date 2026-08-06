@@ -291,10 +291,25 @@ def build_window(view: WorkbenchView, root: Any, *, dsl_text: str = "") -> Any:
     return notebook
 
 
+def run_workbench(base_url: str, token: str = "") -> None:  # pragma: no cover - needs a display
+    """Open the workbench against ``base_url`` with a ready token.
+
+    The launcher (item [105]) has already started the API and logged in, so
+    this is the only call the entrypoint needs to make.
+    """
+    import tkinter as tk
+
+    from .api_client import WorkbenchClient
+
+    root = tk.Tk()
+    root.title("Auto System Agent — workbench")
+    build_window(WorkbenchView(WorkbenchClient(base_url, token)), root)
+    root.mainloop()
+
+
 def main() -> None:  # pragma: no cover - interactive entrypoint
     """Launch the workbench against ``--base-url`` with a bearer token."""
     import argparse
-    import tkinter as tk
 
     from .api_client import WorkbenchClient
 
@@ -308,10 +323,7 @@ def main() -> None:  # pragma: no cover - interactive entrypoint
     client = WorkbenchClient(args.base_url, args.token)
     if args.user:
         client.login(args.user, args.password)
-    root = tk.Tk()
-    root.title("Auto System Agent — workbench")
-    build_window(WorkbenchView(client), root)
-    root.mainloop()
+    run_workbench(args.base_url, client.token)
 
 
 if __name__ == "__main__":  # pragma: no cover - interactive entrypoint
