@@ -1,7 +1,9 @@
-# Architecture (Phase 10 item [90])
+# Architecture (Phase 10 item [90], extended by [104]/[105])
 
 Diagrams are Mermaid so they render in the repository view and can be diffed
-like code. Every box names the module that implements it; every state machine
+like code. Sections 2 and 4 include the Phase 11 additions: the launcher that
+makes `python main.py` one command, and the publish → run → poll routes the
+workbench now uses. Every box names the module that implements it; every state machine
 is copied from the frozen vocabulary in `src/engine/executor/states.py` and
 `src/app/approvals.py`, not invented for the picture.
 
@@ -46,6 +48,7 @@ flowchart LR
 
 ```mermaid
 flowchart TB
+  L["Launcher (python main.py)<br/>src/launcher.py"]
   subgraph client["Client (src/ui)"]
     WB["WorkbenchView + Tkinter tree<br/>workbench.py"]
     HC["WorkbenchClient (urllib)<br/>api_client.py"]
@@ -75,6 +78,9 @@ flowchart TB
     T5["memory_items · memory_events"]
     T6["audit_events (hash chain)"]
   end
+  L -->|"health probe, then open"| WB
+  L -->|"auto-login"| HC
+  L -.->|"starts uvicorn only when /health is silent"| MW
   WB --> HC --> MW --> AUTH --> ROUTES --> STORES --> durable
   ROUTES --> PLAN
   ROUTES --> REPLAY
@@ -125,11 +131,15 @@ sequenceDiagram
   O->>API: POST /workflows/dry-run
   API->>V: load + validate + per-node verdict (inert)
   V-->>O: findings, verdicts, safe_to_run (persisted=false)
-  O->>API: publish/run intent
-  API->>P: plan (offline rules first, LLM only if configured)
-  P->>V: compile_plan through the same loader/validator/policy path
+  O->>API: POST /workflows {dsl}
+  API->>V: load + validate (same findings shape)
+  API->>API: publish immutable (workflow_id, version)
+  API-->>O: 200 {workflow_id, name, version, valid}
+  O->>API: POST /executions {workflow_id, version}
   API->>API: pin (workflow_id, version) and insert RUNNING execution
-  API->>S: run DAG
+  API-->>O: 202 {execution_id, status: RUNNING}
+  Note over API,S: one background thread with its own loop<br/>and an in-process bus (src/app/run_service.py)
+  API->>S: run DAG from the pinned dsl_text
   S->>V: gate each node (ALLOW / NEED_APPROVAL / DENY)
   S->>A: policy.decision
   alt NEED_APPROVAL
@@ -145,10 +155,40 @@ sequenceDiagram
   B->>A: node.result
   S-->>API: RunResult
   API->>A: run.finished
-  O->>API: POST replay (or GET /executions/{id}/audit/verify)
+  API->>API: record_result: steps + terminal status
+  O->>API: GET /executions/{id} / {id}/timeline (poll)
+  O->>API: POST /executions/{id}/replay (or GET .../audit/verify)
   API->>V: re-execute the pinned version row
   API->>A: run.replay (match/missing/unexpected)
 ```
+
+### 4.1 Single-command startup (`python main.py`, item [105])
+
+```mermaid
+sequenceDiagram
+  actor O as Operator
+  participant M as main.py -> launcher
+  participant U as uvicorn (same process)
+  participant W as Workbench (Tk)
+
+  O->>M: python main.py [--port N]
+  M->>U: GET /health (1 s timeout)
+  alt already healthy
+    M->>M: reuse the running API
+  else silent
+    M->>U: start in a daemon thread, wait for /health (15 s)
+  end
+  M->>U: POST /auth/login (APP_ADMIN_USER/PASSWORD)
+  U-->>M: bearer token (or a visible login prompt)
+  M->>W: run_workbench(url, token)
+  O->>W: validate -> dry run -> save -> run
+  O->>M: close the window
+  M->>U: stop the server if this process started it
+```
+
+On a headless host (no `DISPLAY`) the launcher stops after the API is
+healthy and prints its URL; `--server-only`, `--no-server`, `--port N` and
+`--chat` cover the other entry modes.
 
 ## 5. State machines
 
@@ -223,7 +263,7 @@ erDiagram
 
 | Layer | Directory | May depend on | Must not |
 |---|---|---|---|
-| Client | `src/ui`, `main.py` | HTTP API only | import engine/safety/bus logic; hold business rules |
+| Client | `src/ui`, `src/launcher.py`, `main.py` | HTTP API only (the launcher may host uvicorn in-process) | import engine/safety/bus logic; hold business rules |
 | API | `src/app` | engine, safety, storage, bus, memory, orchestration | execute OS commands itself |
 | Engine | `src/engine` | safety, storage | touch the network or the client |
 | Safety | `src/safety` | pure data | call the executor (policy decides, it does not run) |

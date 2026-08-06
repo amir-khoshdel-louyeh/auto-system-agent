@@ -46,8 +46,11 @@ def base_url(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> str:
 
 def check_health(url: str, *, timeout: float = 1.0) -> bool:
     """True when `GET <url>/health` answers 200 (an API is already running)."""
+    # The origin comes from base_url() (always http://host:port), not from
+    # caller text, so the scheme cannot be swapped for file: or ftp:.
+    target = f"{url.rstrip('/')}{HEALTH_PATH}"
     try:
-        with request.urlopen(f"{url.rstrip('/')}{HEALTH_PATH}", timeout=timeout) as response:
+        with request.urlopen(target, timeout=timeout) as response:  # nosec B310
             status = int(getattr(response, "status", 0) or 0)
             body = response.read()
     except (error.URLError, OSError, ValueError):

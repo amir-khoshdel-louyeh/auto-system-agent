@@ -89,13 +89,24 @@ FUNCTIONAL: tuple[Requirement, ...] = (
         "FR-04",
         "Full validation with precise line/column findings",
         ("src/engine/validator/validator.py", "src/app/workflows_api.py"),
-        ("tests/integration/test_workflows_validate.py", "tests/unit/test_engine_phase1.py"),
+        (
+            "tests/integration/test_workflows_validate.py",
+            "tests/unit/test_engine_phase1.py",
+            # Item [104]: the publish route reuses the frozen finding shape.
+            "tests/integration/test_execution_api.py",
+        ),
     ),
     Requirement(
         "FR-05",
         "Immutable versions; a run pins (workflow_id, version)",
-        ("src/app/models.py",),
-        ("tests/integration/test_workflow_store.py", "tests/integration/test_execution_store.py"),
+        ("src/app/models.py", "src/app/run_service.py"),
+        (
+            "tests/integration/test_workflow_store.py",
+            "tests/integration/test_execution_store.py",
+            # Items [104]/[106]: publish, start and poll one execution row.
+            "tests/integration/test_execution_api.py",
+            "tests/acceptance/test_workbench_walkthrough.py",
+        ),
     ),
     Requirement(
         "FR-06",
@@ -179,8 +190,13 @@ FUNCTIONAL: tuple[Requirement, ...] = (
     Requirement(
         "FR-13",
         "Replay from the pinned version with normalized output comparison",
-        ("src/app/replay.py",),
-        ("tests/integration/test_replay.py", "tests/acceptance/test_replay.py"),
+        ("src/app/replay.py", "src/app/audit_api.py"),
+        (
+            "tests/integration/test_replay.py",
+            "tests/acceptance/test_replay.py",
+            # Item [104]: POST /executions/{id}/replay is the client-visible path.
+            "tests/integration/test_execution_api.py",
+        ),
     ),
     Requirement(
         "FR-14",
@@ -265,8 +281,13 @@ NON_FUNCTIONAL: tuple[Requirement, ...] = (
     Requirement(
         "Usability",
         "A first-time user completes the five client tasks; SUS recorded",
-        ("docs/USABILITY_STUDY.md", "scripts/sus_score.py"),
-        ("tests/acceptance/test_workbench_walkthrough.py", "tests/unit/test_sus_score.py"),
+        ("docs/USABILITY_STUDY.md", "scripts/sus_score.py", "src/launcher.py"),
+        (
+            "tests/acceptance/test_workbench_walkthrough.py",
+            "tests/unit/test_sus_score.py",
+            # Item [105]: one command starts the API and the workbench.
+            "tests/integration/test_launcher.py",
+        ),
         note="protocol and scorer ready — five sessions not yet run",
         pending=True,
     ),
