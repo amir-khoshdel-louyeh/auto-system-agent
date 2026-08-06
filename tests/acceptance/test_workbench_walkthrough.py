@@ -25,6 +25,7 @@ from app.approvals import ApprovalService
 from app.db import init_db
 from app.main import create_app
 from app.models import ExecutionStore, WorkflowStore
+from app.run_service import RunService
 from app.settings import Settings
 from storage.audit import AuditStore, AuditTrail
 from ui.api_client import ApiError, WorkbenchClient
@@ -81,8 +82,9 @@ class LiveApi:
     def __init__(self, settings: Settings) -> None:
         self.port = free_port()
         self.base_url = f"http://127.0.0.1:{self.port}"
+        self.app = create_app(settings)
         config = uvicorn.Config(
-            create_app(settings),
+            self.app,
             host="127.0.0.1",
             port=self.port,
             log_level="warning",
@@ -247,6 +249,56 @@ class AuditScreenTests(WalkthroughBase):
                 ('{"run_id":"forged"}', RUN_ID),
             )
         self.assertIn("chain BROKEN at seq 1", self.view.verify(RUN_ID))
+
+
+class SaveAndRunOverHttpTests(WalkthroughBase):
+    """Item [104]/[106]: the Workflow tab publishes and starts a real run."""
+
+    async def fake_shell(self, node_id, node, ctx):
+        """Keep the acceptance path hermetic: no OS sandbox needed in CI."""
+        return {"ran": node.get("params", {}).get("run", ""), "exit_code": 0}
+
+    def test_save_run_and_inspect_a_run_from_the_client(self):
+        self.api.app.state.run_service = RunService(
+            self.settings.sqlite_path, exec_fn=self.fake_shell
+        )
+        self.assertEqual(self.view.validate(DSL), ["OK demo v1"])
+        self.assertIn("Saved demo v1", self.view.save(DSL)[0])
+        self.assertTrue(self.view.workflow_id)
+
+        self.assertIn("RUNNING", self.view.run()[0])
+        execution_id = self.view.execution_id
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            timeline = self.view.timeline(execution_id)
+            if not timeline[0].startswith("RUNNING"):
+                break
+            time.sleep(0.02)
+        self.assertIn("COMPLETED", timeline[0])
+        self.assertTrue(any("read [SUCCEEDED]" in line for line in timeline), timeline)
+
+        rows = self.view.runs()
+        self.assertIn(execution_id[:8], "\n".join(rows))
+        events = self.view.audit(execution_id)
+        self.assertIn("run.started", "\n".join(events))
+        self.assertIn("chain OK", self.view.verify(execution_id))
+
+    def test_replay_from_a_completed_run_matches(self):
+        self.api.app.state.run_service = RunService(
+            self.settings.sqlite_path, exec_fn=self.fake_shell
+        )
+        self.view.save(DSL)
+        self.view.run()
+        execution_id = self.view.execution_id
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            if not self.view.timeline(execution_id)[0].startswith("RUNNING"):
+                break
+            time.sleep(0.02)
+
+        result = self.client.replay(execution_id)
+        self.assertTrue(result["comparison"]["match"])
+        self.assertNotEqual(result["replay_execution_id"], execution_id)
 
 
 class FullWalkthroughTests(WalkthroughBase):

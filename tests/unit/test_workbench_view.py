@@ -66,6 +66,26 @@ class FakeApi:
         self.calls.append(("dry_run", workspace_root))
         return self.dry_run_report
 
+    def save(self, dsl, dsl_type="yaml"):
+        self.calls.append(("save", dsl, dsl_type))
+        if not self.valid:
+            return {
+                "valid": False,
+                "name": "",
+                "version": 0,
+                "errors": [{"stage": "policy", "line": 8, "column": 5, "message": "bad"}],
+            }
+        return {"valid": True, "workflow_id": "wf-0123456789", "name": "demo", "version": 1}
+
+    def run(self, workflow_id, version, *, trigger="manual"):
+        self.calls.append(("run", workflow_id, version, trigger))
+        return {
+            "execution_id": "run-abcdef0123456789",
+            "status": "RUNNING",
+            "workflow_id": workflow_id,
+            "version": version,
+        }
+
     def executions(self, limit=50):
         self.calls.append(("executions", limit))
         return {
@@ -189,6 +209,48 @@ class WorkflowScreenTests(unittest.TestCase):
         lines = self.view.dry_run(DSL)
         self.assertIn("wipe [DENY] Denied — high risk (score 85/100).", lines)
         self.assertEqual(self.view.status, "blocked")
+
+
+class SaveAndRunTests(unittest.TestCase):
+    """Item [104]: the Workflow tab can publish and start what it validated."""
+
+    def setUp(self):
+        self.api = FakeApi()
+        self.view = WorkbenchView(self.api)
+
+    def test_save_remembers_the_published_version(self):
+        self.assertEqual(self.view.save(DSL), ["Saved demo v1 as wf-01234"])
+        self.assertEqual(self.view.status, "saved v1")
+        self.assertEqual(self.view.workflow_id, "wf-0123456789")
+        self.assertEqual(self.view.version, 1)
+        self.assertIn(("save", DSL, "yaml"), self.api.calls)
+
+    def test_run_uses_the_saved_version_and_remembers_the_execution(self):
+        self.view.save(DSL)
+        lines = self.view.run()
+        self.assertEqual(self.view.execution_id, "run-abcdef0123456789")
+        self.assertEqual(self.view.status, "RUNNING")
+        self.assertIn("run run-abcd", lines[0])
+        self.assertIn("RUNNING", lines[0])
+        self.assertIn(("run", "wf-0123456789", 1, "manual"), self.api.calls)
+
+    def test_run_without_a_saved_workflow_is_refused_before_the_api(self):
+        with self.assertRaises(ValueError):
+            self.view.run()
+        self.assertNotIn("run", [call[0] for call in self.api.calls])
+
+    def test_explicit_ids_override_the_saved_ones(self):
+        self.view.run("wf-other", 7)
+        self.assertEqual(self.view.execution_id, "run-abcdef0123456789")
+        self.assertIn(("run", "wf-other", 7, "manual"), self.api.calls)
+
+    def test_an_invalid_save_shows_findings_and_keeps_no_version(self):
+        self.api.valid = False
+        self.assertEqual(self.view.save(DSL), ["policy:8:5 — bad"])
+        self.assertEqual(self.view.status, "invalid")
+        self.assertEqual(self.view.workflow_id, "")
+        with self.assertRaises(ValueError):
+            self.view.run()
 
 
 class RunScreenTests(unittest.TestCase):

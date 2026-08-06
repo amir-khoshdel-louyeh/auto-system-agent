@@ -105,10 +105,30 @@ class WorkbenchClient:
             report=True,
         )
 
+    def save(self, dsl: str, dsl_type: str = "yaml") -> dict[str, Any]:
+        """Publish a validated workflow as one immutable version (item [104])."""
+        return self._request(
+            "POST", "/workflows", body={"dsl": dsl, "dsl_type": dsl_type}, report=True
+        )
+
     def explain(self, node: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/policy/explain", body=node)
 
     # -- runs / audit -----------------------------------------------------
+    def run(self, workflow_id: str, version: int, *, trigger: str = "manual") -> dict[str, Any]:
+        """Start one persisted version; answers at once with the RUNNING id."""
+        return self._request(
+            "POST",
+            "/executions",
+            body={"workflow_id": workflow_id, "version": version, "trigger": trigger},
+        )
+
+    def execution(self, execution_id: str) -> dict[str, Any]:
+        return self._request("GET", f"/executions/{parse.quote(execution_id)}")
+
+    def replay(self, execution_id: str) -> dict[str, Any]:
+        return self._request("POST", f"/executions/{parse.quote(execution_id)}/replay")
+
     def executions(self, limit: int = 50) -> dict[str, Any]:
         return self._request("GET", "/executions", params={"limit": limit})
 

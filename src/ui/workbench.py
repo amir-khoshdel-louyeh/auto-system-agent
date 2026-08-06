@@ -30,6 +30,14 @@ def _workflow_label(report: dict[str, Any]) -> str:
     return str(report.get("workflow_name") or report.get("workflow_id") or "")
 
 
+def _findings(report: dict[str, Any]) -> list[str]:
+    """Render the frozen `{stage, message, line, column}` findings as lines."""
+    return [
+        f"{error.get('stage')}:{error.get('line')}:{error.get('column')} — {error.get('message')}"
+        for error in report.get("errors", [])
+    ]
+
+
 class WorkbenchApi(Protocol):
     """The slice of the client the screens depend on."""
 
@@ -38,6 +46,10 @@ class WorkbenchApi(Protocol):
     def dry_run(
         self, dsl: str, *, dsl_type: str = "yaml", workspace_root: str = ""
     ) -> dict[str, Any]: ...
+
+    def save(self, dsl: str, dsl_type: str = "yaml") -> dict[str, Any]: ...
+
+    def run(self, workflow_id: str, version: int, *, trigger: str = "manual") -> dict: ...
 
     def executions(self, limit: int = 50) -> dict[str, Any]: ...
 
@@ -63,6 +75,9 @@ class WorkbenchView:
     run_ids: list[str] = field(default_factory=list)
     approval_ids: list[tuple[str, str]] = field(default_factory=list)
     last_report: dict[str, Any] = field(default_factory=dict)
+    workflow_id: str = ""
+    version: int = 0
+    execution_id: str = ""
 
     # -- workflow ---------------------------------------------------------
     def validate(self, dsl: str, dsl_type: str = "yaml") -> list[str]:
@@ -73,10 +88,7 @@ class WorkbenchView:
             self.status = "valid"
             return [f"OK {report.get('name', '?')} v{report.get('version', 0)}"]
         self.status = "invalid"
-        return [
-            f"{error.get('stage')}:{error.get('line')}:{error.get('column')} — {error.get('message')}"
-            for error in report.get("errors", [])
-        ] or ["invalid workflow"]
+        return _findings(report) or ["invalid workflow"]
 
     def dry_run(self, dsl: str, *, workspace_root: str = "") -> list[str]:
         """Dry-run DSL and return the per-node verdict lines + summary."""
@@ -84,11 +96,7 @@ class WorkbenchView:
         self.last_report = report
         if not report.get("valid"):
             self.status = "invalid"
-            return [
-                f"{error.get('stage')}:{error.get('line')}:{error.get('column')} — "
-                f"{error.get('message')}"
-                for error in report.get("errors", [])
-            ] or ["invalid workflow"]
+            return _findings(report) or ["invalid workflow"]
         self.status = "ready" if report.get("safe_to_run") else "blocked"
         lines = [
             f"{node['node_id']} [{node['verdict']}] {node['explanation']['headline']}"
@@ -102,6 +110,32 @@ class WorkbenchView:
             + f" | persisted={report.get('persisted')} dispatched={report.get('dispatched')}"
         )
         return lines
+
+    def save(self, dsl: str, dsl_type: str = "yaml") -> list[str]:
+        """Publish the document and remember the version the API returned."""
+        report = self.client.save(dsl, dsl_type)
+        self.last_report = report
+        if not report.get("valid"):
+            self.status = "invalid"
+            return _findings(report) or ["invalid workflow"]
+        self.workflow_id = str(report.get("workflow_id", ""))
+        self.version = int(report.get("version", 0) or 0)
+        self.status = f"saved v{self.version}"
+        return [f"Saved {report.get('name', '?')} v{self.version} as {self.workflow_id[:8]}"]
+
+    def run(self, workflow_id: str = "", version: int = 0) -> list[str]:
+        """Start the saved version (or an explicit one) and remember the run id."""
+        target = workflow_id or self.workflow_id
+        target_version = version or self.version
+        if not target or not target_version:
+            raise ValueError("save a workflow before running it")
+        report = self.client.run(target, target_version)
+        self.execution_id = str(report.get("execution_id", ""))
+        self.status = str(report.get("status", ""))
+        return [
+            f"run {self.execution_id[:8]}: {self.status} "
+            f"({str(report.get('workflow_id', target))[:8]} v{report.get('version', target_version)})"
+        ]
 
     # -- runs -------------------------------------------------------------
     def runs(self, limit: int = 50) -> list[str]:
@@ -216,8 +250,26 @@ def build_window(view: WorkbenchView, root: Any, *, dsl_text: str = "") -> Any:
         _fill(workflow_list, view.dry_run(dsl_entry.get("1.0", "end")))
         status_var.set(view.status)
 
+    def on_save() -> None:
+        _fill(workflow_list, view.save(dsl_entry.get("1.0", "end")))
+        status_var.set(view.status)
+
+    def on_run() -> None:
+        try:
+            _fill(workflow_list, view.run())
+        except ValueError as exc:
+            _fill(workflow_list, [str(exc)])
+            status_var.set(view.status)
+            return
+        # A started run must be visible without switching tabs and pressing
+        # Refresh: the Runs list is pointed at the newly durable row.
+        _fill(run_list, view.runs())
+        status_var.set(view.status)
+
     ttk.Button(workflow_tab, text="Validate", command=on_validate).pack(anchor="w")
     ttk.Button(workflow_tab, text="Dry run", command=on_dry_run).pack(anchor="w")
+    ttk.Button(workflow_tab, text="Save", command=on_save).pack(anchor="w")
+    ttk.Button(workflow_tab, text="Run", command=on_run).pack(anchor="w")
     ttk.Label(workflow_tab, textvariable=status_var).pack(anchor="w")
     dsl_entry.pack(fill="both", expand=True)
     workflow_list.pack(fill="both", expand=True)
