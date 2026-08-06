@@ -73,6 +73,8 @@ class WorkbenchApi(Protocol):
 
     def verify(self, execution_id: str) -> dict[str, Any]: ...
 
+    def replay(self, execution_id: str) -> dict[str, Any]: ...
+
 
 @dataclass
 class WorkbenchView:
@@ -89,14 +91,26 @@ class WorkbenchView:
     workflow_rows: list[dict[str, Any]] = field(default_factory=list)
     metrics_data: dict[str, Any] = field(default_factory=dict)
     profile_data: dict[str, Any] = field(default_factory=dict)
+    workflow_name: str = ""
+    finding_rows: list[dict[str, Any]] = field(default_factory=list)
+    dry_run_rows: list[dict[str, Any]] = field(default_factory=list)
+    run_rows: list[dict[str, Any]] = field(default_factory=list)
+    step_rows: list[dict[str, Any]] = field(default_factory=list)
+    approval_rows: list[dict[str, Any]] = field(default_factory=list)
+    audit_rows: list[dict[str, Any]] = field(default_factory=list)
+    verification: dict[str, Any] = field(default_factory=dict)
+    last_replay: dict[str, Any] = field(default_factory=dict)
 
     # -- workflow ---------------------------------------------------------
     def validate(self, dsl: str, dsl_type: str = "yaml") -> list[str]:
         """Validate DSL and return one line per finding (or the OK line)."""
         report = self.client.validate(dsl, dsl_type)
         self.last_report = report
+        self.finding_rows = list(report.get("errors", []))
+        self.dry_run_rows = []
         if report.get("valid"):
             self.status = "valid"
+            self.workflow_name = str(report.get("name", ""))
             return [f"OK {report.get('name', '?')} v{report.get('version', 0)}"]
         self.status = "invalid"
         return _findings(report) or ["invalid workflow"]
@@ -107,7 +121,11 @@ class WorkbenchView:
         self.last_report = report
         if not report.get("valid"):
             self.status = "invalid"
+            self.finding_rows = list(report.get("errors", []))
+            self.dry_run_rows = []
             return _findings(report) or ["invalid workflow"]
+        self.finding_rows = []
+        self.dry_run_rows = list(report.get("nodes", []))
         self.status = "ready" if report.get("safe_to_run") else "blocked"
         lines = [
             f"{node['node_id']} [{node['verdict']}] {node['explanation']['headline']}"
@@ -128,9 +146,12 @@ class WorkbenchView:
         self.last_report = report
         if not report.get("valid"):
             self.status = "invalid"
+            self.finding_rows = list(report.get("errors", []))
             return _findings(report) or ["invalid workflow"]
+        self.finding_rows = []
         self.workflow_id = str(report.get("workflow_id", ""))
         self.version = int(report.get("version", 0) or 0)
+        self.workflow_name = str(report.get("name", self.workflow_name))
         self.status = f"saved v{self.version}"
         return [f"Saved {report.get('name', '?')} v{self.version} as {self.workflow_id[:8]}"]
 
@@ -150,6 +171,7 @@ class WorkbenchView:
         report = self.client.workflow_version(workflow_id, version)
         self.workflow_id = str(report.get("workflow_id", workflow_id))
         self.version = int(report.get("version", version) or 0)
+        self.workflow_name = str(report.get("name", ""))
         self.last_report = report
         self.status = f"loaded {report.get('name', '?')} v{self.version}"
         return str(report.get("dsl_text", ""))
@@ -173,6 +195,7 @@ class WorkbenchView:
         """Execution rows (newest first), remembering their ids."""
         report = self.client.executions(limit)
         rows = report.get("executions", [])
+        self.run_rows = list(rows)
         self.run_ids = [str(row.get("id", "")) for row in rows]
         self.status = f"{len(rows)} run(s)"
         return [
@@ -182,9 +205,42 @@ class WorkbenchView:
             for row in rows
         ]
 
+    def filter_runs(self, status: str = "", needle: str = "") -> list[dict[str, Any]]:
+        """Client-side filter over the last run list (no extra request)."""
+        text = needle.strip().lower()
+        kept: list[dict[str, Any]] = []
+        for row in self.run_rows:
+            if status and row.get("status") != status:
+                continue
+            haystack = " ".join(str(value) for value in row.values()).lower()
+            if text and text not in haystack:
+                continue
+            kept.append(row)
+        return kept
+
+    def replay(self, execution_id: str = "") -> list[str]:
+        """Re-run the pinned version of a completed execution (FR-13)."""
+        target = execution_id or self.execution_id
+        if not target:
+            raise ValueError("select a run to replay")
+        report = self.client.replay(target)
+        self.last_replay = report
+        comparison = report.get("comparison", {}) or {}
+        match = bool(comparison.get("match"))
+        self.status = "replay matched" if match else "replay differs"
+        return [
+            f"replay {str(report.get('replay_execution_id', ''))[:8]} of {target[:8]}: "
+            f"{report.get('status', '')}",
+            f"match={match} compared={comparison.get('compared', 0)} "
+            f"mismatched={len(comparison.get('mismatched', []))} "
+            f"missing={len(comparison.get('missing', []))} "
+            f"unexpected={len(comparison.get('unexpected', []))}",
+        ]
+
     def timeline(self, execution_id: str) -> list[str]:
         """Step transitions for one run."""
         report = self.client.timeline(execution_id)
+        self.step_rows = list(report.get("steps", []))
         lines = [
             f"{report.get('status', '')} {_workflow_label(report)} "
             f"v{report.get('version', 0)} — {report.get('started_at', '')}"
@@ -216,11 +272,16 @@ class WorkbenchView:
         self.profile_data = report
         return f"{report.get('username', '?')} · {report.get('role', '')}"
 
+    def pending_approvals(self) -> int:
+        """How many listed approval requests are still waiting."""
+        return sum(1 for row in self.approval_rows if row.get("status") == "PENDING")
+
     # -- approvals --------------------------------------------------------
     def approvals(self, execution_id: str = "") -> list[str]:
         """Approval rows, remembering (execution, node) ids for the buttons."""
         report = self.client.approvals(execution_id)
         rows = report.get("requests", [])
+        self.approval_rows = list(rows)
         self.approval_ids = [
             (str(row.get("execution_id", "")), str(row.get("node_id", ""))) for row in rows
         ]
@@ -255,6 +316,7 @@ class WorkbenchView:
     def audit(self, execution_id: str) -> list[str]:
         """One page of the hash chain, oldest first."""
         report = self.client.audit(execution_id)
+        self.audit_rows = list(report.get("events", []))
         lines = [f"{report.get('total', 0)} event(s) for {execution_id[:8]}"]
         for event in report.get("events", []):
             lines.append(
@@ -266,6 +328,7 @@ class WorkbenchView:
     def verify(self, execution_id: str) -> str:
         """Verify the chain and report the first broken link if any."""
         report = self.client.verify(execution_id)
+        self.verification = dict(report)
         if report.get("ok"):
             return f"chain OK — {report.get('checked', 0)} event(s) verified"
         return (

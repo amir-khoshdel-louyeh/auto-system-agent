@@ -212,6 +212,23 @@ class FakeApi:
         self.calls.append(("verify", execution_id))
         return {"ok": True, "checked": 2, "first_broken_seq": None, "reason": ""}
 
+    def replay(self, execution_id):
+        self.calls.append(("replay", execution_id))
+        return {
+            "source_execution_id": execution_id,
+            "replay_execution_id": "rep-0123456789",
+            "workflow_id": "wf1",
+            "version": 3,
+            "status": "COMPLETED",
+            "comparison": {
+                "match": True,
+                "compared": 2,
+                "mismatched": [],
+                "missing": [],
+                "unexpected": [],
+            },
+        }
+
 
 class WorkflowScreenTests(unittest.TestCase):
     def setUp(self):
@@ -255,6 +272,59 @@ class WorkflowScreenTests(unittest.TestCase):
         lines = self.view.dry_run(DSL)
         self.assertIn("wipe [DENY] Denied — high risk (score 85/100).", lines)
         self.assertEqual(self.view.status, "blocked")
+
+
+class StructuredStateTests(unittest.TestCase):
+    """The Tk layer renders dict rows; the view must expose them intact."""
+
+    def setUp(self):
+        self.api = FakeApi()
+        self.view = WorkbenchView(self.api)
+
+    def test_invalid_validation_exposes_findings(self):
+        self.api.valid = False
+        self.view.validate(DSL)
+        self.assertEqual(self.view.finding_rows[0]["stage"], "schema")
+
+    def test_dry_run_exposes_node_rows_and_clears_findings(self):
+        self.view.dry_run(DSL)
+        self.assertEqual(self.view.dry_run_rows[0]["node_id"], "read")
+        self.assertEqual(self.view.finding_rows, [])
+
+    def test_runs_expose_rows_and_filter_by_status_and_text(self):
+        self.view.runs()
+        self.assertEqual(self.view.run_rows[0]["status"], "COMPLETED")
+        self.assertEqual(len(self.view.filter_runs(status="COMPLETED")), 1)
+        self.assertEqual(self.view.filter_runs(status="FAILED"), [])
+        self.assertEqual(len(self.view.filter_runs(needle="abcdef01")), 1)
+        self.assertEqual(self.view.filter_runs(needle="nope"), [])
+
+    def test_timeline_exposes_step_rows(self):
+        self.view.timeline("abcdef0123456789")
+        self.assertEqual([step["node_id"] for step in self.view.step_rows], ["read", "gate"])
+        self.assertEqual(self.view.step_rows[1]["error"], "boom")
+
+    def test_approvals_expose_rows_and_the_pending_count(self):
+        self.view.approvals()
+        self.assertEqual(self.view.approval_rows[0]["node_id"], "deploy")
+        self.assertEqual(self.view.pending_approvals(), 1)
+
+    def test_audit_and_verify_expose_rows(self):
+        self.view.audit("abcdef0123456789")
+        self.assertEqual(len(self.view.audit_rows), 2)
+        self.view.verify("abcdef0123456789")
+        self.assertTrue(self.view.verification["ok"])
+
+    def test_replay_reports_the_comparison(self):
+        lines = self.view.replay("abcdef0123456789")
+        self.assertIn("match=True", lines[1])
+        self.assertEqual(self.view.status, "replay matched")
+        self.assertEqual(self.view.last_replay["replay_execution_id"], "rep-0123456789")
+
+    def test_replay_without_a_run_is_refused_before_the_api(self):
+        with self.assertRaises(ValueError):
+            self.view.replay()
+        self.assertNotIn("replay", [call[0] for call in self.api.calls])
 
 
 class LibraryTests(unittest.TestCase):
