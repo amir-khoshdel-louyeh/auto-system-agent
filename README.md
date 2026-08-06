@@ -27,7 +27,7 @@ git clone <repo> && cd auto-system-agent
 # 1. install dependencies (stdlib-only client + API + dev toolchain)
 pip install -r requirements.txt -r requirements-api.txt -r requirements-dev.txt
 
-# 2. run the test suite (1161 passed, 2 skipped, 767 subtests — hermetic, no services needed)
+# 2. run the test suite (1162 passed, 2 skipped, 767 subtests — hermetic, no services needed)
 python -m pytest tests
 
 # 3. start everything with one command: API (auto-started or reused),

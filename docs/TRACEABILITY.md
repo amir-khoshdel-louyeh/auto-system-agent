@@ -69,7 +69,7 @@ without its evidence.
 | Functional requirements mapped | 16/16 (`FR-01`…`FR-16`) |
 | Non-functional areas mapped | 9/9 (performance, reliability, maintainability, testability, security, privacy, usability, deployability, recovery) |
 | Machine validation | `python scripts/traceability_report.py --check` → clean |
-| Generated report | `docs/reports/traceability.md` (25 requirements, 51 test files, 733 collected tests) |
+| Generated report | `docs/reports/traceability.md` (25 requirements, 51 test files, 734 collected tests) |
 | Areas still without measured evidence | **Usability only** — the SUS sessions (item [87]) are pending; the protocol, instrument and a tested scorer are ready |
 | Human tasks still open at the freeze | [87] SUS sessions and [95] the three-minute demo recording — both labelled `PENDING (human)` in `docs/RELEASE_NOTES.md` §6 and `docs/REVIEW_CHECKLISTS.md` §5 |
 

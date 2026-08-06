@@ -1,8 +1,8 @@
 # Requirements-to-test traceability (generated)
 
 **Item:** Phase 10 — [91] Complete requirements-to-test traceability  
-**Generated:** 2026-10-18T14:09:39+00:00 by `scripts/traceability_report.py`  
-**Scope:** 25 requirements, 51 test files, 733 collected tests
+**Generated:** 2026-10-18T14:12:44+00:00 by `scripts/traceability_report.py`  
+**Scope:** 25 requirements, 51 test files, 734 collected tests
 
 Regenerate with `python scripts/traceability_report.py`; validate without writing with `--check`. A hand-edited copy of this file is a claim, not evidence — the script asserts every module and test file exists and collects at least one test.
 
@@ -37,7 +37,7 @@ Regenerate with `python scripts/traceability_report.py`; validate without writin
 | Testability | Coverage floor on the critical packages | `pyproject.toml` — core `engine|safety|storage|bus` 86.1%, global 80.75%, floor 78% | 0 | proven |
 | Security | No unapproved command; static analysis and dependency audit clean | `docs/SECURITY_REPORT.md`, `docs/THREAT_MODEL.md`, `scripts/secret_scan.py` | 67 | proven |
 | Privacy | Consent, PII scrubbing and erasure | `src/memory/scrub.py`, `src/memory/consent.py` | 26 | proven |
-| Usability | A first-time user completes the five client tasks; SUS recorded | `docs/USABILITY_STUDY.md`, `scripts/sus_score.py`, `src/launcher.py` — protocol and scorer ready — five sessions not yet run | 44 | PENDING |
+| Usability | A first-time user completes the five client tasks; SUS recorded | `docs/USABILITY_STUDY.md`, `scripts/sus_score.py`, `src/launcher.py` — protocol and scorer ready — five sessions not yet run | 45 | PENDING |
 | Deployability | One compose file that works from a clone; production refuses dev secrets | `compose.yml`, `compose.prod.yml`, `docs/DEPLOYMENT.md` | 13 | proven |
 | Recovery | Crash/retry/DLQ observable; backup/restore and upgrade proven | `scripts/backup.py`, `src/engine/executor/states.py` — no full chaos suite (see `docs/LIMITATIONS.md`) | 26 | proven |
 
