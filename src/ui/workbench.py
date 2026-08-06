@@ -51,7 +51,15 @@ class WorkbenchApi(Protocol):
 
     def run(self, workflow_id: str, version: int, *, trigger: str = "manual") -> dict: ...
 
+    def workflows(self) -> dict[str, Any]: ...
+
+    def workflow_version(self, workflow_id: str, version: int) -> dict[str, Any]: ...
+
     def executions(self, limit: int = 50) -> dict[str, Any]: ...
+
+    def metrics(self) -> dict[str, Any]: ...
+
+    def me(self) -> dict[str, Any]: ...
 
     def timeline(self, execution_id: str) -> dict[str, Any]: ...
 
@@ -78,6 +86,9 @@ class WorkbenchView:
     workflow_id: str = ""
     version: int = 0
     execution_id: str = ""
+    workflow_rows: list[dict[str, Any]] = field(default_factory=list)
+    metrics_data: dict[str, Any] = field(default_factory=dict)
+    profile_data: dict[str, Any] = field(default_factory=dict)
 
     # -- workflow ---------------------------------------------------------
     def validate(self, dsl: str, dsl_type: str = "yaml") -> list[str]:
@@ -123,6 +134,26 @@ class WorkbenchView:
         self.status = f"saved v{self.version}"
         return [f"Saved {report.get('name', '?')} v{self.version} as {self.workflow_id[:8]}"]
 
+    def library(self) -> list[str]:
+        """Published workflows + versions for the library listbox."""
+        report = self.client.workflows()
+        self.workflow_rows = report.get("workflows", [])
+        self.status = f"{len(self.workflow_rows)} workflow(s)"
+        return [
+            f"{workflow.get('name', '?')} · v{version['version']}"
+            for workflow in self.workflow_rows
+            for version in workflow.get("versions", [])
+        ]
+
+    def load(self, workflow_id: str, version: int) -> str:
+        """Fetch one immutable version and remember it; returns its DSL text."""
+        report = self.client.workflow_version(workflow_id, version)
+        self.workflow_id = str(report.get("workflow_id", workflow_id))
+        self.version = int(report.get("version", version) or 0)
+        self.last_report = report
+        self.status = f"loaded {report.get('name', '?')} v{self.version}"
+        return str(report.get("dsl_text", ""))
+
     def run(self, workflow_id: str = "", version: int = 0) -> list[str]:
         """Start the saved version (or an explicit one) and remember the run id."""
         target = workflow_id or self.workflow_id
@@ -165,6 +196,25 @@ class WorkbenchView:
                 f"attempt {step.get('attempt', 1)}{suffix}"
             )
         return lines
+
+    def metrics(self) -> list[str]:
+        """Aggregate run metrics for the overview cards."""
+        report = self.client.metrics()
+        self.metrics_data = report
+        self.status = f"{report.get('total', 0)} run(s)"
+        return [
+            f"runs={report.get('total', 0)}",
+            f"success_rate={report.get('success_rate', 0)}%",
+            f"p95={report.get('p95_latency_ms', 0)} ms",
+            f"retries={report.get('retries', 0)}",
+            f"approvals={report.get('approval_count', 0)}",
+        ]
+
+    def profile(self) -> str:
+        """The signed-in identity, formatted for the header chip."""
+        report = self.client.me()
+        self.profile_data = report
+        return f"{report.get('username', '?')} · {report.get('role', '')}"
 
     # -- approvals --------------------------------------------------------
     def approvals(self, execution_id: str = "") -> list[str]:

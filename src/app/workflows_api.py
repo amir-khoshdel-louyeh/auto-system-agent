@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -72,6 +72,72 @@ def _error_out(stage: str, message: str, line: int, column: int) -> dict:
 
 def _response(body: dict, *, valid: bool) -> JSONResponse:
     return JSONResponse(status_code=status.HTTP_200_OK if valid else 422, content=body)
+
+
+@router.get("")
+def list_saved_workflows(
+    _: CurrentUser = Depends(require_permission(Permission.RUN_READ)),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """Every published workflow with its immutable versions (item [108]).
+
+    The workbench library needs this to reopen work after a restart; it lists
+    metadata only, and the exact DSL text is one route down.
+    """
+    from .db import init_db
+    from .models import WorkflowStore
+
+    store = WorkflowStore(init_db(settings.sqlite_path))
+    workflows = []
+    for row in store.list_workflows():
+        versions = store.list_versions(str(row["id"]))
+        workflows.append(
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "created_by": row.get("created_by", ""),
+                "created_at": row.get("created_at", ""),
+                "versions": [
+                    {
+                        "version": int(version["version"]),
+                        "published_by": version.get("published_by", ""),
+                        "published_at": version.get("published_at", ""),
+                    }
+                    for version in versions
+                ],
+            }
+        )
+    return {"total": len(workflows), "workflows": workflows}
+
+
+@router.get("/{workflow_id}/versions/{version}")
+def read_workflow_version(
+    workflow_id: str,
+    version: int,
+    _: CurrentUser = Depends(require_permission(Permission.RUN_READ)),
+    settings: Settings = Depends(get_settings),
+) -> dict:
+    """One immutable version, including its exact DSL text (item [108])."""
+    from .db import init_db
+    from .models import WorkflowStore
+
+    store = WorkflowStore(init_db(settings.sqlite_path))
+    row = store.get_version(workflow_id, version)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"unknown workflow version {workflow_id}/{version}",
+        )
+    workflow = store.get_workflow(workflow_id) or {}
+    return {
+        "workflow_id": row["workflow_id"],
+        "name": workflow.get("name", ""),
+        "version": int(row["version"]),
+        "dsl_text": row["dsl_text"],
+        "dsl_hash": row["dsl_hash"],
+        "published_by": row.get("published_by", ""),
+        "published_at": row.get("published_at", ""),
+    }
 
 
 @router.post("")

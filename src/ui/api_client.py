@@ -111,6 +111,16 @@ class WorkbenchClient:
             "POST", "/workflows", body={"dsl": dsl, "dsl_type": dsl_type}, report=True
         )
 
+    def workflows(self) -> dict[str, Any]:
+        """Published workflows and their immutable versions (library screen)."""
+        return self._request("GET", "/workflows")
+
+    def workflow_version(self, workflow_id: str, version: int) -> dict[str, Any]:
+        """One immutable version including its exact DSL text."""
+        return self._request(
+            "GET", f"/workflows/{parse.quote(workflow_id)}/versions/{int(version)}"
+        )
+
     def explain(self, node: dict[str, Any]) -> dict[str, Any]:
         return self._request("POST", "/policy/explain", body=node)
 
@@ -131,6 +141,14 @@ class WorkbenchClient:
 
     def executions(self, limit: int = 50) -> dict[str, Any]:
         return self._request("GET", "/executions", params={"limit": limit})
+
+    def metrics(self) -> dict[str, Any]:
+        """Aggregate run metrics for the overview screen."""
+        return self._request("GET", "/metrics/executions")
+
+    def me(self) -> dict[str, Any]:
+        """The authenticated identity and its permissions."""
+        return self._request("GET", "/auth/me")
 
     def timeline(self, execution_id: str) -> dict[str, Any]:
         return self._request("GET", f"/executions/{parse.quote(execution_id)}/timeline")

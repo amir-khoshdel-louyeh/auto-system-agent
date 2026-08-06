@@ -86,6 +86,52 @@ class FakeApi:
             "version": version,
         }
 
+    def workflows(self):
+        self.calls.append(("workflows",))
+        return {
+            "total": 1,
+            "workflows": [
+                {
+                    "id": "wf-0123456789",
+                    "name": "demo",
+                    "created_by": "admin",
+                    "created_at": "2026-10-17T10:00:00+00:00",
+                    "versions": [
+                        {"version": 1, "published_at": "2026-10-17T10:00:00+00:00"},
+                        {"version": 2, "published_at": "2026-10-17T10:05:00+00:00"},
+                    ],
+                }
+            ],
+        }
+
+    def workflow_version(self, workflow_id, version):
+        self.calls.append(("workflow_version", workflow_id, version))
+        return {
+            "workflow_id": workflow_id,
+            "name": "demo",
+            "version": version,
+            "dsl_text": DSL,
+            "dsl_hash": "a" * 64,
+        }
+
+    def metrics(self):
+        self.calls.append(("metrics",))
+        return {
+            "total": 4,
+            "succeeded": 3,
+            "failed": 1,
+            "success_rate": 75.0,
+            "avg_latency_ms": 12.5,
+            "p95_latency_ms": 31.5,
+            "retries": 1,
+            "approval_count": 2,
+            "avg_approval_s": 4.0,
+        }
+
+    def me(self):
+        self.calls.append(("me",))
+        return {"username": "admin", "role": "OWNER", "permissions": ["workflow:run"]}
+
     def executions(self, limit=50):
         self.calls.append(("executions", limit))
         return {
@@ -209,6 +255,35 @@ class WorkflowScreenTests(unittest.TestCase):
         lines = self.view.dry_run(DSL)
         self.assertIn("wipe [DENY] Denied — high risk (score 85/100).", lines)
         self.assertEqual(self.view.status, "blocked")
+
+
+class LibraryTests(unittest.TestCase):
+    """Item [108]: the Workflow tab can reopen what was published earlier."""
+
+    def setUp(self):
+        self.api = FakeApi()
+        self.view = WorkbenchView(self.api)
+
+    def test_library_lists_every_version(self):
+        self.assertEqual(self.view.library(), ["demo · v1", "demo · v2"])
+        self.assertEqual(len(self.view.workflow_rows), 1)
+        self.assertEqual(self.view.status, "1 workflow(s)")
+
+    def test_load_returns_the_dsl_and_remembers_the_version(self):
+        self.assertEqual(self.view.load("wf-0123456789", 2), DSL)
+        self.assertEqual(self.view.workflow_id, "wf-0123456789")
+        self.assertEqual(self.view.version, 2)
+        self.assertEqual(self.view.status, "loaded demo v2")
+
+    def test_metrics_feed_the_overview_cards(self):
+        lines = self.view.metrics()
+        self.assertIn("runs=4", lines)
+        self.assertIn("success_rate=75.0%", lines)
+        self.assertEqual(self.view.metrics_data["p95_latency_ms"], 31.5)
+
+    def test_profile_formats_the_header_chip(self):
+        self.assertEqual(self.view.profile(), "admin · OWNER")
+        self.assertEqual(self.view.profile_data["role"], "OWNER")
 
 
 class SaveAndRunTests(unittest.TestCase):

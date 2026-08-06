@@ -170,6 +170,45 @@ class CreateWorkflowTests(ExecutionApiBase):
         self.assertEqual(operator.status_code, 403)
 
 
+class WorkflowLibraryTests(ExecutionApiBase):
+    """Item [108]: reopen a saved workflow after a restart."""
+
+    def test_library_lists_the_published_versions(self):
+        created = self.create()
+        response = self.client.get("/workflows", headers=self.headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["total"], 1)
+        workflow = body["workflows"][0]
+        self.assertEqual(workflow["id"], created["workflow_id"])
+        self.assertEqual(workflow["name"], "api-demo")
+        self.assertEqual([v["version"] for v in workflow["versions"]], [1])
+
+    def test_a_version_returns_its_exact_dsl(self):
+        workflow_id = self.create()["workflow_id"]
+        response = self.client.get(f"/workflows/{workflow_id}/versions/1", headers=self.headers)
+        self.assertEqual(response.status_code, 200, response.text)
+        body = response.json()
+        self.assertEqual(body["dsl_text"], DSL)
+        self.assertEqual(body["name"], "api-demo")
+        self.assertEqual(len(body["dsl_hash"]), 64)
+
+    def test_reading_the_library_only_needs_run_read(self):
+        workflow_id = self.create()["workflow_id"]
+        viewer = self.bearer("VIEWER")
+        self.assertEqual(self.client.get("/workflows", headers=viewer).status_code, 200)
+        self.assertEqual(
+            self.client.get(f"/workflows/{workflow_id}/versions/1", headers=viewer).status_code,
+            200,
+        )
+        self.assertEqual(self.client.get("/workflows").status_code, 401)
+
+    def test_unknown_version_is_a_404(self):
+        workflow_id = self.create()["workflow_id"]
+        response = self.client.get(f"/workflows/{workflow_id}/versions/9", headers=self.headers)
+        self.assertEqual(response.status_code, 404, response.text)
+
+
 class StartRunTests(ExecutionApiBase):
     def test_run_completes_persists_steps_and_audits_itself(self):
         workflow_id = self.create()["workflow_id"]
