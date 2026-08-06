@@ -30,8 +30,20 @@ pip install -r requirements.txt -r requirements-api.txt -r requirements-dev.txt
 # 2. run the test suite (1083 passed, 2 skipped, 767 subtests — hermetic, no services needed)
 python -m pytest tests
 
-# 3. start the API locally
-PYTHONPATH=src uvicorn app.main:app --host 127.0.0.1 --port 8000
+# 3. start everything with one command: API (auto-started or reused),
+#    auto-login and the four-tab workbench (dev credentials admin/admin)
+python main.py
+```
+
+`python main.py` is the whole local workflow. It probes `GET /health`,
+starts the API on `127.0.0.1:8000` only when nothing is listening, logs in
+with `APP_ADMIN_USER`/`APP_ADMIN_PASSWORD`, and opens the workbench
+(Workflow → Runs → Approvals → Audit). Flags: `--server-only` (API only),
+`--no-server` (use an API you started), `--port N`, `--chat` (legacy chat
+client). On a headless host it starts the API and prints its URL instead of
+failing. The equivalent manual check is still available:
+
+```bash
 curl http://127.0.0.1:8000/health          # -> {"status":"healthy",...}
 curl -X POST http://127.0.0.1:8000/auth/login \
      -H 'content-type: application/json' \
@@ -45,10 +57,11 @@ cp .env.example .env        # change SECRET_KEY / passwords for anything real
 docker compose up --build   # api :8000, db :5432, redis :6379 (healthchecked)
 ```
 
-Desktop client (Tkinter, stdlib-only):
+Desktop client (Tkinter, stdlib-only) — started by the same command:
 
 ```bash
-python main.py --gui
+python main.py            # API + workbench
+python main.py --chat     # legacy chat client only
 ```
 
 Release candidate: [`docs/RELEASE_NOTES.md`](docs/RELEASE_NOTES.md) (tag
