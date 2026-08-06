@@ -179,6 +179,37 @@ Evidence.**
 - **Evidence.** `src/ui/`, `requirements*.txt`, `docs/reports/pip-audit.txt`,
   `tests/acceptance/test_workbench_walkthrough.py`.
 
+## ADR-011 — `shell` commands execute inside the sandbox, in a per-run workspace
+**Post-RC hardening, item [99], 2026-10-18.**
+
+- **Context.** The shell worker was record-only: the gate decided, the step
+  recorded the command, and nothing ran. That is safe but it makes the platform
+  a simulator, and it hides the one risk the sandbox exists for — real commands.
+- **Decision.** A `shell` node executes `/bin/sh -c <run>` **inside** the Phase 8
+  sandbox, in a workspace the dispatcher creates for the run
+  (`<ASA_WORKSPACE_ROOT>/<run_id>`, or a throwaway directory when no root is
+  configured). The gate receives that workspace as its `PolicyContext`, so a
+  command that names a path outside it is DENIED *before dispatch*; the worker
+  re-gates, validates any workspace handed to it against the allowed roots, and
+  a step fails closed when the host cannot isolate commands at all. The step
+  output is deterministic (no durations) because replay compares it.
+- **Alternatives rejected.** (a) Running the command in the worker process with
+  the command guard — one parser bypass away from a host shell; (b) keeping the
+  record-only worker and calling it a limitation — the gap was the largest one
+  in the product, not a design choice; (c) executing on the host and "auditing
+  harder" — audit records damage, it does not prevent it.
+- **Consequences.** + The W1/W2 scenarios now do what they say; + a command's
+  effects are confined to a directory the operator can inspect. − Real execution
+  needs `bwrap` for `shell` nodes on the target host (the step fails without
+  it); − the shell is still a shell inside the sandbox, so the policy gate and
+  the workspace boundary remain the only guard rails, and the sandbox is still
+  namespace isolation rather than a hardened runtime (`docs/LIMITATIONS.md` §2).
+- **Evidence.** `src/sandbox/commands.py`, `src/bus/workers/shell.py`,
+  `src/bus/workers/dispatcher.py` (`resolve_run_workspace`),
+  `tests/integration/test_shell_execution.py`,
+  `tests/unit/test_sandbox_commands.py`, `tests/unit/test_engine_gate.py`
+  (nested-parameter defence in depth).
+
 ---
 
 ## Decisions we deliberately did **not** take (and why)

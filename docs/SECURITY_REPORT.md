@@ -73,7 +73,7 @@ Gate: no known vulnerable dependency in any of the three sets — **pass**.
 ```bash
 python scripts/secret_scan.py
 # secret scan: clean (255 files, 9 rules) at Phase 9
-# secret scan: clean (278 files, 9 rules) at the release candidate — the tree grew
+# secret scan: clean (304 files, 9 rules) at the release candidate — the tree grew
 ```
 
 Rules: private-key blocks, AWS access keys, GitHub tokens, Slack tokens,

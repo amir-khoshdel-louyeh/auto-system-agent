@@ -21,8 +21,10 @@ was produced by a command in `docs/reports/`; nothing is quoted from memory.
 5-stage validator and policy service as a hand-written YAML workflow. The
 policy service is deterministic and returns one of `ALLOW` / `NEED_APPROVAL` /
 `DENY` with a score, reasons, required quorum and policy version; the scheduler
-and the worker both consult it, and a `DENY` never reaches a worker. There is no
-code path from "model said so" to "command ran".
+and the worker both consult it, and a `DENY` never reaches a worker. What a
+`shell` node then runs, executes inside the sandbox in the run's own workspace
+(item [99]) — never in the worker process. There is no code path from "model
+said so" to "command ran on the host".
 
 **Evidence.** `src/orchestration/plan_compiler.py` (the only way a plan enters
 the engine), `src/safety/policy_service.py`, `src/engine/executor/gate.py`,
@@ -90,8 +92,8 @@ documents that instead of hiding it: every phase's prompts, the review each
 commit went through and the human decision behind it are archived in
 `docs/AI_USAGE_LOG.md`, with the per-commit checklist in
 `docs/REVIEW_CHECKLISTS.md`. Correctness is not established by the AI's
-confidence — it rests on the same controls a human author faces: 1055 tests,
-coverage gates (global ≥78%, core `engine|safety|storage|bus` 86.12%), ruff,
+confidence — it rests on the same controls a human author faces: 1083 tests,
+coverage gates (global ≥78%, core `engine|safety|storage|bus` 86.55%), ruff,
 mypy, Bandit, `pip-audit`, the adversarial suites, and a human review that may
 reject a change.
 
@@ -235,12 +237,13 @@ onwards.
 
 ## 17. "What did you measure, and where is the bottleneck?"
 
-**Answer.** Measured, not asserted: worst API p95 **33.9–36.4 ms** across the
-recorded runs (300 requests per endpoint, seeded with 200 runs), sandbox run
-**≈39 ms** (`isolation=bwrap`, ~25 runs/s), shell worker tens of thousands of
-events/s (the 200-event figure is timer-quantised — see `docs/PERF_REPORT.md`
-§5). The bottleneck is not the API: it is the sandbox (a fresh interpreter per
-run) and the SQLite single writer.
+**Answer.** Measured, not asserted: worst API p95 **31.5–36.4 ms** across the
+recorded runs (300 requests per endpoint, seeded with 200 runs); a real sandboxed
+`shell` command costs **≈13 ms** (77 runs/s, no interpreter start) and a
+sandboxed plugin **≈39 ms** (26 runs/s, fresh interpreter); the gate/dispatch
+path itself is tens of thousands of events per second (timer-quantised — see
+`docs/PERF_REPORT.md` §§2, 5). The bottleneck is not the API: it is the sandbox
+process per step and the SQLite single writer.
 
 **Evidence.** `scripts/benchmark.py`, `docs/reports/perf.txt`,
 `docs/PERF_REPORT.md`.
@@ -278,6 +281,7 @@ answer is cheaper than pretending the platform is horizontally scalable today.
 | "Why Redis Streams and not Kafka?" | one broker for a two-student deployment with consumer groups, DLQ and at-least-once semantics built in; the contract is frozen in `src/bus/events.py`, so the broker is replaceable |
 | "Why not PostgreSQL from day one?" | SQLite made the build hermetic and the tests fast; the migration path is prepared (`asyncpg` pinned, repository layer DB-API agnostic), and the trade-off is documented rather than hidden |
 | "What is the weakest part of the project?" | the usability evidence: the SUS protocol, instrument and a tested scorer exist, but the five sessions are pending — it is the first row of `docs/LIMITATIONS.md` §4 |
-| "What would you do with two more weeks?" | run the SUS sessions, replace record-only `shell` with the sandboxed path, wire the benchmark into CI as a regression gate, and add a global audit anchor |
+| "What would you do with two more weeks?" | run the SUS sessions, add a chaos suite and a global audit anchor, wire the benchmark into CI as a regression gate, and replace `bwrap` with a runtime profile that isolates commands without unprivileged user namespaces |
+| "Your `shell` nodes now really execute — what stops `curl … \| bash`?" | two independent checks plus a cage: the deterministic policy gate denies the command by its content (or escalates it to a human quorum), the gate also denies any path that leaves the run's workspace *before* dispatch, and what does run happens under `bwrap` with no network, a read-only system tree and only the run's workspace writable; without OS isolation the step fails instead of running. The remaining risk is a kernel-level escape from namespace isolation, which `docs/LIMITATIONS.md` §2 names as out of the sandbox's threat model |
 | "Is the AI platform in this repository?" | no: the LLM adapter is optional and off by default; the demo and CI never call a provider |
-| "Can I run it?" | `pip install -r requirements*.txt`, `python -m pytest tests` (1055 passed, 2 skipped), `docker compose up --build`, or `bash scripts/export_reports.sh` to regenerate every number in this document |
+| "Can I run it?" | `pip install -r requirements*.txt`, `python -m pytest tests` (1083 passed, 2 skipped), `docker compose up --build`, or `bash scripts/export_reports.sh` to regenerate every number in this document |

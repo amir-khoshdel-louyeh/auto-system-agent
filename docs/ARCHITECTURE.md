@@ -62,7 +62,7 @@ flowchart TB
     POLICY["PolicyService<br/>safety/policy_service.py"]
     PLAN["Planner<br/>orchestration/*"]
     DISP["Dispatcher<br/>bus/workers/dispatcher.py"]
-    WSH["shell worker"]
+    WSH["shell worker -> sandbox"]
     WAP["approval worker"]
     WCU["custom worker -> sandbox"]
     REPLAY["Replay<br/>app/replay.py"]
@@ -227,7 +227,7 @@ erDiagram
 | API | `src/app` | engine, safety, storage, bus, memory, orchestration | execute OS commands itself |
 | Engine | `src/engine` | safety, storage | touch the network or the client |
 | Safety | `src/safety` | pure data | call the executor (policy decides, it does not run) |
-| Bus/workers | `src/bus` | engine gate, sandbox, storage | trust a producer's verdict; skip durable state before ack |
+| Bus/workers | `src/bus` | engine gate, sandbox, storage | trust a producer's verdict; skip durable state before ack; run a command outside the sandbox |
 | Sandbox | `src/sandbox` | stdlib only | import app code; run without isolation |
 | Storage | `src/storage` | stdlib, sqlite | import UI or engine |
 

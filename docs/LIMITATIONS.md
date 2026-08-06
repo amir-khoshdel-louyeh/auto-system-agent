@@ -9,6 +9,15 @@ compensates for it today, and where the fix belongs.
 The rule this document follows: a limitation may only be listed if the
 project *knows* it — a guess is not a limitation, it is a missing test.
 
+**Removed since the `v1.0.0-rc1` tag (item [99], 2026-10-18):** `shell` nodes
+used to be *record-only* — the worker recorded the command it would have run.
+They now execute for real, inside the sandbox, in the run's workspace, with the
+policy gate enforcing the workspace boundary before dispatch. The row that was
+here is gone because the tests that prove the new behaviour exist:
+`tests/integration/test_shell_execution.py` (real files created, path escape
+denied pre-dispatch, timeout kills the step, deterministic step output) and
+`tests/unit/test_sandbox_commands.py` (refused without OS isolation).
+
 ---
 
 ## 1. Functional boundaries (deliberate MVP scope)
@@ -17,7 +26,7 @@ project *knows* it — a guess is not a limitation, it is a missing test.
 |---|---|---|---|
 | No visual drag-and-drop workflow editor | workflows are authored as YAML text (the client's Workflow tab validates and dry-runs) | validator reports line/column findings, dry run explains every node | post-MVP editor over the same API |
 | No VLM/GUI automation implementation | `gui_click`/`gui_type` nodes are validated, gated and dispatched to explicit **stub** workers | they are visibly non-production stubs, and the contract is frozen so an adapter cannot change the DSL | `STRETCH` GUI adapter behind the frozen worker contract |
-| `shell` nodes are **record-only** in the worker | a `shell` step records the command it would run rather than running it | the sandboxed `custom`/plugin path is the only place untrusted code really executes, and the legacy `SafeExecutor`/command guard covers the assisted demo path | real execution through the sandbox for `shell` too |
+| A `shell` command needs OS isolation (`bwrap` + user namespaces) | on a host that cannot create namespaces, a `shell` step **fails** instead of running | the step fails closed with the sandbox's reason on the audit chain, and the plugin path still runs under the audit-hook layer | a runtime profile (seccomp/gVisor) that can isolate commands without unprivileged user namespaces |
 | Planner covers 9 intents | unusual requests fall back to a clarification instead of a plan | explicitly measured (`docs/PLANNER_EVAL.md`: accuracy 1.000 on the frozen dataset, fallback rate 0.111) and the fallback is a first-class response | more intents + a wider dataset |
 | Optional LLM adapter is off by default | no provider calls in the demo or CI | the offline planner is deterministic and always available | configure a provider; the typed adapter and its failure handling are already tested |
 | Shared memory is consent-scoped per user | no cross-team knowledge sharing policy | consent grants/revocations are recorded and enforced; erasure keeps the consent history | workspace-scoped sharing policy |
@@ -37,6 +46,7 @@ project *knows* it — a guess is not a limitation, it is a missing test.
 | Sandbox depends on `bwrap` for `command` nodes | without user namespaces, only Python plugins run | the audit-hook layer still denies escape attempts and `command` is refused rather than run unguarded | seccomp/profile-based runtime (gVisor, Firecracker) |
 | Sandbox is namespace-level isolation, not a hardened container runtime | kernel-level escapes are out of its threat model | defence in depth: fresh interpreter, audit hook, resource limits, sentinel directory, no host bind mounts | dedicated runner host or microVM |
 | `command`-kind sandbox requests must declare a body length | a chunked upload is rejected (411) | JSON-only API by design | streaming-aware limiter if uploads are ever needed |
+| `shell` execution inside the Docker container needs an opt-in | Docker's default seccomp profile blocks the namespace syscalls, so in the default compose stack a `shell` step fails closed ("needs OS isolation"); with `security_opt: [seccomp=unconfined]` it runs and reports `bwrap-no-proc` (no private `/proc` inside a container, measured) | `compose.yml` documents the opt-in; the failure is a precise, audited step error, never a silent no-op; `docs/DEPLOYMENT.md` §4 records both measurements | a container runtime profile that allows user namespaces without disabling seccomp, or a dedicated worker host |
 
 ## 3. Observability and operations
 

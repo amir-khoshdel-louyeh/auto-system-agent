@@ -77,16 +77,18 @@ the second half are verbatim.
 ```bash
 ruff format --check . && ruff check .       # 254 files formatted / All checks passed!
 mypy src                                    # no issues in 118 source files
-python -m pytest tests                      # 1055 passed, 2 skipped, 767 subtests
-bash scripts/export_reports.sh              # 12 steps, 0 failed (docs/reports/export.txt)
+python -m pytest tests                      # 1083 passed, 2 skipped, 767 subtests
+bash scripts/export_reports.sh              # 13 steps, 0 failed (docs/reports/export.txt)
 ```
 
-Resulting artefacts: global coverage **80.75%** (gate `fail_under = 78`), core
-gate `src/engine|safety|storage|bus` **86.12%**, worst API p95 **33.9–36.4 ms**
+Resulting artefacts: global coverage **81.35%** (gate `fail_under = 78`), core
+gate `src/engine|safety|storage|bus` **86.55%**, worst API p95 **31.5–36.4 ms**
 across the runs vs the 300 ms NFR, Bandit **0** at medium+, `pip-audit` clean on three requirement
-sets, secret scan clean (278 files, 9 rules), traceability `--check` clean,
-rehearsal **12/12 PASS**. The two tests added during the session (bandit log-line
-filtering and the threshold field) are why the count moved from 1053 to 1055.
+sets, secret scan clean (304 files, 9 rules), traceability `--check` clean,
+rehearsal **13/13 PASS**. The two tests added during the session (bandit log-line
+filtering and the threshold field) are why the count moved from 1053 to 1055;
+the post-RC item [99] (real sandboxed shell execution) later added 28 more — see
+`docs/IMPLEMENTATION_STATUS.md`, "Post-RC hardening".
 
 ## 6. Post-session corrections to this archive (made in `[92]`, same day)
 

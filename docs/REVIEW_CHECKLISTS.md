@@ -74,7 +74,7 @@ Read the diff, then answer each line *yes/no*. A single "no" blocks the commit.
       `docs/DEFENSE_QA.md` and `docs/IMPLEMENTATION_STATUS.md` agree with
       `docs/reports/*` (grep the numbers, do not trust memory).
 - [ ] Traceability `--check` clean; the pending usability area still labelled.
-- [ ] `bash scripts/rehearse_demo.sh` 12/12 PASS on the frozen commit.
+- [ ] `bash scripts/rehearse_demo.sh` 13/13 PASS on the frozen commit.
 - [ ] Tag created on the frozen commit and the tag named in the release notes.
 - [ ] Rollback story stated: what to do if the demo fails (see `docs/DEMO_SCRIPT.md` §3).
 

@@ -129,8 +129,17 @@ docker compose exec api python -m app.db --db data/app.db --status
       snapshots off the host; a volume snapshot alone is not a backup.
 - [ ] Watch the JSON logs (`level=WARNING`+) and the `429` rate — the
       in-process limiter is per replica, so add an edge limit when scaling out.
-- [ ] Rotate `SECRET_KEY` and the admin password through the environment, not
-      through an image rebuild.
+- [ ] Real `shell` execution (item [99]) needs unprivileged user namespaces in
+      the API container. Measured on this host: with Docker's default seccomp
+      profile `bwrap` is blocked and a `shell` step fails closed ("needs OS
+      isolation"); with `security_opt: [seccomp=unconfined]` a command runs,
+      isolated, and reports `bwrap-no-proc` because a fresh `/proc` mount is not
+      permitted inside a container. Uncomment that line in `compose.yml` only on
+      a host you control, or run command execution on a worker host with user
+      namespaces (`docs/LIMITATIONS.md` §2).
+- [ ] Set `ASA_WORKSPACE_ROOT` (compose sets `/code/data/workspaces`, inside the
+      same named volume as SQLite) so a run's files survive a rebuild and can be
+      inspected after the fact.
 
 ## 5. What was *not* verified
 
@@ -147,3 +156,10 @@ docker compose exec api python -m app.db --db data/app.db --status
   during this run.
 - **Multi-replica behaviour** (shared rate-limit state, SQLite
   single-writer) — see `docs/THREAT_MODEL.md` §5 and `docs/LIMITATIONS.md`.
+- **Command execution in a *production* container.** It was probed in the
+  development image on this host (both the refused and the `bwrap-no-proc` case,
+  see §4); the production file does not opt into `seccomp=unconfined`, so there
+  a `shell` step fails closed by design until the operator decides otherwise.
+- **A host without user namespaces.** The plugin path is exercised there by the
+  audit-hook tests; `shell` steps were not run on such a host because they are
+  refused (that refusal *is* the tested behaviour).

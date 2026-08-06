@@ -37,19 +37,26 @@ Reading the numbers:
 
 ## 2. Worker throughput
 
-| Worker | Work | Result |
+Three measurements, because they answer three different questions (the middle
+one is new in item [99] — before it, `shell` nodes did not execute at all):
+
+| What | Work | Result |
 |---|---|---|
-| `shell` (gate + persist + verdict over the in-memory bus) | 200 `step.dispatched` events | 200 verdicts in 0.002 s = **128 883 events/s** |
-| `custom` (real sandboxed plugin: bwrap + fresh interpreter + file diff) | 20 sandboxed runs | 20 verdicts in 0.761 s = **26.27 runs/s** (38.1 ms/run, isolation `bwrap`) |
+| Gate/dispatch path (`shell` worker with execution stubbed: policy re-check + durable verdict over the in-memory bus) | 200 `step.dispatched` events | 200 verdicts in 0.002 s = **128 883 events/s** |
+| **Real sandboxed `shell` command** (item [99]: bwrap + `/bin/sh` + file diff) | 20 runs | **≈77 runs/s** (13.0 ms/run, mode `sandboxed (bwrap)`) |
+| Sandboxed **plugin** (`custom` worker: bwrap + fresh Python interpreter + file diff) | 20 runs | **26.27 runs/s** (38.1 ms/run, isolation `bwrap`) |
 
-The shell worker is fast because its MVP job is record-only (policy re-check,
-durable step row, verdict) — no process spawn. The sandbox number is the
-honest cost of isolation: ~38 ms per plugin run, dominated by process
-creation and the namespace setup that makes the Phase 8 gate true.
+The first row is not execution: it isolates the bus, the gate and the durable
+verdict from the cost of running anything, and after item [99] it is measured
+with execution stubbed (see `scripts/benchmark.py::measure_shell_worker`), so it
+must never be quoted as shell-node throughput. The other two rows are the real
+cost of isolation — and the reason a command is ~3× cheaper than a plugin: a
+shell command needs no fresh interpreter, only the namespace setup and the
+process.
 
-For planning: a workflow with 20 sandboxed `custom` nodes takes roughly
-0.75 s of worker time when run sequentially, and node-level parallelism in a
-DAG level divides that by the worker count.
+For planning: a workflow with 20 sandboxed `shell` commands takes roughly 0.26 s
+of worker time (20 sandboxed plugins ≈ 0.76 s) when run sequentially, and
+node-level parallelism in a DAG level divides that by the worker count.
 
 ## 3. What these numbers are not
 
@@ -91,19 +98,22 @@ release-candidate export re-ran the same command and produced
 | `GET /executions` | 22.36 ms | **36.44 ms** | 42.35 ms | 334 |
 | `GET /executions/{id}/audit` | 19.61 ms | **29.76 ms** | 55.37 ms | 379 |
 
-Worst p95 = **36.44 ms** vs the 300 ms target → PASS. Sandbox worker:
-25.6 runs/s (39.1 ms/run, `isolation=bwrap`). `docs/reports/perf.txt` is the
-artefact the release notes cite, and it is re-written by every export, so the
-release notes quote the range rather than one run.
+Worst p95 = **36.44 ms** in that run; the latest export (`docs/reports/perf.txt`,
+which is what the release notes cite) measured **31.48 ms**. Workers at that
+export: gate path **134 956 events/s** (execution stubbed), a real sandboxed
+`shell` command **13.0 ms/run** (77.1 runs/s), a sandboxed plugin **39.0 ms/run**
+(25.7 runs/s). `docs/reports/perf.txt` is re-written by every export, so the
+release notes quote a range rather than one run.
 
 Two honest notes about variance, because a defence should expect the question:
 
 - **p95 moves by a few milliseconds between runs**: 33.92 → 35.72 → 36.44 →
-  34.50 ms on the same machine, all ~8× under the NFR. The conclusion does not
-  depend on which run is quoted — but a single number read out loud should be
-  presented as "about 34–36 ms", not as a constant.
-- **The shell-worker figure is timer-quantised**, not a throughput trend: 200
-  events complete in 0.002–0.004 s, so the reported rate swings between ~50 k
-  and ~130 k events/s. Quote it as "tens of thousands of events per second",
-  never as a benchmark of the worker's real capacity (it is record-only).
-- Sandbox cost is stable at **38–40 ms/run** across runs.
+  34.50 → 31.48 ms on the same machine, all an order of magnitude under the NFR.
+  The conclusion does not depend on which run is quoted, but a single number read
+  out loud should be presented as "about 31–36 ms", not as a constant.
+- **The gate-path figure is timer-quantised**, not a throughput trend: 200 events
+  complete in 0.001–0.004 s, so the reported rate swings between ~50 k and
+  ~135 k events/s. Quote it as "tens of thousands of events per second" of
+  gate/dispatch/persist overhead, never as shell-node throughput.
+- Sandbox cost is stable and cheap for commands: **38–40 ms/run** for plugins,
+  **13–14 ms/run** for shell commands (item [99]).

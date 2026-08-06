@@ -15,7 +15,7 @@ log it is applied to.
   gates exist: they are the control, not a formality.
 - **No secrets, no personal data.** The log stores requests, decisions and
   outcomes — never provider keys, tokens or personal data. `scripts/secret_scan.py`
-  scans `docs/` too (9 rules, 278 files, clean in item [93]).
+  scans `docs/` too (9 rules, 304 files, clean in item [93]).
 - **A prompt is not evidence.** A row is only useful together with the commit
   that closed the item and the test that proves it, so both are in the table.
 

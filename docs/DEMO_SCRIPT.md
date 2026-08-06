@@ -16,7 +16,7 @@ a human step and is still pending** — see the status note in
 # clean terminal, no services required for segments 1-3
 cd <repo> && git switch --detach "$(git describe --tags --abbrev=0)"  # the tagged RC
 pip install -r requirements.txt -r requirements-api.txt -r requirements-dev.txt
-python -m pytest tests               # 1055 passed, 2 skipped  (baseline, optional)
+python -m pytest tests               # 1083 passed, 2 skipped  (baseline, optional)
 ```
 
 - Terminal font: large enough to read at 720p, no personal shell prompt with
@@ -44,9 +44,10 @@ python -m pytest tests               # 1055 passed, 2 skipped  (baseline, option
 
 > "A governed automation platform: a request or a YAML workflow becomes a
 > validated DAG, every node passes a deterministic policy gate, risky nodes
-> wait for a human quorum, work runs on Redis Streams, and every run is
-> hash-chain audited and replayable. The LLM is an optional planner; it never
-> authorises, executes or audits anything."
+> wait for a human quorum, commands execute inside a sandbox scoped to the run's
+> workspace, work runs on Redis Streams, and every run is hash-chain audited and
+> replayable. The LLM is an optional planner; it never authorises, executes or
+> audits anything."
 
 ### 0:20 — W1 governed workspace onboarding (40 s)
 
@@ -70,8 +71,9 @@ Show, in this order, as the test asserts them (`tests/acceptance/test_planned_wo
    replay outputs match.
 
 Narration: "the plan is not trusted input — it goes through the same loader,
-validator and policy service as a YAML workflow, and the replay proves the run
-is reproducible."
+validator and policy service as a YAML workflow. Each `shell` node then really
+executes inside the sandbox, in that run's own workspace, and the replay proves
+the run is reproducible."
 
 ### 1:00 — W2 versioned event-driven workflow (45 s)
 
@@ -119,11 +121,11 @@ Three lines of narration, one per claim:
 cat docs/reports/export.txt      # one PASS/FAIL line per gate, 12 rows
 ```
 
-Read the numbers, not the adjectives: **global coverage 80.75%**, **core gate
-(`src/engine|safety|storage|bus`) 86.12%**, **worst API p95 34–36 ms vs the
+Read the numbers, not the adjectives: **global coverage 81.35%**, **core gate
+(`src/engine|safety|storage|bus`) 86.55%**, **worst API p95 31–36 ms vs the
 300 ms NFR** (it moves a millisecond or two between runs; the transcript in
 `docs/reports/perf.txt` is the authority), Bandit 0 at medium+, `pip-audit`
-clean, secret scan clean, 1055 passed + 2 skipped. Then the honest one:
+clean, secret scan clean, 1083 passed + 2 skipped. Then the honest one:
 
 ```bash
 sed -n '/## 4. Testing gaps/,/^## 5/p' docs/LIMITATIONS.md
@@ -148,9 +150,10 @@ sed -n '/## 4. Testing gaps/,/^## 5/p' docs/LIMITATIONS.md
 
 ## 4. What this script deliberately does **not** do
 
-- It does not show a real `shell` node executing: `shell` is record-only in the
-  worker (see `docs/LIMITATIONS.md` §1); the real execution path shown is the
-  sandboxed plugin/`custom` one.
+- It does not hide the sandbox's own limit: a `shell` command needs OS
+  isolation (`bwrap` + user namespaces) and fails closed without it
+  (`docs/LIMITATIONS.md` §1) — so the video's W1 segment is recorded on a host
+  where `bwrap` works, and the transcript names the isolation layer used.
 - It does not demo GUI automation: `gui_click`/`gui_type` are explicit
   non-production stubs.
 - It does not claim the SUS result, the recording, or anything else a human has

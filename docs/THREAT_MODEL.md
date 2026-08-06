@@ -154,7 +154,7 @@ flowchart LR
 | Plain HTTP in compose | local demo only | documented, TLS expected at the edge | terminate TLS before any shared deployment |
 | Redis without auth | the *development* stack keeps it open for a one-command demo | `compose.prod.yml` requires a password and publishes no broker port | use `compose.prod.yml` for anything shared |
 | In-process rate limiting | one API process | per-process buckets; a proxy limit is the multi-replica answer | add edge rate limiting when scaling out |
-| Sandbox depends on `bwrap` for `command` nodes | kernel/user-namespace availability | plugin path still guarded by the audit hook; `command` refused without namespaces | keep plugin nodes for untrusted work |
+| Sandbox depends on `bwrap` for `command` nodes | kernel/user-namespace availability (Docker's default seccomp profile blocks it) | plugin path still guarded by the audit hook; `command` refused without namespaces — the run reports `audit` and the step fails | keep plugin nodes for untrusted work, or opt into namespaces on a host you control (`docs/DEPLOYMENT.md` §4) |
 | SQLite single-writer | MVP scope; the API state is one file on a named volume (durable across rebuilds, verified in `docs/DEPLOYMENT.md` §2.2) | short transactions, low write concurrency, `scripts/backup.py` snapshots | migrate to PostgreSQL before horizontal scale |
 
 ## 6. How this model stays honest

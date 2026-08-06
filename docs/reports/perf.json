@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-10-18T14:17:43+0200",
+  "timestamp": "2026-10-18T14:47:03+0200",
   "environment": {
     "python": "3.14.8",
     "platform": "Linux-7.2.9-201.fc44.x86_64-x86_64-with-glibc2.43",
@@ -13,54 +13,63 @@
     "seeded_executions": 200,
     "audit_events": 50,
     "worker_events": 200,
+    "shell_runs": 10,
     "sandbox_runs": 20
   },
   "api": {
     "health": {
       "count": 300,
-      "p50_ms": 3.81,
-      "p95_ms": 6.19,
-      "p99_ms": 6.56,
-      "max_ms": 7.07,
-      "mean_ms": 3.91,
-      "requests_per_second": 1994.0
+      "p50_ms": 3.87,
+      "p95_ms": 5.97,
+      "p99_ms": 6.82,
+      "max_ms": 7.36,
+      "mean_ms": 3.93,
+      "requests_per_second": 1984.6
     },
     "executions": {
       "count": 300,
-      "p50_ms": 22.98,
-      "p95_ms": 34.5,
-      "p99_ms": 44.16,
-      "max_ms": 67.27,
-      "mean_ms": 24.11,
-      "requests_per_second": 326.3
+      "p50_ms": 21.43,
+      "p95_ms": 31.48,
+      "p99_ms": 58.58,
+      "max_ms": 73.54,
+      "mean_ms": 22.1,
+      "requests_per_second": 353.2
     },
     "audit_page": {
       "count": 300,
-      "p50_ms": 20.38,
-      "p95_ms": 31.23,
-      "p99_ms": 35.88,
-      "max_ms": 54.5,
-      "mean_ms": 21.11,
-      "requests_per_second": 371.5
+      "p50_ms": 19.46,
+      "p95_ms": 28.86,
+      "p99_ms": 57.79,
+      "max_ms": 65.61,
+      "mean_ms": 20.64,
+      "requests_per_second": 377.9
     }
   },
   "workers": {
     "shell_steps": {
       "count": 200,
-      "seconds": 0.002,
-      "events_per_second": 131643.6
+      "seconds": 0.001,
+      "events_per_second": 134956.2,
+      "measures": "gate + dispatch + verdict (no execution)"
+    },
+    "shell_commands": {
+      "count": 10,
+      "seconds": 0.13,
+      "runs_per_second": 77.1,
+      "mean_ms_per_run": 13.0,
+      "mode": "sandboxed (bwrap)"
     },
     "sandbox_runs": {
       "count": 20,
-      "seconds": 0.792,
-      "runs_per_second": 25.25,
-      "mean_ms_per_run": 39.6,
+      "seconds": 0.779,
+      "runs_per_second": 25.66,
+      "mean_ms_per_run": 39.0,
       "isolation": "bwrap"
     }
   },
   "nfr": {
     "p95_target_ms": 300.0,
-    "worst_p95_ms": 34.5,
+    "worst_p95_ms": 31.48,
     "meets_target": true
   }
 }
