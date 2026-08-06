@@ -153,7 +153,7 @@ def create_workflow(
     can never leave a partially-registered workflow behind.
     """
     from .db import init_db
-    from .models import WorkflowStore
+    from .models import ImmutableVersionError, WorkflowStore
 
     try:
         workflow = load_text(body.dsl, body.dsl_type)
@@ -174,9 +174,12 @@ def create_workflow(
             {"valid": False, "name": workflow.name, "version": workflow.version, "errors": errors},
             valid=False,
         )
-    row = WorkflowStore(init_db(settings.sqlite_path)).publish(
-        workflow, body.dsl, created_by=user.username
-    )
+    try:
+        row = WorkflowStore(init_db(settings.sqlite_path)).publish(
+            workflow, body.dsl, created_by=user.username
+        )
+    except ImmutableVersionError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
     return _response(
         {
             "valid": True,

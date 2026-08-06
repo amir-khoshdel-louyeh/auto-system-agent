@@ -161,6 +161,13 @@ class CreateWorkflowTests(ExecutionApiBase):
         self.assertEqual(response.status_code, 422, response.text)
         self.assertEqual(response.json()["errors"][0]["stage"], "yaml")
 
+    def test_republishing_changed_text_under_the_same_version_is_409(self):
+        self.create()
+        edited = DSL.replace("echo hello", "echo goodbye")
+        response = self.client.post("/workflows", json={"dsl": edited}, headers=self.headers)
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn("immutable", response.json()["detail"])
+
     def test_editing_needs_workflow_edit(self):
         anonymous = self.client.post("/workflows", json={"dsl": DSL})
         self.assertEqual(anonymous.status_code, 401)
