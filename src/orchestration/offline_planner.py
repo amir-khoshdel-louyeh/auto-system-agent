@@ -100,6 +100,7 @@ class PlannerConfig:
     #: Platform-neutral install command; the runtime selector rewrites the
     #: manager for the host (plan.tmp: ToolSelector owns manager choice).
     install_template: str = "sudo apt install -y {app}"
+    uninstall_template: str = "sudo apt remove -y {app}"
 
 
 def _slug(value: str, fallback: str = "node") -> str:
@@ -212,6 +213,21 @@ def build_steps(
                 id=_unique(f"install-{_slug(app)}", {approval_id}),
                 type="shell",
                 params={"run": config.install_template.format(app=_quote(app))},
+                depends_on=(approval_id,),
+            ),
+        )
+
+    if intent == "uninstall_app":
+        app = str(slots.get("app", ""))
+        if not app:
+            return ()
+        approval_id = _unique("approve-uninstall", set())
+        return (
+            PlanStep(id=approval_id, type="approval", params={"quorum": 1}),
+            PlanStep(
+                id=_unique(f"uninstall-{_slug(app)}", {approval_id}),
+                type="shell",
+                params={"run": config.uninstall_template.format(app=_quote(app))},
                 depends_on=(approval_id,),
             ),
         )

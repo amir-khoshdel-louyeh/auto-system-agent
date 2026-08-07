@@ -61,6 +61,12 @@ RULES: tuple[Rule, ...] = (
         0.88,
     ),
     _rule(
+        "uninstall",
+        "uninstall_app",
+        r"\b(uninstall(?:ed|ing)?|uninstalled|remove[sd]?|removed|delete[sd]?|get rid of)\b",
+        0.90,
+    ),
+    _rule(
         "install",
         "install_app",
         r"\b(install(?:ed|ing)?|get me)\b|\bi (?:need|want|would like)\b.*\binstalled\b",

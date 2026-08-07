@@ -140,13 +140,32 @@ def _file_content(text: str, path: str) -> str:
 
 def _app_name(text: str) -> str:
     for pattern in (
-        r"install(?:ed)?\s+(?:the\s+)?(?:app(?:lication)?\s+)?([a-z0-9][\w.+-]*)",
-        r"get me\s+(?:the\s+)?(?:app\s+)?([a-z0-9][\w.+-]*)",
-        r"i\s+(?:need|want|would like)\s+(?:the\s+)?(?:app\s+)?([a-z0-9][\w.+-]*)",
+        r"(?:install|uninstall|remove|get rid of|delete)(?:ed|ing)?\s+(?:the\s+)?(?:app(?:lication)?\s+)?([A-Za-z0-9][\w.+-]*)",
+        r"(?:i\s+(?:need|want|would like)\s+)(?:the\s+)?(?:app\s+)?([A-Za-z0-9][\w.+-]*)\s+(?:uninstalled|removed|deleted)",
+        r"get me\s+(?:the\s+)?(?:app\s+)?([A-Za-z0-9][\w.+-]*)",
+        r"i\s+(?:need|want|would like)\s+(?:the\s+)?(?:app\s+)?([A-Za-z0-9][\w.+-]*)",
     ):
-        for match in re.finditer(pattern, text):
+        for match in re.finditer(pattern, text, re.IGNORECASE):
             candidate = match.group(1)
-            if candidate not in {"installed", "install", "please", "the", "app"}:
+            if candidate.lower() not in {
+                "installed",
+                "install",
+                "uninstalled",
+                "uninstall",
+                "removed",
+                "remove",
+                "deleted",
+                "delete",
+                "rid",
+                "please",
+                "the",
+                "app",
+                "application",
+                "from",
+                "my",
+                "pc",
+                "machine",
+            }:
                 return candidate
     return ""
 
@@ -207,7 +226,7 @@ def extract_slots(intent: str, text: str) -> dict[str, Any]:
         found["folder_names"] = _folder_names(prepared)
     elif intent == "write_file":
         found.update(_write_file(prepared))
-    elif intent == "install_app":
+    elif intent in ("install_app", "uninstall_app"):
         found["app"] = _app_name(normalized)
     elif intent == "run_command":
         found["command"] = _command(prepared)

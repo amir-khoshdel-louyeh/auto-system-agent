@@ -30,6 +30,7 @@ class VocabularyTests(unittest.TestCase):
                 "write_file",
                 "create_workspace",
                 "install_app",
+                "uninstall_app",
                 "run_command",
                 "system_info",
                 "list_directory",
@@ -64,9 +65,9 @@ class VocabularyTests(unittest.TestCase):
         self.assertEqual(spec_for("teleport").name, "unknown")
         self.assertEqual(spec_for("install_app").node_type, "shell")
 
-    def test_install_is_the_only_intent_requiring_approval(self):
+    def test_install_and_uninstall_require_approval(self):
         gated = {name for name, spec in INTENT_SPECS.items() if spec.requires_approval}
-        self.assertEqual(gated, {"install_app"})
+        self.assertEqual(gated, {"install_app", "uninstall_app"})
 
 
 class MissingSlotTests(unittest.TestCase):

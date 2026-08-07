@@ -23,6 +23,7 @@ INTENTS: tuple[str, ...] = (
     "write_file",
     "create_workspace",
     "install_app",
+    "uninstall_app",
     "run_command",
     "system_info",
     "list_directory",
@@ -36,6 +37,7 @@ EXECUTABLE_INTENTS: tuple[str, ...] = (
     "write_file",
     "create_workspace",
     "install_app",
+    "uninstall_app",
     "run_command",
     "system_info",
     "list_directory",
@@ -123,6 +125,17 @@ INTENT_SPECS: dict[str, IntentSpec] = {
         required_slots=("app",),
         requires_approval=True,
         examples=("install firefox", "please install vlc", "I need htop installed"),
+    ),
+    "uninstall_app": IntentSpec(
+        name="uninstall_app",
+        description="Remove an application through the platform package manager.",
+        required_slots=("app",),
+        requires_approval=True,
+        examples=(
+            "uninstall firefox",
+            "remove vlc from my pc",
+            "I need errands uninstalled",
+        ),
     ),
     "run_command": IntentSpec(
         name="run_command",

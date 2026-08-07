@@ -48,6 +48,19 @@
 {"text": "I would like to install docker", "intent": "install_app", "slots": {"app": "docker"}, "split": "test"}
 {"text": "install tmux for me", "intent": "install_app", "slots": {"app": "tmux"}, "split": "test"}
 
+{"text": "uninstall firefox", "intent": "uninstall_app", "slots": {"app": "firefox"}}
+{"text": "remove vlc from my pc", "intent": "uninstall_app", "slots": {"app": "vlc"}}
+{"text": "I need errands uninstalled", "intent": "uninstall_app", "slots": {"app": "errands"}}
+{"text": "uninstall the app thunderbird", "intent": "uninstall_app", "slots": {"app": "thunderbird"}}
+{"text": "can you remove gimp", "intent": "uninstall_app", "slots": {"app": "gimp"}}
+{"text": "delete neovim from my machine", "intent": "uninstall_app", "slots": {"app": "neovim"}}
+{"text": "get rid of ripgrep", "intent": "uninstall_app", "slots": {"app": "ripgrep"}}
+{"text": "uninstall git please", "intent": "uninstall_app", "slots": {"app": "git"}}
+{"text": "remove the application chromium", "intent": "uninstall_app", "slots": {"app": "chromium"}}
+{"text": "uninstall docker", "intent": "uninstall_app", "slots": {"app": "docker"}}
+{"text": "I would like to remove tmux", "intent": "uninstall_app", "slots": {"app": "tmux"}, "split": "test"}
+{"text": "uninstall vlc from this pc", "intent": "uninstall_app", "slots": {"app": "vlc"}, "split": "test"}
+
 {"text": "run ls -la", "intent": "run_command", "slots": {"command": "ls -la"}}
 {"text": "execute: df -h", "intent": "run_command", "slots": {"command": "df -h"}}
 {"text": "please run git status", "intent": "run_command", "slots": {"command": "git status"}}
