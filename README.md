@@ -2,7 +2,7 @@
 
 A governed, event-driven platform for safe operating-system automation: natural-language or YAML requests become validated, policy-checked, approved, auditable execution plans.
 
-![Team Automation Hub workbench](docs/reports/workbench.png)
+![Team Automation Hub workbench](assets/readme/workbench.png)
 
 `Python 3.10+` · `FastAPI` · `Redis Streams` · `SQLite` · Software engineering capstone · Release candidate
 
@@ -26,7 +26,7 @@ The result is a system where the model can be wrong without making the platform 
 
 ## Screenshot
 
-![Workbench memory view](docs/reports/workbench-memory.png)
+![Workbench memory view](assets/readme/workbench-memory.png)
 
 The workbench shows execution counts, success rate, p95 latency and pending approvals at a glance, with drill-down into runs, the audit chain and memory reuse. The capture above switches to the memory/consent view; the overview is at the top of this README.
 
@@ -52,6 +52,10 @@ Step state persisted before ack ──► hash-chain audit ──► replay
         ▼
 SQLite (runs, versions, approvals, memory, audit)
 ```
+
+![Governed execution path](assets/readme/approval-flow.png)
+
+The same path applies to natural-language and YAML requests: schema/DAG validation and deterministic policy gate execution, approval is mandatory when risk requires it, and every step is recorded in the audit chain.
 
 **Design boundaries**
 
@@ -117,6 +121,7 @@ src/
   app/          # FastAPI routes, auth, metrics export
   memory/       # consent, scrubbing, reputation, reuse
 docs/           # architecture, ADRs, threat model, reports, demo script
+assets/readme/  # README screenshots and diagrams
 tests/          # unit, integration, acceptance, chaos
 ```
 
