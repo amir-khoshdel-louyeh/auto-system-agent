@@ -26,9 +26,9 @@ The result is a system where the model can be wrong without making the platform 
 
 ## Screenshot
 
-![Workbench overview](docs/reports/workbench.png)
+![Workbench memory view](docs/reports/workbench-memory.png)
 
-The workbench shows execution counts, success rate, p95 latency and pending approvals at a glance, with drill-down into runs, the audit chain and memory reuse. A second capture, [`docs/reports/workbench-memory.png`](docs/reports/workbench-memory.png), shows the memory/consent view.
+The workbench shows execution counts, success rate, p95 latency and pending approvals at a glance, with drill-down into runs, the audit chain and memory reuse. The capture above switches to the memory/consent view; the overview is at the top of this README.
 
 ## Architecture
 
