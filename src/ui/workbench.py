@@ -790,14 +790,34 @@ class WorkbenchWindow:
             self.busy_bar.pack_forget()
 
     def _on_destroy(self, event: Any) -> None:
-        """Cancel the pending poll so teardown does not log a dead callback."""
-        if event.widget is not self.root or not self._poll_job:
+        """Cancel the pending poll and finalise Tk variables on this thread."""
+        if event.widget is not self.root:
             return
-        try:
-            self.root.after_cancel(self._poll_job)
-        except self.tk.TclError:  # pragma: no cover - root already gone
-            pass
-        self._poll_job = ""
+        if self._poll_job:
+            try:
+                self.root.after_cancel(self._poll_job)
+            except self.tk.TclError:  # pragma: no cover - root already gone
+                pass
+            self._poll_job = ""
+        self._release_tk_variables()
+
+    def _release_tk_variables(self) -> None:
+        """Drop this window's Tk variables on the thread that owns Tcl.
+
+        ``tk.Variable.__del__`` talks to the Tcl interpreter. When a closed
+        window's variable is collected on the API server thread while the GUI
+        thread is blocked waiting for a response, both threads wait on the same
+        interpreter lock: the request times out and every later call stalls
+        behind it. Releasing the references here keeps that finalisation on the
+        Tk thread.
+        """
+        import gc
+
+        for name, value in list(vars(self).items()):
+            if isinstance(value, self.tk.Variable):
+                setattr(self, name, None)
+        self.card_vars.clear()
+        gc.collect()
 
     def _on_tk_error(self, exc_type: Any, exc: Any, tb: Any) -> None:
         """Last-resort handler: report an unexpected Tk callback failure."""
